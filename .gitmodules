@@ -1,0 +1,3 @@
+[submodule "moplayground"]
+	path = moplayground
+	url = https://github.com/dynamicmobility/moplayground.git
