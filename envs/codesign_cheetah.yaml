@@ -2,8 +2,7 @@ name: test
 save_dir: results/MOCheetah-all3
 description: ""
 algorithm: "ppo"
-env: "MOCheetah"
-robot: "DMHopper"
+env: "CodesignCheetah"
 backend: np # jnp or np. Always uses jnp for training
 mo2so:
   enabled: false
@@ -18,6 +17,11 @@ env_config:
   min_base_height: 0.3
   add_random_joint_state: False
   add_random_pitch: False
+  codesign:
+    enabled: false
+    strategy: random # random or predictor
+    num_design_params: 4
+    design_ranges: [[0.5, 1.5], [0.5, 1.5], [0.5, 1.5], [0.5, 1.5]]
   reward:
     weights: 
       run:        1.0
