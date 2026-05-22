@@ -1,0 +1,10 @@
+numpy
+jax
+playground==0.0.5
+pandas
+h5py
+wandb
+opencv-python
+
+[test]
+pytest

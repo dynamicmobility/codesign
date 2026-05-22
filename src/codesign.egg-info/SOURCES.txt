@@ -1,0 +1,8 @@
+pyproject.toml
+src/codesign.egg-info/PKG-INFO
+src/codesign.egg-info/SOURCES.txt
+src/codesign.egg-info/dependency_links.txt
+src/codesign.egg-info/requires.txt
+src/codesign.egg-info/top_level.txt
+src/codesign/envs/CodesignCheetah.py
+src/codesign/envs/CodesignInterface.py

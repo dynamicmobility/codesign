@@ -18,7 +18,7 @@ env_config:
   add_random_joint_state: False
   add_random_pitch: False
   codesign:
-    enabled: false
+    enabled: true
     strategy: random # random or predictor
     num_design_params: 4
     design_ranges: [[0.5, 1.5], [0.5, 1.5], [0.5, 1.5], [0.5, 1.5]]

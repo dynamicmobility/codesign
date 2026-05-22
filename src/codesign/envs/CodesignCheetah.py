@@ -7,18 +7,19 @@ from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
-from src.codesign.envs import CodesignInterface
+from codesign.envs import CodesignInterface
 from moplayground.envs.dmcontrol.interface import CheetahInterface
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
 import jax.numpy as jnp
 from pathlib import Path
 
+INTERFACE_PATH = Path(__file__).resolve().parent
 class CodesignCheetah(MOCheetah, CodesignInterface.CodesignInterface):
     # Implements a swappable leg length for MOCheetah
     # CodesignInterface forces modify_design and resample_design to be implemented
 
     def __init__(self, env_params, backend):
-        super().__init__(env_params, backend)
+        super().__init__(env_params, backend, xml_path=INTERFACE_PATH / "cheetah.xml")
 
     def generate_model(self, d):
         shin_pos = jnp.array([0.2, 0, -0.26])
@@ -37,6 +38,9 @@ class CodesignCheetah(MOCheetah, CodesignInterface.CodesignInterface):
     def resample_design(self, rng):
         length = self._uniform(rng, shape=(1,), minval=0.5, maxval=2)
         return length
+    
+    def set_mj_model(self, model):
+        self._mj_model = model
 
     # Randomizes leg length upon reset
     def reset(self, rng: jax.Array) -> mjx_env.State:
@@ -54,7 +58,7 @@ class CodesignCheetah(MOCheetah, CodesignInterface.CodesignInterface):
             d = 1
 
         new_model = self.generate_model(d)
-        parent_state = super().reset()
+        parent_state = super().reset(rng)
         info = {}
         info['design'] = d
         info['model'] = new_model
@@ -63,4 +67,27 @@ class CodesignCheetah(MOCheetah, CodesignInterface.CodesignInterface):
         return parent_state
 
     def step(self, state, action):
-        super().step(state, action)
+        state.info['xposbefore'] = state.data.qpos[0]
+        action = self._np.clip(
+            self.params.action_scale * action, 
+            -1.0,
+            1.0
+        )
+        data = self._step_fn(state.data, action, model=state.info['model'])
+        state.info['xposafter'] = data.qpos[0]
+        state.info['ang']       = data.qpos[2]
+        
+        done = self.fall_termination(state.info)
+        rewards = self.reward_function(
+            data   = data,
+            action = action,
+            info   = state.info,
+            done   = done
+        )
+        reward, metrics = self.get_reward_and_metrics(rewards, state.metrics)
+        obs = self._get_obs(
+            data,
+            state.info
+        )
+        done = done.astype(float)
+        return self._state_init_fn(data, obs, reward, done, metrics, state.info)
