@@ -30,6 +30,10 @@ class CodesignCheetah(MOCheetah):
             assets=common.get_assets()
         )
 
+    # TODO: Override this with omsething that implements cost of transport    
+    def reward_energy(self, action):
+        return 4.0 - 1.0 * self._np.square(action).sum()
+
 def generate_model(env_params, backend, d):
     shin_pos = jnp.array([0.2, 0, -0.26])
     new_shin_pos = shin_pos*d

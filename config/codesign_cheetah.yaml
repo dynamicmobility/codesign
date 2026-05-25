@@ -20,8 +20,6 @@ env_config:
   codesign:
     enabled: true
     strategy: random # random or predictor
-    num_design_params: 4
-    design_ranges: [[0.5, 1.5], [0.5, 1.5], [0.5, 1.5], [0.5, 1.5]]
   reward:
     weights: 
       run:        1.0
@@ -35,9 +33,9 @@ env_config:
       energy:     0.1
       imitation:  0.03
     optimization:
-      objectives:        [['run'], ['height']]
+      objectives:        [['run'], ['energy']]
       shared_objectives: ['alive']
-      labels:            ['Running Speed', 'Jump Height']
+      labels:            ['Running Speed', 'Efficiency']
   termination:
     enabled: true        # Enable or disable early termination
     base_height: 0.2
