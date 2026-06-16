@@ -33,9 +33,9 @@ env_config:
       energy:     0.1
       imitation:  0.03
     optimization:
-      objectives:        [['run'], ['energy']]
+      objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
-      labels:            ['Running Speed', 'Efficiency']
+      labels:            ['Running Speed', 'Efficiency', 'Height']
   termination:
     enabled: true        # Enable or disable early termination
     base_height: 0.2
