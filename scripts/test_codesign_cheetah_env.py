@@ -45,12 +45,12 @@ for d, env in zip(ds, envs):
             project = 'codesign-cheetah'
         )
         make_inference_fn, params, _ = mop.learning.train_policy(train_config, env, env, run)
-        inference_fn = make_inference_fn(
-                params        = params,
-                deterministic = True,
-                directive     = tradeoff,
-                single_policy = True
-            )
+    inference_fn = make_inference_fn(
+            params        = params,
+            deterministic = True,
+            directive     = tradeoff,
+            single_policy = True
+        )
     frames, reward_plotter, _, _ = mm.eval.rollout_policy(
             inference_fn    = jax.jit(inference_fn),
             env             = env,
