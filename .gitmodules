@@ -1,8 +1,6 @@
 [submodule "moplayground"]
 	path = submodules/moplayground
-	url = https://github.com/dynamicmobility/moplayground.git
+	url = https://github.com/varunm99/moplayground.git
 [submodule "submodules/minimal-mjx"]
 	path = submodules/minimal-mjx
 	url = https://github.com/dynamicmobility/minimal-mjx.git
-[submodule "submodules/moplayground/"]
-	url = https://github.com/varunm99/moplayground.git
