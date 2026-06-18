@@ -21,7 +21,7 @@ class CodesignCheetah(MOCheetah):
     def __init__(self, env_params, backend, new_model):
         super().__init__(env_params, backend, xml_path=INTERFACE_PATH / "cheetah.xml")
         self._mj_model = new_model
-        self.setup_swappable_backend(self._backend) # Once model is updated, data_init_fn also needs to be updated
+        self.setup_swappable_backend(backend) # Once model is updated, data_init_fn also needs to be updated
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
