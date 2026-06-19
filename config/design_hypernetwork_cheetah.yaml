@@ -1,0 +1,83 @@
+# Training config for the `design_hypernetwork` algorithm on MAICheetah.
+#
+# A hypernetwork maps the robot design (back-leg length scale d in [design_low, design_high])
+# to a policy MLP's weights; a separate hypernetwork maps it to the value MLP's weights.
+# Both are trained on a single (scalarized) reward with brax's clipped PPO loss.
+#
+# Consumed by scripts/train_design_hypernetwork.py via
+# codesign.hyperdesigners.setup_design_hypernetwork (the handle_params function).
+name: test
+save_dir: results/design-hypernetwork-cheetah
+description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
+algorithm: "design_hypernetwork"
+env: "MAICheetah"
+backend: jnp # always jnp for training
+
+env_config:
+  ctrl_dt: 0.01
+  sim_dt: 0.01
+  action_scale: 1.0
+  history_length: 5
+  ideal_base_height: 0.5
+  ideal_base_vel: 0.5
+  min_base_height: 0.3
+  add_random_joint_state: False
+  add_random_pitch: False
+  codesign:
+    enabled: true
+    strategy: random
+  reward:
+    weights:
+      run:        1.0
+      height:     10.0
+      energy:     1.0
+      alive:      1.0
+      done:       0
+    sigmas:
+      height:     0.01
+      speed:      0.01
+      energy:     0.1
+      imitation:  0.03
+    optimization:
+      objectives:        [['run'], ['energy'], ['height']]
+      shared_objectives: ['alive']
+      labels:            ['Running Speed', 'Efficiency', 'Height']
+  termination:
+    enabled: true
+    base_height: 0.2
+
+learning_params:
+  # Optional: per-objective weights used to scalarize MAICheetah's multi-objective
+  # reward vector into the single reward this algorithm optimizes. Defaults to all-ones
+  # (i.e. plain sum over objectives) when omitted.
+  reward_objective_weights: [1.0, 1.0, 1.0]
+  ppo_params:
+    num_timesteps: 50000000
+    episode_length: 500
+    num_envs: 128
+    unroll_length: 20
+    batch_size: 64
+    num_minibatches: 2
+    num_updates_per_batch: 4
+    learning_rate: 0.0005
+    entropy_cost: 0.01
+    discounting: 0.98
+    reward_scaling: 1.0
+    clipping_epsilon: 0.1
+    gae_lambda: 0.95
+    max_grad_norm: 1.0
+    normalize_advantage: true
+    normalize_observations: true
+    num_evals: 15
+    num_eval_envs: 64
+    deterministic_eval: true
+    seed: 0
+  network_params:
+    hypersize: [128, 128]            # hidden sizes of the design->features MLP
+    num_features: 16                 # affine hypernet feature dimension
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
+  design_params:
+    design_low: 0.5
+    design_high: 2.0
+    design_dim: 1
