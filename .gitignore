@@ -226,3 +226,5 @@ __marimo__/
 results/
 
 *.png
+
+scripts/outputs

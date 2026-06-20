@@ -1,12 +1,15 @@
-"""Multi-objective JAX/MuJoCo environments.
+"""Evaluation utilities: single-env video rollouts and batched parallel rollouts.
 
-Provides the registered MO-Playground environments (``MOCheetah``,
-``MOHopper``, ``MOAnt``, ``MOWalker``, ``MOHumanoid``, ``NaviGait``) and
-the base classes (``MultiObjectiveBase``, ``Multi2SingleObjective``)
-they share. Use ``create_environment(config)`` to construct one from a
-config file.
+``rollout_policy`` drives one env (video/plots). ``rollout_parallel`` scans a batched
+policy over a stacked, per-env ``mjx.Model`` (one model-as-input variant per env);
+``rollout_design_hypernetwork`` wraps it for a trained design-conditioned policy. Batched
+open-loop / adapted policies live in :mod:`codesign.eval.policies`.
 """
 from . import rollout
 from .rollout import rollout_policy
+from . import policies
+from .policies import make_open_loop_policy, from_inference_fn
 from . import parallel_eval
-from .parallel_eval import rollout_design_hypernetwork
+from .parallel_eval import rollout_parallel, rollout_design_hypernetwork
+from . import single_eval
+from .single_eval import rollout_single, rollout_design_hypernetwork_video
