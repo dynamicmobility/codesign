@@ -1,11 +1,8 @@
-"""``design_hypernetwork`` training loop.
+"""``design_hypernetwork`` training algo.
 
-A single-objective, single-device PPO loop that trains a *design-conditioned*
-hypernetwork (policy + separate value hypernetwork) on a model-as-input environment
-(``MAICheetah``). Structurally a stripped fork of ``moplayground.moppo.morlax.train``:
-the multi-objective machinery (preference sampling, directive scalarization,
-per-objective value, pmap) is removed; designs are sampled host-side and the
-corresponding stacked ``mjx.Model`` is rebuilt at every eval boundary.
+A single-objective PPO algo that trains a *design-conditioned* hypernetwork 
+(policy + separate value hypernetwork) on a model-as-input (MAI) environment. 
+Designs are sampled and stacked every training epoch.
 
 v1 simplifications (documented intentionally):
   * single device (``jax.jit``, no ``pmap``);

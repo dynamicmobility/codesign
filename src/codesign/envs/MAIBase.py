@@ -107,6 +107,44 @@ class MAIBase(SwappableBase):
     @classmethod
     def default_spec(cls, xml_path: Path) -> mj.MjSpec:
         return mj.MjSpec.from_file(
-            filename=xml_path.as_posix(), 
+            filename=xml_path.as_posix(),
             assets=common.get_assets()
         )
+
+
+class MAIMO2SO:
+    """Wrap a model-as-input multi-objective env to expose a scalar reward.
+
+    The model-as-input analogue of
+    ``moplayground.envs.generic.mobase.Multi2SingleObjective``: it replaces the wrapped
+    env's vector reward with the inner product ``reward · weighting`` so a multi-objective
+    env can be driven by single-objective machinery (PPO, plain rollouts). Unlike that
+    class, the wrapped env's ``reset``/``step`` take the compiled ``mjx.Model`` as an
+    explicit argument (``reset(rng, model)`` / ``step(state, action, model)``), so this
+    wrapper forwards it through. All other attributes/methods are delegated to the
+    underlying ``env`` via ``__getattr__``.
+
+    Args:
+        env: A model-as-input env (e.g. ``MAICheetah``) whose ``reset``/``step`` return
+            states with vector rewards.
+        weighting: Per-objective weights; length must match the env's reward dimension.
+    """
+
+    def __init__(self, env, weighting):
+        self.env = env
+        self.weighting = env._np.asarray(weighting)
+
+    def _scalarize(self, state):
+        return state.replace(
+            reward=self.env._np.sum(state.reward * self.weighting)
+        )
+
+    def reset(self, rng: jax.Array, model) -> Any:
+        return self._scalarize(self.env.reset(rng, model))
+
+    def step(self, state, action: jax.Array, model) -> Any:
+        return self._scalarize(self.env.step(state, action, model))
+
+    def __getattr__(self, name):
+        """Delegate any attribute not defined on the wrapper to the wrapped env."""
+        return getattr(self.env, name)

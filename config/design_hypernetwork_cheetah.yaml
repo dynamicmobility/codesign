@@ -1,11 +1,8 @@
 # Training config for the `design_hypernetwork` algorithm on MAICheetah.
 #
-# A hypernetwork maps the robot design (back-leg length scale d in [design_low, design_high])
-# to a policy MLP's weights; a separate hypernetwork maps it to the value MLP's weights.
-# Both are trained on a single (scalarized) reward with brax's clipped PPO loss.
+# H_\pi(d) = \pi(a | s)
 #
-# Consumed by scripts/train_design_hypernetwork.py via
-# codesign.hyperdesigners.setup_design_hypernetwork (the handle_params function).
+# This is a 'single objective model', so reward scalarization is required.
 name: test
 save_dir: results/design-hypernetwork-cheetah
 description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
@@ -25,7 +22,7 @@ env_config:
   add_random_pitch: False
   codesign:
     enabled: true
-    strategy: random
+    strategy: random # design sampling strategy per training epoch
   reward:
     weights:
       run:        1.0
@@ -47,9 +44,6 @@ env_config:
     base_height: 0.2
 
 learning_params:
-  # Optional: per-objective weights used to scalarize MAICheetah's multi-objective
-  # reward vector into the single reward this algorithm optimizes. Defaults to all-ones
-  # (i.e. plain sum over objectives) when omitted.
   reward_objective_weights: [1.0, 1.0, 1.0]
   ppo_params:
     num_timesteps: 50000000
@@ -73,8 +67,8 @@ learning_params:
     deterministic_eval: true
     seed: 0
   network_params:
-    hypersize: [128, 128]            # hidden sizes of the design->features MLP
-    num_features: 16                 # affine hypernet feature dimension
+    hypersize: [128, 128]
+    num_features: 16
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_params:

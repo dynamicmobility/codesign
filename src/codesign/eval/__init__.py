@@ -8,3 +8,5 @@ config file.
 """
 from . import rollout
 from .rollout import rollout_policy
+from . import parallel_eval
+from .parallel_eval import rollout_design_hypernetwork
