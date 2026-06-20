@@ -1,18 +1,5 @@
-"""Acting utilities for ``design_hypernetwork`` (model-as-input).
-
-``MAICheetah`` takes the compiled ``mjx.Model`` as an explicit argument to
-``reset(rng, model)`` / ``step(state, action, model)``, so it does not fit brax's
-standard wrapper/acting stack (which calls ``env.step(state, action)``). These helpers
-thread a per-env *stacked* model through ``jax.vmap(env.step, in_axes=(0, 0, 0))`` and
-reimplement brax's ``EpisodeWrapper`` + ``AutoResetWrapper`` semantics:
-
-* ``truncation`` is raised when the episode-length horizon is reached without the env
-  terminating; ``termination`` is the env's own ``done`` (e.g. a fall);
-* the transition ``discount`` is ``1 - termination`` (so GAE bootstraps on truncation);
-* on ``termination | horizon`` the env auto-resets to a per-slot ``first_state`` (same
-  design), recorded *after* the transition's terminal observation is captured.
-
-Adapted from ``moplayground.moppo.acting``.
+"""Acting utilities for ``design_hypernetwork`` (model-as-input). Adapted from 
+``moplayground.moppo.acting``.
 """
 
 from typing import Any, NamedTuple, Sequence, Tuple
@@ -24,7 +11,8 @@ from brax.training.types import PRNGKey
 
 
 class DesignTransition(NamedTuple):
-    """A transition carrying the per-env robot design alongside the usual fields."""
+    """A (single-objective) transition carrying the per-env robot design 
+    alongside the usual fields."""
 
     observation: NestedArray
     action: NestedArray

@@ -4,11 +4,8 @@ across the back leg. Creates two figures:
   1. reward vs. time, one translucent line per design (coloured by design value);
   2. a bar chart of cumulative reward per design.
 
-The parallel rollout itself lives in ``codesign.eval.rollout_design_hypernetwork``; this
-script only builds the env, calls it, and plots the result.
-
-Runs on GPU by default. Force CPU with:
-    JAX_PLATFORMS=cpu python scripts/rollout_design_hypernetwork.py
+The parallel rollout itself lives in ``codesign.eval.rollout_design_hypernetwork``; 
+this script only builds the env, calls it, and plots the result.
 """
 
 import argparse

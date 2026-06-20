@@ -1,11 +1,3 @@
-"""Single-objective clipped-PPO loss for the design hypernetwork.
-
-Adapted from ``moplayground.moppo.losses.compute_morlax_loss``: the hypernetwork is
-keyed on the robot *design* (constant over an unroll) instead of a preference directive,
-the reward is a single scalar (no directive scalarization), and we use brax's
-``compute_gae`` + clipped surrogate exactly as standard PPO.
-"""
-
 from typing import Any, Tuple
 
 import flax

@@ -14,8 +14,8 @@ from mujoco import mjx
 
 from codesign.envs.MAIBase import MAIMO2SO, MAIBase
 from codesign.hyperdesigners import acting
-from codesign.hyperdesigners import models as model_lib
 from codesign.learning.inference import load_design_hypernetwork
+from codesign.utils import model as model_lib
 from codesign.utils.model import uniform_design_sweep
 
 

@@ -24,8 +24,8 @@ from brax.training.acme import running_statistics, specs
 from mujoco import mjx
 
 from codesign.hyperdesigners import acting
-from codesign.hyperdesigners import models as model_lib
 from codesign.hyperdesigners import networks as net_lib
+from codesign.utils import model as model_lib
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_design_hypernet_loss,

@@ -1,12 +1,3 @@
-"""Parameter handler (``handle_params``) for the ``design_hypernetwork`` algorithm.
-
-Mirrors the shape of minimal-mjx's ``setup_ppo`` (``config -> (train_fn,
-network_factory)``) so it can be used as a drop-in ``handle_params``. It is deliberately
-**not** registered in minimal-mjx's ``_ALGO_HANDLERS``: this is a different algorithm
-(design-conditioned hypernetwork) than the brax-PPO that minimal-mjx is based on, so it
-is wired explicitly by the training script instead.
-"""
-
 import functools
 
 from codesign.hyperdesigners.design_hypernetwork import train_design_hypernetwork

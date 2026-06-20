@@ -1,15 +1,3 @@
-"""Design-conditioned hypernetwork factory for ``design_hypernetwork``.
-
-A hypernetwork maps a robot *design* ``d`` to the weights of a policy MLP, and a
-*separate* hypernetwork maps ``d`` to the weights of a value MLP. We reuse
-moplayground's affine formulation via ``DualA2CHypernet`` (separate feature MLP +
-separate affine ``W/b`` per head) — but, unlike the multi-objective MORLAX setting, the
-input here is a design rather than a preference simplex, so we do **not** normalize it.
-
-Adapted from ``moplayground.moppo.factory`` (``make_morlax_networks``,
-``make_hypernetwork``, ``make_hypernetwork_inference_fn``).
-"""
-
 import dataclasses
 from typing import Any, Callable, Literal, Sequence, Tuple
 
