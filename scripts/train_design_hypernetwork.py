@@ -15,7 +15,7 @@ from codesign.hyperdesigners import setup_design_hypernetwork
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
-def main(config_path: str, smoke: bool, run=None):
+def main(config_path: str, run=None):
     # (1) Load the config
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
 
@@ -38,4 +38,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=str, default=CONFIG_PATH)
     args = parser.parse_args()
-    main(args.config, args.smoke)
+    main(args.config)
