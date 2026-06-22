@@ -16,13 +16,16 @@ from mujoco_playground._src.mjx_env import render_array
 from minimal_mjx.utils import plotting
 from tqdm import tqdm
 
+from codesign.envs import MAIBase
 from codesign.eval import policies as policy_lib
 from codesign.learning.inference import load_design_hypernetwork
 from codesign.utils.model import normalize_design
 
+from minimal_mjx.learning.inference import get_step_reset
+
 
 def rollout_single(
-    env,
+    env: MAIBase,
     design,
     policy,
     n_steps: int,
@@ -59,21 +62,24 @@ def rollout_single(
         the list of per-step env states.
     """
     d = float(np.asarray(design).reshape(-1)[0])
-    mj_model = env.generate_model(d)
-    mjx_model = mjx.put_model(mj_model)
-    width, height = plotting.infer_frame_dim(mj_model, width, height)
+    model = env.generate_model(d)
 
-    reset = jax.jit(env.reset)
-    step = jax.jit(env.step)
+    from codesign.utils.model import total_mass
+    print('The total model mass is', total_mass(model))
+    if env.backend == 'jnp':
+        model = mjx.put_model(model)
+    width, height = plotting.infer_frame_dim(model, width, height)
+
+    step, reset = get_step_reset(env)
 
     rng = jax.random.PRNGKey(seed)
-    state = reset(rng, mjx_model)
+    state = reset(rng, model)
     traj = [state]
     t = 0.0
     for _ in tqdm(range(n_steps), disable=not show_progress):
         rng, sub = jax.random.split(rng)
         action, _ = policy(state.obs, sub, t)
-        state = step(state, action, mjx_model)
+        state = step(state, action, model)
         traj.append(state)
         t += env.dt
         if bool(state.done):
@@ -84,7 +90,7 @@ def rollout_single(
         print("Generating video...")
         scene_option = plotting.get_mj_scene_option(contacts=False, com=False)
         frames = render_array(
-            mj_model, traj, height, width, camera, scene_option=scene_option
+            model, traj, height, width, camera, scene_option=scene_option
         )
     return frames, traj
 
