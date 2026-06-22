@@ -1,70 +1,66 @@
+import jax
+
+from codesign.envs.CodesignCheetah import CodesignCheetah
+from codesign.envs import CodesignCheetah
 import moplayground as mop
 import minimal_mjx as mm
 import mujoco
 import argparse
 import jax.numpy as jnp
+import numpy as np
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
 from pathlib import Path
 
-def change_rear_leg_length(cheetah_env:MOCheetah, length=1):
-    """Modify the length of the 'bthigh' body in the cheetah environment."""
 
-    # length_vec = mj_model.geom('bthigh').pos
-    shin_pos = jnp.array([0.2, 0, -0.26])
-    new_shin_pos = shin_pos*length
-    midpoint = new_shin_pos/2
-
-    # Construct a new cheetah env with new_shin_pos updated
-
-    
-
-    # return new_cheetah_env
-
-parser = argparse.ArgumentParser()
-parser.add_argument("length", type=str, default=0 ,help="Rear Leg Length")
-args = parser.parse_args()
-TRAIN_KWARGS = {}
-EVAL_KWARGS  = {}
-
-CONFIG_PATH = 'envs/codesign_cheetah.yaml'
+CONFIG_PATH = 'config/codesign_cheetah.yaml'
 train_config = mop.utils.read_config(CONFIG_PATH)
-eval_config  = mop.utils.read_config(CONFIG_PATH)
+env_params = mm.utils.config.create_config_dict(train_config['env_config'])
+ds = np.linspace(0.5, 2, 5)
+envs = [CodesignCheetah.generate_model(env_params, 'jnp', d) for d in ds]
+base_name = train_config['name']
+base_dir = train_config['save_dir'] 
+
+for d, env in zip(ds, envs):
+    d_name = str(d).replace('.', '')
+    train_config['name'] = base_name + f'-d{d_name}'
+    name = base_dir + '/' + base_name + f'-d{d_name}'
+    n_objs    = mop.learning.inference.get_num_objectives(train_config)
+    tradeoff  = np.random.dirichlet(alpha=np.ones(n_objs))
     
-print('Training', CONFIG_PATH)
-env, env_cfg = mop.envs.create_environment(train_config, for_training=False, **TRAIN_KWARGS)
-eval_env, _  = mop.envs.create_environment(eval_config, for_training=False, **EVAL_KWARGS)
-name = train_config['save_dir'] + '/' + train_config['name']
-# run = mm.utils.logging.initialize_wandb(
-#     name    = name.replace('/', ''),
-#     entity  = 'vmadabushi3-georgia-institute-of-technology',
-#     project = 'codesign'
-# )
-
-# Modify the rear leg length
-env = change_rear_leg_length(env, float(args.length))
-# eval_env = change_rear_leg_length(eval_env, float(args.length))
-
-# Dummy inference function:
-
-def do_nothing(obs, rng):
-    return jnp.zeros(env.action_size), 0.0
-
-frames, reward_plotter, _, _ = mm.eval.rollout_policy(
-        inference_fn    = do_nothing,
-        env             = env,
-        T               = 1,
-        width           = 640,
-        height          = 480,
-        camera          = 'track',
-        show_frames     = False
+    # Check if policy already exists
+    policy_path = Path(name)
+    if policy_path.exists():
+        # Load existing policy
+        print("Policy Exists")
+        inference_fn = mop.learning.inference.load_mo_policy(
+            config          = train_config,
+            tradeoff        = tradeoff,
+            deterministic   = True
+        )
+    else:
+        # Train new policy
+        run = mm.utils.logging.initialize_wandb(
+            name    = name.replace('/', ''),
+            entity  = 'vmadabushi3-georgia-institute-of-technology',
+            project = 'codesign-cheetah'
+        )
+        make_inference_fn, params, _ = mop.learning.train_policy(train_config, env, env, run)
+        inference_fn = make_inference_fn(
+                params        = params,
+                deterministic = True,
+                directive     = tradeoff,
+                single_policy = True
+            )
+    frames, reward_plotter, _, _ = mm.eval.rollout_policy(
+            inference_fn    = jax.jit(inference_fn),
+            env             = env,
+            T               = 2,
+            width           = 640,
+            height          = 480,
+            camera          = 'track',
+        )
+    mm.utils.plotting.save_video(
+        frames,
+        env.dt,
+        Path(f'output/videos/{train_config["env"]}-{d}-rollout.mp4')
     )
-
-mm.utils.plotting.save_video(
-    frames,
-    env.dt,
-    Path(f'output/videos/{train_config['env']}-rollout.mp4')
-)
-
-
-
-# mop.learning.train_policy(train_config, env, eval_env, run)

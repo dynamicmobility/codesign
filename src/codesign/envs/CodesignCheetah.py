@@ -30,9 +30,34 @@ class CodesignCheetah(MOCheetah):
             assets=common.get_assets()
         )
 
-    # TODO: Override this with omsething that implements cost of transport    
-    def reward_energy(self, action):
-        return 4.0 - 1.0 * self._np.square(action).sum()
+    def reward_function(
+        self,
+        data,
+        action,
+        info,
+        done
+    ):
+        rewards = {
+            'alive'  : self.reward_alive(),
+            'energy' : self.reward_power(data, info),
+            'height' : self.reward_height(data),
+            'run'    : self.reward_run(info),
+            'done'   : self.reward_done(done)
+        }
+        return rewards
+
+    def reward_cot(self, data, info):
+        m = 10.0 # mass of cheetah (this needs to be calculated from the spec)
+        v = (info['xposafter'] - info['xposbefore']) / self.dt
+        P = jnp.sum(data.qfrc_actuator[3:] * data.qvel[3:]) # power = force * velocity
+        cot = P/(m*9.8*self._np.abs(v) + 1.0e-8)
+        # make cot not inf when velocity is 0
+        # cot = self._np.where(v > 0, cot, 1.0e8)
+        return -cot
+
+    def reward_power(self, data, info):
+        P = jnp.sum(jnp.square(data.qfrc_actuator[3:])) # power = force * velocity
+        return jnp.exp(-P/self.params.reward.sigmas.energy)
 
 def generate_model(env_params, backend, d):
     shin_pos = jnp.array([0.2, 0, -0.26])
