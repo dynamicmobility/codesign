@@ -6,6 +6,7 @@ from codesign.utils.model import (
     build_batched_model,
     sample_designs,
     normalize_design,
+    total_mass,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "build_batched_model",
     "sample_designs",
     "normalize_design",
+    "total_mass",
 ]

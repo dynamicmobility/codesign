@@ -3,7 +3,6 @@
   <!-- <include file="common/visual.xml"/> -->
   <include file="materials.xml"/>
 
-  <compiler settotalmass="14"/>
 
   <default>
     <default class="cheetah">

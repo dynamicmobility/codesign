@@ -15,6 +15,17 @@ import jax.numpy as jnp
 import numpy as np
 from mujoco import mjx
 
+from codesign.envs.MAIBase import MAIBase
+
+
+def total_mass(model) -> float:
+    """Total mass of the model underlying a ``MAIBase`` env.
+
+    Sums ``body_mass`` over every body in the env's compiled ``mj_model`` (the
+    worldbody contributes 0), giving the model's total mass in kilograms.
+    """
+    return float(np.sum(model.body_mass))
+
 
 def uniform_design_sweep(config, num_envs: int) -> np.ndarray:
     """Uniform sweep of ``num_envs`` designs spanning the configured design range.

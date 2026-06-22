@@ -1,5 +1,6 @@
 """Model-as-input (MAI) Cheetah environment."""
 
+from abc import abstractmethod
 from typing import Any
 
 import jax
@@ -31,6 +32,11 @@ class MAIBase(SwappableBase):
             backend     = backend,
             num_free    = num_free
         )
+
+    @classmethod
+    @abstractmethod
+    def generate_model(cls, d):
+        pass
 
     def setup_swappable_backend(self, backend: str):
         """Sets up the backend for the environment."""
