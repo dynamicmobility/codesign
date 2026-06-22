@@ -112,6 +112,26 @@ class MAICheetah(MAIBase, MOCheetah):
         )
         done = done.astype(float)
         return self._state_init_fn(data, obs, reward, done, metrics, state.info)
+
+    def reward_function(
+        self,
+        data,
+        action,
+        info,
+        done
+    ):
+        rewards = {
+            'alive'  : self.reward_alive(),
+            'energy' : self.reward_power(data, info),
+            'height' : self.reward_height(data),
+            'run'    : self.reward_run(info),
+            'done'   : self.reward_done(done)
+        }
+        return rewards
+
+    def reward_power(self, data, info):
+        P = jnp.sum(jnp.square(data.qfrc_actuator[3:])) # power = force * velocity
+        return jnp.exp(-P/self.params.reward.sigmas.energy)
     
     @property
     def action_size(self):
