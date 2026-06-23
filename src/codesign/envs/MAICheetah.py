@@ -131,7 +131,16 @@ class MAICheetah(MAIBase, MOCheetah):
 
     def reward_power(self, data, info):
         P = jnp.sum(jnp.square(data.qfrc_actuator[3:])) # power = force * velocity
-        return jnp.exp(-P/self.params.reward.sigmas.energy)
+        return -P
+    
+    def fall_termination(
+        self,  
+        info: dict
+    ):
+        return self._np.array(
+            ~(abs(info['ang']) < self._np.deg2rad(80))
+        )
+
     
     @property
     def action_size(self):

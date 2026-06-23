@@ -3,7 +3,7 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: test
+name: new-power-reward-efficiency-weight
 save_dir: results/design-hypernetwork-cheetah
 description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
 algorithm: "design_hypernetwork"
@@ -44,7 +44,7 @@ env_config:
     base_height: 0.2
 
 learning_params:
-  reward_objective_weights: [1.0, 1.0, 1.0]
+  reward_objective_weights: [0.2, 0.6, 0.2]
   ppo_params:
     num_timesteps: 50000000
     episode_length: 500

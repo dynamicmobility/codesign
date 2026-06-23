@@ -11,7 +11,7 @@ from codesign.eval import rollout_design_hypernetwork_video
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
-D = 1.0          # back-leg length scale to render
+D = 2.0          # back-leg length scale to render
 T = 500          # rollout length (env steps)
 OUT_DIR = Path("scripts/outputs")
 
@@ -20,7 +20,7 @@ def main(config_path: str, checkpoint_path: str | None, design: float,
          steps: int, camera: str) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env = MAICheetah(env_params=env_params, backend="jnp")
+    env = MAICheetah(env_params=env_params, backend="np")
 
     frames, traj = rollout_design_hypernetwork_video(
         env, config, design=design, n_steps=steps,

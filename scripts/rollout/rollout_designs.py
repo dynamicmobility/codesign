@@ -83,6 +83,8 @@ def main(config_path: str, checkpoint_path: str | None, n: int, steps: int) -> N
     fig.savefig(OUT_DIR / "design_hypernetwork_cumulative_reward.png", dpi=150)
     plt.close(fig)
 
+    # Show reward components
+
     print(
         f"rewards {rewards.shape} | cumulative mean {cumulative.mean():.2f} "
         f"std {cumulative.std():.2f} -> {OUT_DIR}/"
