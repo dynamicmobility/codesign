@@ -15,9 +15,15 @@ from codesign.hyperdesigners import setup_design_hypernetwork
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
-def main(config_path: str, run=None):
+def main(config_path: str):
     # (1) Load the config
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
+    run = mm.utils.logging.initialize_wandb(
+        name    = config["name"].replace('/', ''),
+        entity  = 'vmadabushi3-georgia-institute-of-technology',
+        project = 'codesign-cheetah',
+        config  = config
+    )
 
     # Model-as-input env
     env_params = mm.utils.config.create_config_dict(config["env_config"])

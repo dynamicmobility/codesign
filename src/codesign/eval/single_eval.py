@@ -75,11 +75,19 @@ def rollout_single(
     rng = jax.random.PRNGKey(seed)
     state = reset(rng, model)
     traj = [state]
+    # Setup reward plotting
+    reward_plotter = plotting.RewardPlotter(state.metrics)
+    data_plotter = plotting.MujocoPlotter()
+    info_plotter = plotting.InfoPlotter(plotkey=None)
+    data_plotter.add_row(state.data)
     t = 0.0
     for _ in tqdm(range(n_steps), disable=not show_progress):
         rng, sub = jax.random.split(rng)
         action, _ = policy(state.obs, sub, t)
         state = step(state, action, model)
+        data_plotter.add_row(state.data)
+        reward_plotter.add_row(state.metrics, state.reward)
+        info_plotter.add_row(state.data.time, state.info)
         traj.append(state)
         t += env.dt
         if bool(state.done):
@@ -92,7 +100,7 @@ def rollout_single(
         frames = render_array(
             model, traj, height, width, camera, scene_option=scene_option
         )
-    return frames, traj
+    return frames, traj, reward_plotter, data_plotter, info_plotter
 
 
 def rollout_design_hypernetwork_video(

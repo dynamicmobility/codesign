@@ -5,13 +5,14 @@ import argparse
 from pathlib import Path
 
 import minimal_mjx as mm
+import matplotlib.pyplot as plt
 import moplayground as mop
 from codesign.envs.MAICheetah import MAICheetah
 from codesign.eval import rollout_design_hypernetwork_video
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
-D = 2.0          # back-leg length scale to render
+D = 1.0          # back-leg length scale to render
 T = 500          # rollout length (env steps)
 OUT_DIR = Path("scripts/outputs")
 
@@ -22,7 +23,7 @@ def main(config_path: str, checkpoint_path: str | None, design: float,
     env_params = mm.utils.config.create_config_dict(config["env_config"])
     env = MAICheetah(env_params=env_params, backend="np")
 
-    frames, traj = rollout_design_hypernetwork_video(
+    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_design_hypernetwork_video(
         env, config, design=design, n_steps=steps,
         checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
     )
@@ -31,6 +32,8 @@ def main(config_path: str, checkpoint_path: str | None, design: float,
     out = OUT_DIR / f"design_hypernetwork_d{str(design).replace('.', '_')}.mp4"
     mm.utils.plotting.save_video(frames, env.dt, out)
     print(f"rendered {len(traj)} steps for design d={design} -> {out}")
+    reward_plotter.plot(title=f"MAI Cheetah d={design} reward")
+    plt.show()
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ import moplayground as mop
 from codesign.envs.MAICheetah import MAICheetah
 from codesign.eval import rollout_single, make_open_loop_policy
 from codesign.utils.model import total_mass
+from matplotlib import pyplot as plt
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
@@ -26,7 +27,7 @@ def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
     
 
     policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
-    frames, traj = rollout_single(
+    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single(
         env, design, policy, steps, camera=camera, width=640, height=480,
     )
 
@@ -34,6 +35,10 @@ def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
     out = OUT_DIR / f"mai_cheetah_d{str(design).replace('.', '_')}_{policy_kind}.mp4"
     mm.utils.plotting.save_video(frames, env.dt, out)
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
+
+    reward_plotter.plot(title=f"MAI Cheetah d={design} reward")
+    plt.show()
+
 
 
 if __name__ == "__main__":
