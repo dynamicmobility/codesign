@@ -1,5 +1,7 @@
 """Record a trained ``design_hypernetwork`` policy on a single design.
 """
+import os
+os.environ["MUJOCO_GL"] = "egl"
 
 import argparse
 from pathlib import Path

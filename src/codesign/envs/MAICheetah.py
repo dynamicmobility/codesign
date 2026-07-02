@@ -51,6 +51,19 @@ class MAICheetah(MAIBase, MOCheetah):
         ])
         qvel = self._np.zeros(self.mj_model.nv)
         ctrl = self._np.zeros(self.mj_model.nu)
+
+        site_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
+        probe = self._data_init_fn(
+            model        = model,
+            qpos         = qpos,
+            qvel         = qvel,
+            ctrl         = ctrl,
+            time         = 0.0,
+            xfrc_applied = self._np.zeros((model.nbody, 6)),
+        )
+        ground_margin = 0.02
+        tip_z = probe.site_xpos[site_id][2]
+        qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
         
         data = self._data_init_fn(
             model        = model,
@@ -69,7 +82,8 @@ class MAICheetah(MAIBase, MOCheetah):
         info = {}
         info['xposbefore'] = 0.0
         info['xposafter']  = 0.01
-        info['ang']        = 0.0
+        info['ang']        = data.qpos[2]
+        info['height']     = data.qpos[1]
         info = parent_state.info | info
 
         done = self._np.array(0.0)
@@ -97,6 +111,7 @@ class MAICheetah(MAIBase, MOCheetah):
         data = self._step_fn(state.data, action, model)
         state.info['xposafter'] = data.qpos[0]
         state.info['ang']       = data.qpos[2]
+        state.info['height']    = data.qpos[1]
         
         done = self.fall_termination(state.info)
         rewards = self.reward_function(
@@ -137,9 +152,14 @@ class MAICheetah(MAIBase, MOCheetah):
         self,  
         info: dict
     ):
-        return self._np.array(
+        upside_down = self._np.array(
             ~(abs(info['ang']) < self._np.deg2rad(80))
         )
+
+        too_low = self._np.array(
+            info['height'] < -0.35
+        )
+        return upside_down | too_low
 
     
     @property

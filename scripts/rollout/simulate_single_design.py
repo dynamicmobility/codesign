@@ -1,5 +1,7 @@
 """Simulate an open-loop policy on a single MAICheetah design.
 """
+import os
+os.environ["MUJOCO_GL"] = "egl"
 
 import argparse
 from pathlib import Path
@@ -14,7 +16,7 @@ from matplotlib import pyplot as plt
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
 D = 1.0          # back-leg length scale to render
-T = 50           # rollout length (control steps)
+T = 250          # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
 FREQ = 1.5       # action frequency [Hz]
 OUT_DIR = Path("scripts/outputs")
