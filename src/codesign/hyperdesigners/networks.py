@@ -138,6 +138,106 @@ def make_design_hypernet_networks(
     )
 
 
+def make_mo_design_hypernet_networks(
+    observation_size: types.ObservationSize,
+    action_size: int,
+    design_dim: int,
+    num_objectives: int,
+    key: jax.Array,
+    hypersize: tuple = (128, 128),
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    activation: networks.ActivationFn = linen.swish,
+    policy_obs_key: str = "state",
+    value_obs_key: str = "state",
+    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    noise_std_type: Literal["scalar", "log"] = "scalar",
+    init_noise_std: float = 1.0,
+    state_dependent_std: bool = False,
+    num_features: int = 8,
+    w_variance: float = 0.0,
+) -> DesignHypernetNetworks:
+    """Build a hypernetwork conditioned on ``[design, tradeoff]``: ``H(d, w)``.
+
+    Structurally identical to :func:`make_design_hypernet_networks`, except the
+    hypernetwork's conditioning input is widened to ``design_dim + num_objectives`` so it
+    consumes the concatenation of the (normalized) design and the tradeoff ``w``. The
+    returned bundle is the standard :class:`DesignHypernetNetworks`.
+    """
+    return make_design_hypernet_networks(
+        observation_size=observation_size,
+        action_size=action_size,
+        design_dim=design_dim + num_objectives,
+        key=key,
+        hypersize=hypersize,
+        preprocess_observations_fn=preprocess_observations_fn,
+        policy_hidden_layer_sizes=policy_hidden_layer_sizes,
+        value_hidden_layer_sizes=value_hidden_layer_sizes,
+        activation=activation,
+        policy_obs_key=policy_obs_key,
+        value_obs_key=value_obs_key,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+        num_features=num_features,
+        w_variance=w_variance,
+    )
+
+
+def make_mo_design_inference_fn(networks_: DesignHypernetNetworks):
+    """Inference-fn factory keyed on ``(design, tradeoff)``.
+
+    Returns ``inference_fn(params, designs, directives, deterministic=False) ->
+    policy(obs, key)``, where ``params = (normalizer_params, hypernet_params)``. ``designs``
+    (normalized to ``[0, 1]``) and ``directives`` (simplex tradeoffs) may be single vectors
+    or batched ``(num_envs, ...)``; they are concatenated along the last axis before the
+    hypernetwork is applied.
+    """
+
+    def mo_design_inference_fn(
+        params: types.Params,
+        designs: jax.Array,
+        directives: jax.Array,
+        deterministic: bool = False,
+    ) -> types.Policy:
+        normalizer_params, hypernet_params = params
+        policy_network = networks_.policy_network
+        parametric_action_distribution = networks_.parametric_action_distribution
+
+        cond = jnp.concatenate([designs, directives], axis=-1)
+        # Policy params from the hypernetwork (value head is ignored at acting time).
+        policy_params, _ = networks_.hypernetwork.apply(hypernet_params, cond)
+
+        if len(cond.shape) == 1:
+            policy_apply = policy_network.apply
+        else:
+            policy_apply = jax.vmap(policy_network.apply, in_axes=(None, 0, 0))
+
+        def policy(
+            observations: types.Observation, key_sample: PRNGKey
+        ) -> Tuple[types.Action, types.Extra]:
+            logits = policy_apply(normalizer_params, policy_params, observations)
+            if deterministic:
+                return parametric_action_distribution.mode(logits), {}
+            raw_actions = parametric_action_distribution.sample_no_postprocessing(
+                logits, key_sample
+            )
+            log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
+            postprocessed_actions = parametric_action_distribution.postprocess(
+                raw_actions
+            )
+            return postprocessed_actions, {
+                "log_prob": log_prob,
+                "raw_action": raw_actions,
+            }
+
+        return policy
+
+    return mo_design_inference_fn
+
+
 def make_design_inference_fn(networks_: DesignHypernetNetworks):
     """Inference-fn factory keyed on the robot design.
 
