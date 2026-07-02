@@ -39,7 +39,7 @@
 
   <statistic center="0 0 .7" extent="2"/>
 
-  <option timestep="0.01" iterations="4" ls_iterations="8">
+  <option timestep="0.1" iterations="4" ls_iterations="8">
     <flag eulerdamp="disable"/>
   </option>
 

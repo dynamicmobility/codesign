@@ -18,6 +18,7 @@ import numpy as np
 from pathlib import Path
 
 INTERFACE_PATH = Path(__file__).resolve().parent
+xml_name = "twoaxis.xml"
     
 class TwoAxis(MAIBase):
     """Multi-Objective Cheetah Environment. 
@@ -30,14 +31,14 @@ class TwoAxis(MAIBase):
     ):
         MAIBase.__init__(
             self,
-            base_xml_path     = INTERFACE_PATH / "twoaxis.xml",
+            base_xml_path     = INTERFACE_PATH / xml_name,
             env_params        = env_params,
             backend           = backend,
             num_free          = 3
         )
 
     def default_spec(cls):
-        return MAIBase.default_spec(xml_path=INTERFACE_PATH / "twoaxis.xml")
+        return MAIBase.default_spec(xml_path=INTERFACE_PATH / xml_name)
 
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
         # input better initialization parameters as a func of mjx_model here
@@ -99,6 +100,11 @@ class TwoAxis(MAIBase):
         )
         done = done.astype(float)
         return self._state_init_fn(data, obs, reward, done, metrics, state.info)
+    
+    def _get_obs(self, data: Any, info: dict) -> jax.Array:
+        """Returns the observation vector for the environment."""
+        obs = self.state_vector(data)
+        return obs
 
     def reward_function(
         self,
@@ -128,12 +134,12 @@ class TwoAxis(MAIBase):
         return reward
     
     def termination( self,  info: dict):
-        return False
+        return self._np.array([False])
 
     
     @property
     def action_size(self):
-        return 6
+        return 2
 
     @property
     def observation_size(self):
@@ -154,16 +160,17 @@ class TwoAxis(MAIBase):
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
-        return MAIBase.default_spec(xml_path=INTERFACE_PATH / "cheetah.xml")
+        return MAIBase.default_spec(xml_path=INTERFACE_PATH / xml_name)
     
     # d goes from 0 to 1 and modifies the ratio of x force range to y force range
     @classmethod
     def generate_model(cls, d):
         spec = cls.default_spec()
+        d = np.clip(d, 0.0, 1.0)
         max_force = 5.0
         # load spec from file
-        spec.actuator("rootx").forcerange = d*jnp.array([-max_force, max_force])
-        spec.actuator("rooty").forcerange = (1-d)*jnp.array([-max_force, max_force])
+        spec.actuator("rootx").forcerange = [-d*max_force, d*max_force]
+        spec.actuator("rooty").forcerange = [-(1-d)*max_force, (1-d)*max_force]
         return spec.compile()
 
 # def resample_design(rng):
