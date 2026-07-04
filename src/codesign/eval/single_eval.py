@@ -18,7 +18,10 @@ from tqdm import tqdm
 
 from codesign.envs import MAIBase
 from codesign.eval import policies as policy_lib
-from codesign.learning.inference import load_design_hypernetwork
+from codesign.learning.inference import (
+    load_design_hypernetwork,
+    load_mo_design_hypernetwork,
+)
 from codesign.utils.model import normalize_design
 
 from minimal_mjx.learning.inference import get_step_reset
@@ -135,6 +138,55 @@ def rollout_design_hypernetwork_video(
     # Trained, design-conditioned policy for this single design (1-D design -> unbatched).
     inference_fn, params = load_design_hypernetwork(config, path=checkpoint_path)
     base_policy = inference_fn(params, design_input, deterministic=deterministic)
+    policy = policy_lib.from_inference_fn(base_policy)
+
+    return rollout_single(
+        env, design_arr, policy, n_steps,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+    )
+
+
+def rollout_mo_design_hypernetwork_video(
+    env,
+    config,
+    design,
+    tradeoff,
+    n_steps: int,
+    *,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    camera: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    gen_video: bool = True,
+):
+    """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
+
+    The multi-objective analogue of :func:`rollout_design_hypernetwork_video`. Loads the
+    checkpoint, builds the (unbatched) policy conditioned on both the ``design`` and the
+    tradeoff/scalarization ``tradeoff`` (an ``(num_objectives,)`` simplex weight vector; it
+    is L1-normalized here to be safe), and rolls it out via :func:`rollout_single`.
+
+    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` (see
+    :func:`rollout_single`).
+    """
+    design_params = config["learning_params"]["design_params"]
+    design_low = float(design_params["design_low"])
+    design_high = float(design_params["design_high"])
+
+    design_arr = np.asarray(design, np.float32).reshape(-1)  # (design_dim,)
+    design_input = normalize_design(jnp.asarray(design_arr), design_low, design_high)
+
+    tradeoff_arr = np.asarray(tradeoff, np.float32).reshape(-1)  # (num_objectives,)
+    tradeoff_arr = tradeoff_arr / np.sum(tradeoff_arr)  # normalize onto the simplex
+    directive = jnp.asarray(tradeoff_arr)
+
+    # Trained, (design, tradeoff)-conditioned policy (1-D inputs -> unbatched).
+    inference_fn, params = load_mo_design_hypernetwork(config, path=checkpoint_path)
+    base_policy = inference_fn(
+        params, design_input, directive, deterministic=deterministic
+    )
     policy = policy_lib.from_inference_fn(base_policy)
 
     return rollout_single(

@@ -3,7 +3,7 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: less-stiffness-cheetah
+name: less-stiffness-cheetah-double-check
 save_dir: results/design-hypernetwork-cheetah
 description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
 algorithm: "design_hypernetwork"

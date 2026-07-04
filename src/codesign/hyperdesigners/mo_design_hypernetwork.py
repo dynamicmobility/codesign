@@ -197,11 +197,7 @@ def train_mo_design_hypernetwork(
             jnp.asarray(designs_full), design_low, design_high
         )
         return batched_model, designs_input, jnp.asarray(tradeoffs_full)
-
-    # Observation structure and objective count come straight from the env -- no throwaway
-    # model build or reset. ``observation_size`` is inferred by the env from a nominal model
-    # (design-independent obs dims), and the objective count is the env's multi-objective
-    # reward-vector length from its optimization config.
+    
     obs_size = environment.observation_size
     num_objectives = len(environment.params.reward.optimization.objectives)
 
@@ -226,13 +222,13 @@ def train_mo_design_hypernetwork(
 
     loss_fn = functools.partial(
         compute_mo_design_hypernet_loss,
-        design_networks=design_networks,
-        entropy_cost=entropy_cost,
-        discounting=discounting,
-        reward_scaling=reward_scaling,
-        gae_lambda=gae_lambda,
-        clipping_epsilon=clipping_epsilon,
-        normalize_advantage=normalize_advantage,
+        design_networks       = design_networks,
+        entropy_cost          = entropy_cost,
+        discounting           = discounting,
+        reward_scaling        = reward_scaling,
+        gae_lambda            = gae_lambda,
+        clipping_epsilon      = clipping_epsilon,
+        normalize_advantage   = normalize_advantage,
     )
     gradient_update_fn = gradients.gradient_update_fn(
         loss_fn, optimizer, pmap_axis_name=None, has_aux=True
