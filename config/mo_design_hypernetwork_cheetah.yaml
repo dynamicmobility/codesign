@@ -5,7 +5,7 @@
 # Multi-objective: the per-objective reward vector is scalarized by the tradeoff w in the
 # loss (as in MORLAX). Each epoch trains a grid of `num_designs` designs x `num_tradeoffs`
 # tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
-name: mo-design-cheetah-3-high-clip-longer
+name: mo-design-cheetah-3-high-clip-longer-test
 save_dir: results/mo-design-hypernetwork-cheetah
 description: "Multi-objective design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
@@ -73,14 +73,12 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_params:
-    num_designs: 8       # designs sampled per epoch
+    num_designs: 8 # designs sampled per epoch
     design_low: 0.5
     design_high: 2.0
     design_dim: 1
   tradeoff_params:
-    num_tradeoffs: 8     # distinct tradeoffs per epoch (grid: 8 x 8 = 64 cells, 16 envs/cell)
-    alpha: 1.0           # Dirichlet concentration for tradeoff sampling
-    sampling: sparse-heavytail      # dense | sparse-heavytail | single-avg
-    # sparse-heavytail: (num_tradeoffs - num_objectives) simplex draws + num_objectives
-    # one-hot extreme tradeoffs (e.g. 8 tradeoffs, 3 objectives -> 5 draws + 3 corners).
-    warmup_frac: 0.0     # fraction of epochs training only the uniform tradeoff
+    num_tradeoffs: 8
+    alpha: 1.0
+    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
+    warmup_frac: 0.0 # fraction of epochs training only the uniform tradeoff

@@ -164,24 +164,6 @@ class MAICheetah(MAIBase, MOCheetah):
     def action_size(self):
         return 6
 
-    @property
-    def observation_size(self):
-        """Observation structure, inferred from the env's nominal compiled model.
-
-        The base ``MjxEnv.observation_size`` traces ``self.reset(rng)``, but this env is
-        model-as-input (``reset(rng, model)``). Observation dims are design-independent, so
-        we trace against the already-compiled nominal model (``self._mjx_model``) rather than
-        building a fresh one -- no extra model compile. Returns a dict of shapes (obs is a
-        dict).
-        """
-        abstract_state = jax.eval_shape(
-            lambda rng: self.reset(rng, self._mjx_model), jax.random.PRNGKey(0)
-        )
-        obs = abstract_state.obs
-        if isinstance(obs, dict):
-            return jax.tree_util.tree_map(lambda x: x.shape, obs)
-        return obs.shape[-1]
-
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
         return MAIBase.default_spec(xml_path=INTERFACE_PATH / "cheetah.xml")

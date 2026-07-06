@@ -8,8 +8,7 @@ from brax.training.agents.ppo import losses as ppo_losses
 from brax.training.types import Params
 
 from codesign.hyperdesigners import networks
-from codesign.hyperdesigners.acting import DesignTransition
-from codesign.hyperdesigners.mo_acting import MODesignTransition
+from codesign.hyperdesigners.acting import DesignTransition, MODesignTransition
 
 
 @flax.struct.dataclass
@@ -134,15 +133,18 @@ def compute_mo_design_hypernet_loss(
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
-    """Clipped-PPO loss for the multi-objective design hypernetwork ``H(d, w)``.
-
-    Mirrors :func:`compute_design_hypernet_loss` but (a) conditions the hypernetwork on the
-    concatenation ``[design, directive]`` and (b) scalarizes the per-objective reward vector
-    by the directive before a single scalar GAE (matching MORLAX).
+    """Computes the clipped-PPO loss for the multi-objective design hypernetwork ``H(d, w)``.
 
     Args:
-        data: ``MODesignTransition`` with leading dims ``[B, T]``; ``reward``/``directive``
-            carry a trailing objective axis of size ``M``.
+        params: trainable hypernetwork params.
+        normalizer_params: observation normalizer params.
+        data: ``MODesignTransition`` with leading dims ``[B, T]``. ``reward``/``directive``
+            carry a trailing objective axis of size ``M``. Requires
+            ``extras['state_extras']['truncation']``,
+            ``extras['policy_extras']['raw_action']``,
+            ``extras['policy_extras']['log_prob']``.
+        rng: PRNG key (for entropy estimate).
+        design_networks: the design hypernetwork bundle.
     """
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(

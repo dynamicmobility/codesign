@@ -81,11 +81,15 @@ def sample_designs(
 
 
 def normalize_design(
-    designs: jnp.ndarray, low: float = 0.5, high: float = 2.0
+    designs: jnp.ndarray, low: float = None, high: float = None, config: dict = None
 ) -> jnp.ndarray:
-    """Map raw designs in ``[low, high]`` to ``[0, 1]`` for the hypernetwork input."""
+    """Normalize designs to ``[0, 1]`` using either explicit ``low``/``high`` or 
+    a config dict. Defaults to config dict when provided."""
+    if config is not None:
+        design_params = config["learning_params"]["design_params"]
+        low = float(design_params["design_low"])
+        high = float(design_params["design_high"])
     return (designs - low) / (high - low)
-
 
 def observation_spec(observation_size):
     """Build a ``running_statistics`` spec from an env ``observation_size``.
