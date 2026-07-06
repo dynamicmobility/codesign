@@ -3,9 +3,9 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: less-stiffness-cheetah-double-check
+name: hypernet_design_sweep
 save_dir: results/design-hypernetwork-cheetah
-description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
+description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths. based on less-stiffness-equal-no-energy"
 algorithm: "design_hypernetwork"
 env: "MAICheetah"
 backend: jnp # always jnp for training
@@ -34,7 +34,6 @@ env_config:
       height:     0.01
       speed:      0.01
       energy:     0.1
-      imitation:  0.03
     optimization:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
@@ -44,7 +43,7 @@ env_config:
     base_height: 0.2
 
 learning_params:
-  reward_objective_weights: [0.0, 0.6, 0.0]
+  reward_objective_weights: [1.0, 0.0, 1.0]
   ppo_params:
     num_timesteps: 50000000
     episode_length: 500
