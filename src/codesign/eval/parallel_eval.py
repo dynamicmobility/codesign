@@ -94,6 +94,7 @@ def rollout_design_hypernetwork(
     seed: int = 0,
     deterministic: bool = True,
     weighting=None,
+    trials_per_env: int = 1
 ):
     """Rollout design hypernetwork across a uniform design sweep, in parallel.
     Note that the design hypernetwork is for single-objective rewards, so this
@@ -112,22 +113,26 @@ def rollout_design_hypernetwork(
 
     Returns:
         ``(designs, rewards)`` where ``designs`` is ``(num_envs, design_dim)`` and
-        ``rewards`` is ``(n_steps, num_envs)`` scalar per-step reward.
+        ``rewards`` is ``(trials_per_env, n_steps, num_envs)`` scalar per-step reward.
     """
+    if trials_per_env < 1:
+        raise ValueError("trials_per_env must be at least 1")
+
     design = config["learning_params"]["design_params"]
     design_low = float(design["design_low"])
     design_high = float(design["design_high"])
 
     designs = uniform_design_sweep(config, num_envs)
+    repeated_designs = np.repeat(designs, trials_per_env, axis=0)
 
     # One stacked, batched mjx.Model per design (host-side, via the env's generator).
     def generate_model_fn(design_row):
         d = float(np.asarray(design_row).reshape(-1)[0])
         return mjx.put_model(env.generate_model(d))
 
-    batched_model = model_lib.build_batched_model(generate_model_fn, designs)
+    batched_model = model_lib.build_batched_model(generate_model_fn, repeated_designs)
     designs_input = model_lib.normalize_design(
-        jnp.asarray(designs), design_low, design_high
+        jnp.asarray(repeated_designs), design_low, design_high
     )
 
     # Collapse the multi-objective reward to a scalar by wrapping the env.
@@ -142,7 +147,13 @@ def rollout_design_hypernetwork(
     policy = policy_lib.from_inference_fn(base_policy)
 
     rewards = rollout_parallel(
-        so_env, batched_model, policy, num_envs, n_steps,
-        mask_after_done=True, seed=seed,
+        so_env,
+        batched_model,
+        policy,
+        num_envs * trials_per_env,
+        n_steps,
+        mask_after_done=True,
+        seed=seed,
     )
+    rewards = rewards.reshape(n_steps, num_envs, trials_per_env).transpose(2, 0, 1)
     return designs, rewards
