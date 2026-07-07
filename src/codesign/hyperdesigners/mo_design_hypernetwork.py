@@ -31,7 +31,7 @@ from brax.training import gradients
 from brax.training.acme import running_statistics
 from mujoco import mjx
 
-from codesign.hyperdesigners import acting, mo_acting
+from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
 from codesign.hyperdesigners.losses import (
@@ -273,7 +273,7 @@ def train_mo_design_hypernetwork(
         def scan_unroll(c, _):
             cur_state, cur_key = c
             cur_key, nk = jax.random.split(cur_key)
-            nstate, data = mo_acting.mo_generate_unroll(
+            nstate, data = acting.mo_generate_unroll(
                 environment,
                 cur_state,
                 batched_model,

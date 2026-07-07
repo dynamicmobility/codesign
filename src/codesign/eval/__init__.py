@@ -14,6 +14,6 @@ from .parallel_eval import rollout_parallel, rollout_design_hypernetwork
 from . import single_eval
 from .single_eval import (
     rollout_single,
-    rollout_design_hypernetwork_video,
-    rollout_mo_design_hypernetwork_video,
+    rollout_design_hypernetwork,
+    rollout_mo_design_hypernetwork,
 )

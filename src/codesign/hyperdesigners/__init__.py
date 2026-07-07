@@ -25,8 +25,7 @@ from codesign.hyperdesigners.losses import (
     compute_design_hypernet_loss,
     compute_mo_design_hypernet_loss,
 )
-from codesign.hyperdesigners.acting import DesignTransition
-from codesign.hyperdesigners.mo_acting import MODesignTransition
+from codesign.hyperdesigners.acting import DesignTransition, MODesignTransition
 
 __all__ = [
     "train_design_hypernetwork",
