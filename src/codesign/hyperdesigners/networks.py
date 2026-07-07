@@ -199,14 +199,15 @@ def make_mo_design_inference_fn(networks_: DesignHypernetNetworks):
     def mo_design_inference_fn(
         params: types.Params,
         designs: jax.Array,
-        directives: jax.Array,
+        tradeoffs: jax.Array,
         deterministic: bool = False,
     ) -> types.Policy:
+        """Returns a multi-objective design-conditioned policy hypernetwork function."""
         normalizer_params, hypernet_params = params
         policy_network = networks_.policy_network
         parametric_action_distribution = networks_.parametric_action_distribution
 
-        cond = jnp.concatenate([designs, directives], axis=-1)
+        cond = jnp.concatenate([designs, tradeoffs], axis=-1)
         # Policy params from the hypernetwork (value head is ignored at acting time).
         policy_params, _ = networks_.hypernetwork.apply(hypernet_params, cond)
 

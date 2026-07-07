@@ -25,6 +25,7 @@ from codesign.hyperdesigners.mo_design_hypernetwork import sample_tradeoffs
 from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork
 from codesign.utils import model as model_lib
 from codesign.utils.model import uniform_design_sweep
+import pdb
 
 
 def rollout_parallel(
@@ -96,17 +97,17 @@ def get_pareto_rollout_MAI(env, n_steps, make_policy, deterministic=True):
         action, _ = policy(state.obs, policy_rng)
         new_state = env.step(state, action, model)
         # accumulate per-objective reward, masking out steps after termination
-        return (new_state, old_reward + new_state.reward * (1 - new_state.done)), None
+        return (new_state, old_reward + new_state.reward * (1 - new_state.done)), new_state
 
     def rollout(key, design, tradeoff, model, params):
         policy = make_policy(
-            params        = params,
-            design        = design,
-            directive     = tradeoff,
-            deterministic = deterministic,
+            params         = params,
+            designs        = design,
+            tradeoffs      = tradeoff,
+            deterministic  = deterministic,
         )
         scan_step_fn = functools.partial(step_fn, model=model, policy=policy)
-        state = env.reset(key)
+        state = env.reset(key, model)
         carry = (state, state.reward)
         return jax.lax.scan(scan_step_fn, carry, (), n_steps)
 
@@ -147,7 +148,6 @@ def rollout_mo_designs(
     checkpoint_path: str | None = None,
     seed: int = 0,
     deterministic: bool = True,
-    weighting=None,
 ):
     """Scan ``n_steps`` of a batched policy over a stacked, per-env ``mjx.Model`` and multiple tradeoffs.
 
@@ -179,7 +179,7 @@ def rollout_mo_designs(
 
     designs, designs_input, tradeoffs = uniform_grid(
         config, n_designs, n_tradeoffs, per_cell, 
-        design_low, design_high, jax.random.PRNGKey(seed + 1), env.num_objectives
+        design_low, design_high, jax.random.PRNGKey(seed + 1), len(env.objectives)
         )
 
 
@@ -198,8 +198,8 @@ def rollout_mo_designs(
 
 
     rollout_fn = get_pareto_rollout_MAI(env, n_steps, make_policy_fn, deterministic=deterministic)
-    rewards = rollout_fn(jax.random.split(jax.random.PRNGKey(seed), n_designs*n_tradeoffs*per_cell), designs_input, tradeoffs, batched_model, params)
-    return designs, rewards
+    (final_states, final_rewards), states = rollout_fn(jax.random.split(jax.random.PRNGKey(seed), n_designs*n_tradeoffs*per_cell), designs_input, tradeoffs, batched_model, params)
+    return designs, final_states, final_rewards, states
 
 
 
