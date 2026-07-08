@@ -8,11 +8,13 @@ them along a leading batch axis so a single ``jax.vmap`` can roll out / train th
 batch. The stacking pattern mirrors ``scripts/rollout_mai_cheetah.py``.
 """
 
+from collections.abc import Mapping
 from typing import Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from brax.training.acme import specs
 from mujoco import mjx
 
 from codesign.envs.MAIBase import MAIBase
@@ -79,7 +81,29 @@ def sample_designs(
 
 
 def normalize_design(
-    designs: jnp.ndarray, low: float = 0.5, high: float = 2.0
+    designs: jnp.ndarray, low: float = None, high: float = None, config: dict = None
 ) -> jnp.ndarray:
-    """Map raw designs in ``[low, high]`` to ``[0, 1]`` for the hypernetwork input."""
+    """Normalize designs to ``[0, 1]`` using either explicit ``low``/``high`` or 
+    a config dict. Defaults to config dict when provided."""
+    if config is not None:
+        design_params = config["learning_params"]["design_params"]
+        low = float(design_params["design_low"])
+        high = float(design_params["design_high"])
     return (designs - low) / (high - low)
+
+def observation_spec(observation_size):
+    """Build a ``running_statistics`` spec from an env ``observation_size``.
+
+    ``observation_size`` follows brax's ``ObservationSize``: either an int, or a mapping of
+    obs-key -> shape tuple / int (e.g. ``MAICheetah.observation_size`` returns
+    ``{'state': (17,), 'privileged_state': (17,)}``). Returns a matching tree of
+    ``specs.Array`` (per-leaf trailing dim), suitable for ``running_statistics.init_state``.
+    """
+
+    def leaf(shp):
+        dim = shp[-1] if isinstance(shp, (tuple, list)) else shp
+        return specs.Array((int(dim),), jnp.dtype("float32"))
+
+    if isinstance(observation_size, Mapping):
+        return {k: leaf(v) for k, v in observation_size.items()}
+    return leaf(observation_size)
