@@ -4,10 +4,8 @@ from typing import Any
 
 import jax
 from ml_collections import config_dict
-from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
-from codesign.envs import CodesignInterface
 from codesign.envs.MAIBase import MAIBase
 from moplayground.envs.dmcontrol.interface import CheetahInterface
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
@@ -165,23 +163,6 @@ class MAICheetah(MAIBase, MOCheetah):
     @property
     def action_size(self):
         return 6
-
-    @property
-    def observation_size(self):
-        """Observation structure, inferred with a nominal design.
-
-        The base ``MjxEnv.observation_size`` traces ``self.reset(rng)``, but this env is
-        model-as-input (``reset(rng, model)``), so we trace against a model built from a
-        nominal design (d=1.0). Returns a dict of shapes (obs is a dict).
-        """
-        model = mjx.put_model(self.generate_model(1.0))
-        abstract_state = jax.eval_shape(
-            lambda rng: self.reset(rng, model), jax.random.PRNGKey(0)
-        )
-        obs = abstract_state.obs
-        if isinstance(obs, dict):
-            return jax.tree_util.tree_map(lambda x: x.shape, obs)
-        return obs.shape[-1]
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:

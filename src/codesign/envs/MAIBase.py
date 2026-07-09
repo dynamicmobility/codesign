@@ -101,21 +101,25 @@ class MAIBase(SwappableBase):
 
         else:
             raise ValueError(f"Unsupported backend: {backend}")
-
-    # @property
-    # def mjx_model(self):
-    #     raise AttributeError('Model-as-input Cheetah has no MJX model attribute. It must be passed as input.')
-    
-    # @property
-    # def mj_model(self):
-    #     raise AttributeError('Model-as-input Cheetah has no MJ model attribute. It must be passed as input.')
-
+        
     @classmethod
     def default_spec(cls, xml_path: Path) -> mj.MjSpec:
         return mj.MjSpec.from_file(
             filename=xml_path.as_posix(),
             assets=common.get_assets()
         )
+        
+    @property
+    def observation_size(self):
+        """Observation structure, inferred from the env's nominal compiled model.
+        """
+        abstract_state = jax.eval_shape(
+            lambda rng: self.reset(rng, self._mjx_model), jax.random.PRNGKey(0)
+        )
+        obs = abstract_state.obs
+        if isinstance(obs, dict):
+            return jax.tree_util.tree_map(lambda x: x.shape, obs)
+        return obs.shape[-1]
 
 
 class MAIMO2SO:

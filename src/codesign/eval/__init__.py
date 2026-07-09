@@ -10,6 +10,10 @@ from .rollout import rollout_policy
 from . import policies
 from .policies import make_open_loop_policy, from_inference_fn
 from . import parallel_eval
-from .parallel_eval import rollout_parallel, rollout_design_hypernetwork
+from .parallel_eval import rollout_parallel, rollout_design_hypernetwork, rollout_mo_designs
 from . import single_eval
-from .single_eval import rollout_single, rollout_design_hypernetwork_video
+from .single_eval import (
+    rollout_single,
+    rollout_design_hypernetwork,
+    rollout_mo_design_hypernetwork,
+)
