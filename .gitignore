@@ -228,3 +228,5 @@ results/
 *.png
 
 scripts/outputs
+
+MUJOCO_LOG.TXT
