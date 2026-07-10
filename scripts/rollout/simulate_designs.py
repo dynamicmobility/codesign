@@ -1,4 +1,4 @@
-"""Roll out N MAICheetah variants with different back-leg lengths in parallel.
+"""Roll out N CodesignCheetah variants with different back-leg lengths in parallel.
 Several 'open-loop' policies are available (sinusoid, random, zero).
 """
 
@@ -12,7 +12,7 @@ from mujoco import mjx
 
 import moplayground as mop
 import minimal_mjx as mm
-from codesign.envs.MAICheetah import MAICheetah
+from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.eval import rollout_parallel, make_open_loop_policy
 from codesign.utils.model import build_batched_model
 
@@ -30,7 +30,7 @@ OUT_DIR = Path('scripts/outputs')
 def main(n: int, steps: int, policy_kind: str) -> None:
     train_config = mop.utils.read_config(CONFIG_PATH)
     env_params = mm.utils.config.create_config_dict(train_config['env_config'])
-    env = MAICheetah(env_params=env_params, backend='jnp')
+    env = CodesignCheetah(env_params=env_params, backend='jnp')
 
     # 1. sample leg-length scales and build/stack the batched model
     ds = np.linspace(D_MIN, D_MAX, n)
@@ -64,10 +64,10 @@ def main(n: int, steps: int, policy_kind: str) -> None:
     ax_z.set_ylabel('base z [m]')
     ax_z.set_xlabel('time [s]')
     ax_x.set_title(
-        f'{n} MAICheetahs ({policy_kind} policy), back-leg scaled in [{D_MIN}, {D_MAX}]'
+        f'{n} CodesignCheetahs ({policy_kind} policy), back-leg scaled in [{D_MIN}, {D_MAX}]'
     )
     fig.tight_layout()
-    fig.savefig(OUT_DIR / 'mai_cheetah_leglength_xz.png', dpi=150)
+    fig.savefig(OUT_DIR / 'codesign_cheetah_leglength_xz.png', dpi=150)
     plt.close(fig)
 
     print(f'traj shape {traj.shape} ({policy_kind} policy) -> {OUT_DIR}/')

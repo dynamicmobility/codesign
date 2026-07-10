@@ -1,4 +1,4 @@
-# Training config for the `mo_design_hypernetwork` algorithm on MAICheetah.
+# Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
 #
@@ -7,9 +7,9 @@
 # tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
 name: mo-design-cheetah-3-high-clip-longer-test
 save_dir: results/mo-design-hypernetwork-cheetah
-description: "Multi-objective design-conditioned hypernetwork PPO over MAICheetah back-leg lengths."
+description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
-env: "MAICheetah"
+env: "CodesignCheetah"
 backend: jnp # always jnp for training
 
 env_config:

@@ -6,7 +6,7 @@ import jax
 from ml_collections import config_dict
 from mujoco_playground._src import mjx_env
 
-from codesign.envs.MAIBase import MAIBase
+from codesign.envs.CodesignBase import CodesignBase
 from moplayground.envs.dmcontrol.interface import CheetahInterface
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
 from mujoco.mjx._src.types import Model
@@ -17,7 +17,7 @@ from pathlib import Path
 
 INTERFACE_PATH = Path(__file__).resolve().parent
     
-class MAICheetah(MAIBase, MOCheetah):
+class CodesignCheetah(CodesignBase, MOCheetah):
     """Multi-Objective Cheetah Environment. 
     Objectives are speed, energy, and jumping height."""
 
@@ -26,9 +26,9 @@ class MAICheetah(MAIBase, MOCheetah):
         env_params        : config_dict.ConfigDict,
         backend           : str,
     ):
-        MAIBase.__init__(
+        CodesignBase.__init__(
             self,
-            base_xml_path     = INTERFACE_PATH / "cheetah.xml",
+            base_xml_path     = INTERFACE_PATH / "xmls" / "cheetah.xml",
             env_params        = env_params,
             backend           = backend,
             num_free          = 3
@@ -38,7 +38,7 @@ class MAICheetah(MAIBase, MOCheetah):
             self,
             env_params    = env_params,
             backend       = backend,
-            xml_path      = INTERFACE_PATH / 'cheetah.xml'
+            xml_path      = INTERFACE_PATH / 'xmls' / 'cheetah.xml'
         )
 
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
@@ -71,18 +71,11 @@ class MAICheetah(MAIBase, MOCheetah):
             time         = 0.0,
             xfrc_applied = self._np.zeros((model.nbody, 6)),
         )
-        parent_state = MAIBase.reset(
-            self,
-            rng            = rng,
-            data           = data,
-            history_length = self.params.history_length
-        )
         info = {}
         info['xposbefore'] = 0.0
         info['xposafter']  = 0.01
         info['ang']        = data.qpos[2]
         info['height']     = data.qpos[1]
-        info = parent_state.info | info
 
         done = self._np.array(0.0)
         rewards = self.reward_function(
@@ -93,7 +86,7 @@ class MAICheetah(MAIBase, MOCheetah):
         )
         reward, metrics = self.get_reward_and_metrics(rewards, {})
         
-        obs = self._get_obs(data, parent_state.info)
+        obs = self._get_obs(data, info)
         return self._state_init_fn(data, obs, reward, done, metrics, info)
     
     def state_vector(self, data):
@@ -166,7 +159,7 @@ class MAICheetah(MAIBase, MOCheetah):
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
-        return MAIBase.default_spec(xml_path=INTERFACE_PATH / "cheetah.xml")
+        return CodesignBase.default_spec(xml_path=INTERFACE_PATH / "xmls" / "cheetah.xml")
     
 
     @classmethod
@@ -175,7 +168,7 @@ class MAICheetah(MAIBase, MOCheetah):
         new_shin_pos = shin_pos*d
         midpoint = new_shin_pos/2
 
-        spec = MAICheetah.default_spec()
+        spec = CodesignCheetah.default_spec()
 
         # load spec from file
         spec.body("bshin").pos = new_shin_pos
