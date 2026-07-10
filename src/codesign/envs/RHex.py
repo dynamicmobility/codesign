@@ -7,7 +7,8 @@ from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
-from codesign.envs.MAIBase import MAIBase
+from codesign.envs import CodesignInterface
+from codesign.envs.CodesignBase import CodesignBase
 from moplayground.envs.dmcontrol.interface import CheetahInterface
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
 from mujoco.mjx._src.types import Model
@@ -18,7 +19,7 @@ from pathlib import Path
 
 INTERFACE_PATH = Path(__file__).resolve().parent
     
-class RHex(MAIBase):
+class RHex(CodesignBase):
     """Multi-Objective Cheetah Environment. 
     Objectives are speed, energy, and jumping height."""
 
@@ -27,7 +28,7 @@ class RHex(MAIBase):
         env_params        : config_dict.ConfigDict,
         backend           : str,
     ):
-        MAIBase.__init__(
+        CodesignBase.__init__(
             self,
             base_xml_path     = INTERFACE_PATH / "cheetah.xml",
             env_params        = env_params,
@@ -72,18 +73,12 @@ class RHex(MAIBase):
             time         = 0.0,
             xfrc_applied = self._np.zeros((model.nbody, 6)),
         )
-        parent_state = MAIBase.reset(
-            self,
-            rng            = rng,
-            data           = data,
-            history_length = self.params.history_length
-        )
+
         info = {}
         info['xposbefore'] = 0.0
         info['xposafter']  = 0.01
         info['ang']        = data.qpos[2]
         info['height']     = data.qpos[1]
-        info = parent_state.info | info
 
         done = self._np.array(0.0)
         rewards = self.reward_function(
@@ -94,7 +89,7 @@ class RHex(MAIBase):
         )
         reward, metrics = self.get_reward_and_metrics(rewards, {})
         
-        obs = self._get_obs(data, parent_state.info)
+        obs = self._get_obs(data, info)
         return self._state_init_fn(data, obs, reward, done, metrics, info)
     
     def state_vector(self, data):

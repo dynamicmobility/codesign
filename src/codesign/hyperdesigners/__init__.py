@@ -2,7 +2,7 @@
 
 ``design_hypernetwork`` trains a hypernetwork that maps a robot *design* to a policy
 MLP's weights (and a separate hypernetwork for the value MLP), optimizing a single
-reward with brax's clipped PPO loss on a model-as-input environment (``MAICheetah``).
+reward with brax's clipped PPO loss on a model-as-input environment (``CodesignCheetah``).
 """
 
 from codesign.hyperdesigners.design_hypernetwork import train_design_hypernetwork

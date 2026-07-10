@@ -1,4 +1,4 @@
-"""Train a multi-objective design hypernetwork on MAICheetah.
+"""Train a multi-objective design hypernetwork on CodesignCheetah.
 
 A multi-objective design hypernetwork produces policy/value networks given both a design
 and a tradeoff input: H_{\\pi}(d, w) --> pi_{d,w}(a|s) (and analogously for the value
@@ -11,7 +11,7 @@ import argparse
 import minimal_mjx as mm
 import moplayground as mop
 
-from codesign.envs.MAICheetah import MAICheetah
+from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.hyperdesigners import setup_mo_design_hypernetwork
 
 CONFIG_PATH = "config/mo_design_hypernetwork_cheetah.yaml"
@@ -28,8 +28,8 @@ def main(config_path: str):
 
     # Model-as-input env
     env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env = MAICheetah(env_params=env_params, backend="jnp")
-    eval_env = MAICheetah(env_params=env_params, backend="jnp")
+    env = CodesignCheetah(env_params=env_params, backend="jnp")
+    eval_env = CodesignCheetah(env_params=env_params, backend="jnp")
 
     # Run via minimal-mjx's trainer with our handle_params
     return mm.learning.training.train(

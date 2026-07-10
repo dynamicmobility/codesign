@@ -14,7 +14,7 @@ from matplotlib.colors import Normalize
 
 import minimal_mjx as mm
 import moplayground as mop
-from codesign.envs.MAICheetah import MAICheetah
+from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.eval import rollout_mo_designs
 import pdb
 
@@ -29,7 +29,7 @@ OUT_DIR = Path("scripts/outputs")
 def main(config_path: str, checkpoint_path: str | None, n_designs: int, n_tradeoffs: int, steps: int) -> None:
     config     = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env        = MAICheetah(env_params=env_params, backend="jnp")
+    env        = CodesignCheetah(env_params=env_params, backend="jnp")
 
     # Parallel rollout of the trained hypernetwork across the design sweep.
     designs, final_state, final_reward, states = rollout_mo_designs(

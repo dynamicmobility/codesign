@@ -16,7 +16,7 @@ from mujoco_playground._src.mjx_env import render_array
 from minimal_mjx.utils import plotting
 from tqdm import tqdm
 
-from codesign.envs import MAIBase
+from codesign.envs import CodesignBase
 from codesign.eval import policies as policy_lib
 from codesign.learning.inference import (
     load_design_hypernetwork,
@@ -28,7 +28,7 @@ from minimal_mjx.learning.inference import get_step_reset
 
 
 def rollout_single(
-    env: MAIBase,
+    env: CodesignBase,
     design,
     policy,
     n_steps: int,
@@ -44,7 +44,7 @@ def rollout_single(
     """Roll a single MAI env (one design) forward under ``policy`` and render it.
 
     Args:
-        env: a MAIBase env
+        env: a CodesignBase env
         design: the single design to build the model via env.generate_model
         policy: ``policy(obs, key, t) -> (action, extras)``
         n_steps: maximum rollout length in env steps.

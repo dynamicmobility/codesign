@@ -1,21 +1,4 @@
 """``mo_design_hypernetwork`` training algo.
-
-A *multi-objective* PPO algo that trains a hypernetwork ``H(d, w)`` conditioned on both a
-robot **design** ``d`` and a **tradeoff** ``w``. It combines
-:mod:`codesign.hyperdesigners.design_hypernetwork` (design-conditioned hypernet on a
-model-as-input env) with MORLAX (``moplayground.moppo.morlax``): the per-objective reward
-vector is scalarized by ``w`` before a scalar GAE, exactly as in MORLAX.
-
-Each training epoch samples a *grid* of designs x tradeoffs. With ``num_designs`` designs
-and ``num_tradeoffs`` tradeoffs, there are ``num_designs * num_tradeoffs`` cells, and each
-cell is shared by ``num_envs // (num_designs * num_tradeoffs)`` parallel envs. Every env in
-a cell shares the same design (and its compiled ``mjx.Model``) and the same tradeoff.
-
-v1 simplifications (as in ``design_hypernetwork``):
-  * single device (``jax.jit``, no ``pmap``);
-  * designs and tradeoffs are re-sampled each epoch, constant within an epoch (models are
-    fixed per epoch inside ``jit``);
-  * ``MAICheetah`` resets are deterministic per design.
 """
 
 import functools

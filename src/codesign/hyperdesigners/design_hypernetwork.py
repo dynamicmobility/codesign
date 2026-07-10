@@ -7,7 +7,7 @@ Designs are sampled and stacked every training epoch.
 v1 simplifications (documented intentionally):
   * single device (``jax.jit``, no ``pmap``);
   * env state is re-sampled each epoch (new designs), so episodes don't span epochs;
-  * ``MAICheetah`` resets are deterministic per design (no obs/init randomization).
+  * ``CodesignCheetah`` resets are deterministic per design (no obs/init randomization).
 """
 
 import functools
@@ -116,7 +116,7 @@ def train_design_hypernetwork(
     # (design-independent obs dims); ``num_objectives`` is the env's reward-vector length.
     obs_size = environment.observation_size
 
-    # MAICheetah emits a multi-objective reward vector; collapse it to the single scalar
+    # CodesignCheetah emits a multi-objective reward vector; collapse it to the single scalar
     # reward this algorithm optimizes via a fixed objective-weight vector (default ones).
     num_objectives = len(environment.params.reward.optimization.objectives)
     if reward_objective_weights is None:

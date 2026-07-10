@@ -1,11 +1,4 @@
 """Design-construction helpers shared across training/eval.
-
-Host-side helpers for turning robot designs into a stacked, batched ``mjx.Model``.
-``MAICheetah.generate_model(d)`` recompiles the cheetah for a given design ``d`` (a
-host-side ``spec.compile()`` — not jittable), so designs can only change at host
-boundaries. We sample a batch of designs, build one ``mjx.Model`` per design, and stack
-them along a leading batch axis so a single ``jax.vmap`` can roll out / train the whole
-batch. The stacking pattern mirrors ``scripts/rollout_mai_cheetah.py``.
 """
 
 from collections.abc import Mapping
@@ -17,11 +10,8 @@ import numpy as np
 from brax.training.acme import specs
 from mujoco import mjx
 
-from codesign.envs.MAIBase import MAIBase
-
-
 def total_mass(model) -> float:
-    """Total mass of the model underlying a ``MAIBase`` env.
+    """Total mass of the model underlying a ``CodesignBase`` env.
 
     Sums ``body_mass`` over every body in the env's compiled ``mj_model`` (the
     worldbody contributes 0), giving the model's total mass in kilograms.
@@ -93,11 +83,6 @@ def normalize_design(
 
 def observation_spec(observation_size):
     """Build a ``running_statistics`` spec from an env ``observation_size``.
-
-    ``observation_size`` follows brax's ``ObservationSize``: either an int, or a mapping of
-    obs-key -> shape tuple / int (e.g. ``MAICheetah.observation_size`` returns
-    ``{'state': (17,), 'privileged_state': (17,)}``). Returns a matching tree of
-    ``specs.Array`` (per-leaf trailing dim), suitable for ``running_statistics.init_state``.
     """
 
     def leaf(shp):

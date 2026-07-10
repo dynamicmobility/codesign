@@ -1,13 +1,13 @@
-# Training config for the `design_hypernetwork` algorithm on MAICheetah.
+# Training config for the `design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
 name: hypernet_design_sweep
 save_dir: results/design-hypernetwork-cheetah
-description: "Design-conditioned hypernetwork PPO over MAICheetah back-leg lengths. based on less-stiffness-equal-no-energy"
+description: "Design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths. based on less-stiffness-equal-no-energy"
 algorithm: "design_hypernetwork"
-env: "MAICheetah"
+env: "CodesignCheetah"
 backend: jnp # always jnp for training
 
 env_config:

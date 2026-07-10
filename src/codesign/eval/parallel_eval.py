@@ -1,14 +1,4 @@
 """Parallelized rollouts of a model-specific policy across a sweep of MAI variants.
-
-Env-agnostic: works with any model-as-input (MAI) env that exposes ``generate_model(d)``
-and the ``reset(rng, model)`` / ``step(state, action, model)`` signature. The generic
-core :func:`rollout_parallel` stacks one ``mjx.Model`` per variant and scans every variant
-forward together under a batched ``policy(obs, key, t)`` (see :mod:`codesign.eval.policies`),
-recording a configurable per-step value. :func:`rollout_design_hypernetwork` is a thin
-wrapper that loads a trained design-conditioned policy and records scalar reward; the
-multi-objective reward is collapsed to a scalar by wrapping the env in
-:class:`~codesign.envs.MAIBase.MAIMO2SO`, so the loop itself never sees the objective
-dimension — that's where scalarization lives.
 """
 
 import functools
@@ -18,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from mujoco import mjx
 
-from codesign.envs.MAIBase import MAIMO2SO, MAIBase
+from codesign.envs.CodesignBase import CodesignMO2SO, CodesignBase
 from codesign.eval import policies as policy_lib
 from codesign.hyperdesigners import acting
 from codesign.hyperdesigners.mo_design_hypernetwork import sample_tradeoffs
@@ -45,8 +35,8 @@ def rollout_parallel(
     under ``policy``. A configurable ``record_fn`` extracts the per-step value to log.
 
     Args:
-        env: a model-as-input env (e.g. ``MAICheetah``), already wrapped if a scalar
-            reward is desired (see :class:`~codesign.envs.MAIBase.MAIMO2SO`).
+        env: a model-as-input env (e.g. ``CodesignCheetah``), already wrapped if a scalar
+            reward is desired (see :class:`~codesign.envs.CodesignBase.CodesignMO2SO`).
         batched_model: stacked ``mjx.Model`` with leading axis ``num_envs`` (see
             :func:`codesign.utils.model.build_batched_model`).
         policy: ``policy(obs, key, t) -> (action, extras)``, batched over the env axis
@@ -138,7 +128,7 @@ def uniform_grid(
     return designs_full, designs_input, jnp.asarray(tradeoffs_full)
 
 def rollout_mo_designs(
-    env: MAIBase,
+    env: CodesignBase,
     config,
     n_designs: int,
     n_tradeoffs: int,
@@ -155,8 +145,8 @@ def rollout_mo_designs(
     under ``policy``. A configurable ``record_fn`` extracts the per-step value to log.
 
     Args:
-        env: a model-as-input env (e.g. ``MAICheetah``), already wrapped if a scalar
-            reward is desired (see :class:`~codesign.envs.MAIBase.MAIMO2SO`).
+        env: a model-as-input env (e.g. ``CodesignCheetah``), already wrapped if a scalar
+            reward is desired (see :class:`~codesign.envs.CodesignBase.CodesignMO2SO`).
         batched_model: stacked ``mjx.Model`` with leading axis ``num_envs`` (see
             :func:`codesign.utils.model.build_batched_model`).
         make_policy: a function that creates a policy given a set of parameters.
@@ -204,7 +194,7 @@ def rollout_mo_designs(
 
 
 def rollout_design_hypernetwork(
-    env: MAIBase,
+    env: CodesignBase,
     config,
     num_envs: int,
     n_steps: int,
@@ -220,7 +210,7 @@ def rollout_design_hypernetwork(
     function expects a multi-objective env and scalarizes the reward.
 
     Args:
-        env: a model-as-input env (e.g. ``MAICheetah``) — see module docstring.
+        env: a model-as-input env (e.g. ``CodesignCheetah``) — see module docstring.
         config: the run config dict (as written to ``config.yaml`` at train time).
         num_envs: number of designs in the uniform sweep (one env per design).
         n_steps: rollout length in env steps.
@@ -257,7 +247,7 @@ def rollout_design_hypernetwork(
     # Collapse the multi-objective reward to a scalar by wrapping the env.
     if weighting is None:
         weighting = config["learning_params"].get("reward_objective_weights")
-    so_env = MAIMO2SO(env, weighting)
+    so_env = CodesignMO2SO(env, weighting)
 
     # Load the trained, design-conditioned policy (obs/action sizes come from the
     # checkpoint's saved config) and adapt it to the (obs, key, t) rollout protocol.

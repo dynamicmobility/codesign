@@ -1,4 +1,4 @@
-"""Simulate an open-loop policy on a single MAICheetah design.
+"""Simulate an open-loop policy on a single CodesignCheetah design.
 """
 import os
 os.environ["MUJOCO_GL"] = "egl"
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import minimal_mjx as mm
 import moplayground as mop
-from codesign.envs.MAICheetah import MAICheetah
+from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.eval import rollout_single, make_open_loop_policy
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt
@@ -25,7 +25,7 @@ OUT_DIR = Path("scripts/outputs")
 def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
     train_config = mop.utils.read_config(CONFIG_PATH)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-    env = MAICheetah(env_params=env_params, backend="np")
+    env = CodesignCheetah(env_params=env_params, backend="np")
     
 
     policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
