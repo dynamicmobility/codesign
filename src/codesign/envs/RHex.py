@@ -132,28 +132,17 @@ class RHex(CodesignBase):
         rewards = {
             'alive'  : self.reward_alive(),
             'energy' : self.reward_power(data, info),
-            'height' : self.reward_height(data),
             'run'    : self.reward_run(info),
-            'done'   : self.reward_done(done)
         }
         return rewards
 
     def reward_power(self, data, info):
-        P = jnp.sum(jnp.square(data.qfrc_actuator[3:])) # power = force * velocity
+        P = jnp.sum(jnp.square(data.qfrc_actuator[6:])) # power = force * velocity
+        assert len(data.qfrc_actuator[6:]) == 6
         return -P
     
-    def fall_termination(
-        self,  
-        info: dict
-    ):
-        upside_down = self._np.array(
-            ~(abs(info['ang']) < self._np.deg2rad(80))
-        )
-
-        too_low = self._np.array(
-            info['height'] < -0.35
-        )
-        return upside_down | too_low
+    def reward_run(self, info):
+        return info['xposafter'] - info['xposbefore']
 
     
     @property
@@ -179,26 +168,28 @@ class RHex(CodesignBase):
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
-        return cls.generate_model(1.0)
+        leg_thickness = 0.0016
+        leg_radius = 0.032
+        stance = 0.0
+
+        d_default = np.array([leg_thickness, leg_radius, stance])
+        return cls.generate_model(d_default)
     
 
     @classmethod
     def generate_model(cls, d):
-        spec = mj.MjSpec()
-        
-        #   <option timestep="0.01" iterations="4" ls_iterations="8">
-        #     <flag eulerdamp="disable"/>
-        #   </option>
 
-        # integrator="Euler"
-        # iterations="3"
-        # ls_iterations="6"
-        # solver="Newton"
-        # ls_tolerance="0.05"
-        # tolerance="1e-6"
-        # timestep="0.0005"
-        # cone="pyramidal">
-        # Set integrator parameters to match comment above
+        leg_width = 0.014
+        leg_thickness = d[0]
+        mid_radius = d[1]
+        stance = d[2]
+        n_segments = 8
+        spec = mj.MjSpec()
+
+        front_radius = mid_radius + stance
+        back_radius = mid_radius - stance
+
+
         spec.option.integrator = mj.mjtIntegrator.mjINT_EULER
         spec.option.solver = mj.mjtSolver.mjSOL_NEWTON
         spec.option.cone = mj.mjtCone.mjCONE_PYRAMIDAL
@@ -246,26 +237,29 @@ class RHex(CodesignBase):
             **contact_params,
         )
 
-        leg_width = 0.014
-        leg_thickness = 0.0016
-        leg_radius = 0.032
-        n_segments = 8
 
-        PETG_DENSITY = 1.23 # g/cm^3
-        leg_volume = leg_radius*np.pi*leg_width*leg_thickness
-        leg_mass = leg_volume*PETG_DENSITY*1000
-        segment_mass = leg_mass/n_segments
+        DENSITY = 1.23 # g/cm^3
+        YOUNGS_MODULUS = 3.2e9 # Pa
+        leg_moment_of_area = (leg_width*leg_thickness**3)/12.0 # m^4
         # Add legs
-        def add_leg(leg_name, base_pos):
-            arc_length = np.pi * leg_radius
+        def add_leg(leg_name, base_pos, radius):
+            arc_length = np.pi * radius
             seg_len = arc_length / n_segments
             dtheta = np.pi / n_segments
+            K_effective = 2*YOUNGS_MODULUS * leg_moment_of_area / (np.pi * radius**3) # N/m
+            print(K_effective)
+            # Compute jacobian
+            J2 = jnp.array([seg_len*jnp.cos(dtheta*i) for i in range(n_segments)])
+            Kt = K_effective*jnp.dot(J2,J2)
+
+            # Compute K
 
             # Base hinge at body with an actuator.
             parent = body
             next_geom_pos = (seg_len/2, 0.0, 0.0)
 
             for i in range(n_segments):
+                segment_mass = DENSITY * leg_thickness * leg_width * seg_len * 1000.0 # g/cm^3 -> kg/m^3
                 this_joint_name = f"{leg_name}_joint_{i}"
                 this_body = parent.add_body(
                     name=f"{leg_name}_seg_{i}",
@@ -279,7 +273,7 @@ class RHex(CodesignBase):
                     pos=next_geom_pos,
                     mass=segment_mass,
                     **contact_params,
-                    contype = i*2,
+                    contype = 2,
                     conaffinity = 1,
                     # euler = tuple(0.0, 0.0, 0.0) if i == 0 else (0.0, dtheta, 0.0),
                 )
@@ -302,19 +296,19 @@ class RHex(CodesignBase):
                         name=this_joint_name,
                         type=mj.mjtJoint.mjJNT_HINGE,
                         axis=(0.0, 1.0, 0.0),
-                        stiffness=1.0,
-                        damping=1.0,
+                        stiffness=Kt,
+                        damping=0.01,
                     )
 
                 parent = this_body
             
-        add_leg("leg_bl", np.array([-0.08, 0.064, 0.0]))
-        add_leg("leg_ml", np.array([0.0, 0.064, 0.0]))
-        add_leg("leg_fl", np.array([0.08, 0.064, 0.0]))
+        add_leg("leg_bl", np.array([-0.08, 0.064, 0.0]), radius=back_radius)
+        add_leg("leg_ml", np.array([0.0, 0.08, 0.0]), radius=mid_radius)
+        add_leg("leg_fl", np.array([0.08, 0.064, 0.0]), radius=front_radius)
 
-        add_leg("leg_br", np.array([-0.08, -0.064, 0.0]))
-        add_leg("leg_mr", np.array([0.0, -0.064, 0.0]))
-        add_leg("leg_fr", np.array([0.08, -0.064, 0.0]))
+        add_leg("leg_br", np.array([-0.08, -0.064, 0.0]), radius=back_radius)
+        add_leg("leg_mr", np.array([0.0, -0.08, 0.0]), radius=mid_radius)
+        add_leg("leg_fr", np.array([0.08, -0.064, 0.0]), radius=front_radius)
         return spec.compile()
 
 # def resample_design(rng):
