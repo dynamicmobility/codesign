@@ -7,7 +7,6 @@ from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
-from codesign.envs import CodesignInterface
 from codesign.envs.CodesignBase import CodesignBase
 from moplayground.envs.dmcontrol.interface import CheetahInterface
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
