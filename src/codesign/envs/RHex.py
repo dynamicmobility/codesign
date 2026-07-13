@@ -246,7 +246,6 @@ class RHex(CodesignBase):
             seg_len = arc_length / n_segments
             dtheta = np.pi / n_segments
             K_effective = 2*YOUNGS_MODULUS * leg_moment_of_area / (np.pi * radius**3) # N/m
-            print(K_effective)
             # Compute jacobian
             J2 = jnp.array([seg_len*jnp.cos(dtheta*i) for i in range(n_segments)])
             Kt = K_effective*jnp.dot(J2,J2)
