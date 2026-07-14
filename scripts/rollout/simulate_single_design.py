@@ -1,4 +1,4 @@
-"""Simulate an open-loop policy on a single CodesignCheetah design.
+"""Simulate an open-loop policy on a single design.
 """
 import os
 os.environ["MUJOCO_GL"] = "egl"
@@ -9,11 +9,12 @@ from pathlib import Path
 import minimal_mjx as mm
 import moplayground as mop
 from codesign.envs.CodesignCheetah import CodesignCheetah
+from codesign.envs.TwoAxis import TwoAxis
 from codesign.eval import rollout_single, make_open_loop_policy
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt
 
-CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
+CONFIG_PATH = "config/design_hypernetwork_two_axis.yaml"
 
 D = 1.0          # back-leg length scale to render
 T = 250          # rollout length (control steps)
@@ -25,7 +26,11 @@ OUT_DIR = Path("scripts/outputs")
 def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
     train_config = mop.utils.read_config(CONFIG_PATH)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-    env = CodesignCheetah(env_params=env_params, backend="np")
+
+    if(train_config["env"] == "CodesignCheetah"):
+        env = CodesignCheetah(env_params=env_params, backend="np")
+    elif(train_config["env"] == "TwoAxis"):
+        env = TwoAxis(env_params=env_params, backend="np")
     
 
     policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
@@ -38,7 +43,7 @@ def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
     mm.utils.plotting.save_video(frames, env.dt, out)
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 
-    reward_plotter.plot(title=f"MAI Cheetah d={design} reward")
+    reward_plotter.plot(title=f"{train_config['env']} d={design} reward")
     plt.show()
 
 
