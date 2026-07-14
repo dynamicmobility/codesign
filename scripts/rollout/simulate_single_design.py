@@ -1,21 +1,23 @@
 """Simulate an open-loop policy on a single design.
 """
+import os
+os.environ["MUJOCO_GL"] = "egl"
 
 import argparse
 from pathlib import Path
 
 import minimal_mjx as mm
 import moplayground as mop
+from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.envs.TwoAxis import TwoAxis
-from codesign.envs.MAICheetah import MAICheetah
 from codesign.eval import rollout_single, make_open_loop_policy
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt
 
 CONFIG_PATH = "config/design_hypernetwork_two_axis.yaml"
 
-D = 0.7          # back-leg length scale to render
-T = 50           # rollout length (control steps)
+D = 1.0          # back-leg length scale to render
+T = 250          # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
 FREQ = 1.5       # action frequency [Hz]
 OUT_DIR = Path("scripts/outputs")
@@ -24,8 +26,9 @@ OUT_DIR = Path("scripts/outputs")
 def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
     train_config = mop.utils.read_config(CONFIG_PATH)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-    if(train_config["env"] == "MAICheetah"):
-        env = MAICheetah(env_params=env_params, backend="np")
+
+    if(train_config["env"] == "CodesignCheetah"):
+        env = CodesignCheetah(env_params=env_params, backend="np")
     elif(train_config["env"] == "TwoAxis"):
         env = TwoAxis(env_params=env_params, backend="np")
     

@@ -1,7 +1,8 @@
-"""Train a design hypernetwork on CodesignCheetah.
+"""Train a multi-objective design hypernetwork on CodesignCheetah.
 
-A design hypernetwork produces policy/value networks given a design input. In
-other words, H_{\pi}(d) --> pi_d(a|s) and analagously for the vlaue function.
+A multi-objective design hypernetwork produces policy/value networks given both a design
+and a tradeoff input: H_{\\pi}(d, w) --> pi_{d,w}(a|s) (and analogously for the value
+function). Each epoch trains a grid of sampled designs x sampled tradeoffs.
 """
 
 
@@ -11,9 +12,9 @@ import minimal_mjx as mm
 import moplayground as mop
 
 from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.hyperdesigners import setup_design_hypernetwork
+from codesign.hyperdesigners import setup_mo_design_hypernetwork
 
-CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
+CONFIG_PATH = "config/mo_design_hypernetwork_cheetah.yaml"
 
 def main(config_path: str):
     # (1) Load the config
@@ -36,7 +37,7 @@ def main(config_path: str):
         env,
         eval_env,
         run=run,
-        handle_params=setup_design_hypernetwork,
+        handle_params=setup_mo_design_hypernetwork,
     )
 
 

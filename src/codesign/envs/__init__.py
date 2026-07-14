@@ -6,4 +6,4 @@ the base classes (``MultiObjectiveBase``, ``Multi2SingleObjective``)
 they share. Use ``create_environment(config)`` to construct one from a
 config file.
 """
-from . import CodesignCheetah, CodesignInterface
+from . import CodesignBase, CodesignCheetah

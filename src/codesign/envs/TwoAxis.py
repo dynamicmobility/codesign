@@ -7,10 +7,7 @@ from ml_collections import config_dict
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
-from codesign.envs import CodesignInterface
-from codesign.envs.MAIBase import MAIBase
-from moplayground.envs.dmcontrol.interface import CheetahInterface
-from moplayground.envs.dmcontrol.cheetah import MOCheetah
+from codesign.envs.CodesignBase import CodesignBase
 from mujoco.mjx._src.types import Model
 import mujoco as mj
 import jax.numpy as jnp
@@ -18,9 +15,9 @@ import numpy as np
 from pathlib import Path
 
 INTERFACE_PATH = Path(__file__).resolve().parent
-xml_name = "twoaxis.xml"
+xml_name = "xmls/twoaxis.xml"
     
-class TwoAxis(MAIBase):
+class TwoAxis(CodesignBase):
     """Multi-Objective Cheetah Environment. 
     Objectives are speed, energy, and jumping height."""
 
@@ -29,7 +26,7 @@ class TwoAxis(MAIBase):
         env_params        : config_dict.ConfigDict,
         backend           : str,
     ):
-        MAIBase.__init__(
+        CodesignBase.__init__(
             self,
             base_xml_path     = INTERFACE_PATH / xml_name,
             env_params        = env_params,
@@ -38,7 +35,7 @@ class TwoAxis(MAIBase):
         )
 
     def default_spec(cls):
-        return MAIBase.default_spec(xml_path=INTERFACE_PATH / xml_name)
+        return CodesignBase.default_spec(xml_path=INTERFACE_PATH / xml_name)
 
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
         # input better initialization parameters as a func of mjx_model here
@@ -54,14 +51,7 @@ class TwoAxis(MAIBase):
             time         = 0.0,
             xfrc_applied = self._np.zeros((model.nbody, 6)),
         )
-        parent_state = MAIBase.reset(
-            self,
-            rng            = rng,
-            data           = data,
-            history_length = self.params.history_length
-        )
         info = {}
-        info = parent_state.info | info
 
         done = self._np.array(0.0)
         rewards = self.reward_function(
@@ -72,7 +62,7 @@ class TwoAxis(MAIBase):
         )
         reward, metrics = self.get_reward_and_metrics(rewards, {})
         
-        obs = self._get_obs(data, parent_state.info)
+        obs = self._get_obs(data, info)
         return self._state_init_fn(data, obs, reward, done, metrics, info)
     
     def state_vector(self, data):
@@ -160,13 +150,13 @@ class TwoAxis(MAIBase):
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
-        return MAIBase.default_spec(xml_path=INTERFACE_PATH / xml_name)
+        return CodesignBase.default_spec(xml_path=INTERFACE_PATH / xml_name)
     
     # d goes from 0 to 1 and modifies the ratio of x force range to y force range
     @classmethod
     def generate_model(cls, d):
         spec = cls.default_spec()
-        d = np.clip(d, 0.0, 1.0)
+        d = np.clip(d, 0.01, 0.99)
         max_force = 5.0
         # load spec from file
         spec.actuator("rootx").forcerange = [-d*max_force, d*max_force]
