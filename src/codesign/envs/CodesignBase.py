@@ -20,14 +20,14 @@ INTERFACE_PATH = Path(__file__).resolve().parent
 class CodesignBase(SwappableBase):
     def __init__(
         self, 
-        base_xml_path,
+        xml_path,
         env_params, 
         backend, 
         num_free
     ):
         SwappableBase.__init__(
             self,
-            xml_path    = base_xml_path,
+            xml_path    = xml_path,
             env_params  = env_params,
             backend     = backend,
             num_free    = num_free

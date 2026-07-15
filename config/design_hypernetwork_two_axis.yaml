@@ -3,7 +3,7 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: test
+name: force-reward-rescaled
 save_dir: results/two-axis
 description: "Design-conditioned hypernetwork PPO over Two Axis ratio"
 algorithm: "design_hypernetwork"
@@ -13,7 +13,7 @@ backend: jnp # always jnp for training
 env_config:
   ctrl_dt: 0.01
   sim_dt: 0.01
-  action_scale: 1.0
+  action_scale: 5.0
   history_length: 5
   ideal_base_height: 0.5
   ideal_base_vel: 0.5
@@ -27,23 +27,19 @@ env_config:
     weights:
       x_track:     1.0
       y_track:     1.0
-    sigmas:
-      height:     0.01
-      speed:      0.01
-      energy:     0.1
-      imitation:  0.03
+      force:       0.00001
     optimization:
       objectives:        [['x_track'], ['y_track']]
-      shared_objectives: []
+      shared_objectives: ['force']
       labels:            ['Track X', 'Track Y']
   termination:
     enabled: False
 
 learning_params:
-  reward_objective_weights: [0.0, 0.6, 0.0]
+  reward_objective_weights: [0.5, 0.5]
   ppo_params:
     num_timesteps: 50000000
-    episode_length: 500
+    episode_length: 50
     num_envs: 128
     unroll_length: 20
     batch_size: 64
@@ -68,6 +64,6 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_params:
-    design_low: 0.5
-    design_high: 2.0
+    design_low: 0.01
+    design_high: 0.99
     design_dim: 1

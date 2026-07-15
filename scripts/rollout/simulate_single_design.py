@@ -1,6 +1,8 @@
 """Simulate an open-loop policy on a single design.
 """
 import os
+
+from codesign.envs.EnvLoader import load_env
 os.environ["MUJOCO_GL"] = "egl"
 
 import argparse
@@ -8,38 +10,40 @@ from pathlib import Path
 
 import minimal_mjx as mm
 import moplayground as mop
-from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.envs.TwoAxis import TwoAxis
-from codesign.eval import rollout_single, make_open_loop_policy
+from codesign.eval import make_open_loop_policy
+from codesign.eval.single_eval import rollout_single
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt
+import numpy as np
 
 CONFIG_PATH = "config/design_hypernetwork_two_axis.yaml"
 
 D = 1.0          # back-leg length scale to render
 T = 250          # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
-FREQ = 1.5       # action frequency [Hz]
+FREQ = 0.5       # action frequency [Hz]
 OUT_DIR = Path("scripts/outputs")
 
 
-def main(design: float, steps: int, policy_kind: str, camera: str) -> None:
-    train_config = mop.utils.read_config(CONFIG_PATH)
+def main(config: str, design: float, steps: int, policy_kind: str, camera: str) -> None:
+    train_config = mop.utils.read_config(config)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-
-    if(train_config["env"] == "CodesignCheetah"):
-        env = CodesignCheetah(env_params=env_params, backend="np")
-    elif(train_config["env"] == "TwoAxis"):
-        env = TwoAxis(env_params=env_params, backend="np")
+    env = load_env(env_name=train_config["env"], env_params=env_params, backend="np")
     
-
-    policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
+    if(train_config["env"] == "TwoAxis"):
+        def pd(obs, key, t):
+            K = np.array([[-10, 0, -10, 0], [0, -10, 0, -10]])
+            frc = K @ (obs - np.array([2.0, 2.0, 0.0, 0.0]))
+            return frc, {}
+        policy = pd
+    else:
+        policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
     frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single(
         env, design, policy, steps, camera=camera, width=640, height=480,
     )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"mai_cheetah_d{str(design).replace('.', '_')}_{policy_kind}.mp4"
+    out = OUT_DIR / f"mai_{train_config['env']}_d{str(design).replace('.', '_')}_{policy_kind}.mp4"
     mm.utils.plotting.save_video(frames, env.dt, out)
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 
@@ -57,5 +61,6 @@ if __name__ == "__main__":
         choices=["sinusoid", "random", "zero"], help="open-loop action policy",
     )
     parser.add_argument("--camera", type=str, default="track", help="render camera name")
+    parser.add_argument("--config", type=str, default=CONFIG_PATH, help="environment config to use")
     args = parser.parse_args()
-    main(args.design, args.steps, args.policy, args.camera)
+    main(args.config, args.design, args.steps, args.policy, args.camera)

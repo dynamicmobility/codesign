@@ -7,3 +7,4 @@ they share. Use ``create_environment(config)`` to construct one from a
 config file.
 """
 from . import CodesignBase, CodesignCheetah
+from .EnvLoader import load_env

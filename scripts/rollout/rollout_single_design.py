@@ -10,8 +10,8 @@ from pathlib import Path
 import minimal_mjx as mm
 import matplotlib.pyplot as plt
 import moplayground as mop
-from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.eval import rollout_design_hypernetwork, rollout_mo_design_hypernetwork
+from codesign.eval.single_eval import rollout_design_hypernetwork, rollout_mo_design_hypernetwork
+from codesign.envs.EnvLoader import load_env
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 OUT_DIR = Path("scripts/outputs")
@@ -27,7 +27,7 @@ def main(
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env = CodesignCheetah(env_params=env_params, backend="np")
+    env = load_env(env_name=config["env"], env_params=env_params, backend="np")
 
     algorithm = config["algorithm"]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ def main(
             checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
         )
         out = OUT_DIR / f"mo_design_hypernetwork.mp4"
-        title = f"MAI Cheetah d={design} w={tradeoff} reward"
+        title = f"{config['env']} d={design} w={tradeoff} reward"
         
     elif algorithm == "design_hypernetwork":
         if tradeoff is not None:
@@ -64,7 +64,7 @@ def main(
             checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
         )
         out = OUT_DIR / f"design_hypernetwork.mp4"
-        title = f"MAI Cheetah d={design} reward"
+        title = f"{config['env']} d={design} reward"
         
     else:
         raise ValueError(
