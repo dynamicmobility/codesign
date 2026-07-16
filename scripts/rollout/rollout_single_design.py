@@ -1,6 +1,8 @@
 """Rolls outs codesign hypernetworks given a config yaml.
 """
 import os
+
+from codesign.envs.CodesignBase import CodesignMO2SO
 os.environ["MUJOCO_GL"] = "egl"
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 
@@ -10,7 +12,7 @@ from pathlib import Path
 import minimal_mjx as mm
 import matplotlib.pyplot as plt
 import moplayground as mop
-from codesign.eval.single_eval import rollout_design_hypernetwork, rollout_mo_design_hypernetwork
+from codesign.eval.single_eval import rollout_design_hypernetwork, rollout_mo_design_hypernetwork, rollout_single
 from codesign.envs.EnvLoader import load_env
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
@@ -65,6 +67,22 @@ def main(
         )
         out = OUT_DIR / f"design_hypernetwork.mp4"
         title = f"{config['env']} d={design} reward"
+    
+    elif algorithm == "ppo":
+        # Trained, design-conditioned policy for this single design (1-D design -> unbatched).
+        policy = mm.learning.inference.load_policy(config)
+        so_eval_env = CodesignMO2SO(env, config['learning_params']['reward_objective_weights'])
+        # Rollout
+        frames, traj, reward_plotter, _, _ = mm.eval.rollout_policy(
+            inference_fn=policy,
+            env= so_eval_env, 
+            n_steps=steps,
+            camera=camera, 
+            width=640, height=480,
+        )
+        out = OUT_DIR / f"design_hypernetwork.mp4"
+        title = f"{config['env']} d={design} reward"
+
         
     else:
         raise ValueError(

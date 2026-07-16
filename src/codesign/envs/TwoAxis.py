@@ -77,11 +77,7 @@ class TwoAxis(MultiObjectiveBase, CodesignBase):
         return self._np.hstack([data.qpos, data.qvel])
 
     def step(self, state: mjx_env.State, action: jax.Array, model: Model) -> mjx_env.State:
-        action = self._np.clip(
-            self.params.action_scale * action, 
-            -self._np.inf,
-            self._np.inf
-        )
+        action = self.params.action_scale * action
         data = self._step_fn(state.data, action, model)
         
         done = self.termination(state.info)
@@ -112,31 +108,31 @@ class TwoAxis(MultiObjectiveBase, CodesignBase):
         done
     ):
         rewards = {
-            'x_track' : self.x_track_reward(data, info),
-            'y_track' : self.y_track_reward(data, info),
-            'force'   : self.force_reward(data, action),
+            'x_track' : self.x_track_reward(data, info, self.params.reward.sigmas.x_track),
+            'y_track' : self.y_track_reward(data, info, self.params.reward.sigmas.y_track),
+            'force'   : self.force_reward(data, action, self.params.reward.sigmas.force),
         }
         return rewards
 
-    def x_track_reward(self, data, info):
+    def x_track_reward(self, data, info, sigma):
         """Reward for tracking the x position of the target."""
         xpos = data.qpos[0]
         xvel = data.qvel[0]
         target_xpos = 2.0
         reward = -(xpos - target_xpos)**2 - 0.1*xvel**2
-        return reward
+        return self._np.exp(reward/sigma)
 
-    def y_track_reward(self, data, info):
+    def y_track_reward(self, data, info, sigma):
         """Reward for tracking the y position of the target."""
         ypos = data.qpos[1]
         yvel = data.qvel[1]
         target_ypos = 2.0
         reward = -(ypos - target_ypos)**2 - 0.1*yvel**2
-        return reward
+        return self._np.exp(reward/sigma)
 
-    def force_reward(self, data, action):
+    def force_reward(self, data, action, sigma):
         # return -data.actuator_force[0]**2 - data.actuator_force[1]**2
-        return -self._np.linalg.norm(action)**2
+        return self._np.exp(-self._np.linalg.norm(action)**2/sigma)
 
     def termination( self,  info: dict):
         return self._np.array(False)

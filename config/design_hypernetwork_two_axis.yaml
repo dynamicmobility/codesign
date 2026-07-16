@@ -3,17 +3,17 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: force-reward-rescaled
+name: so-longer-episode
 save_dir: results/two-axis
 description: "Design-conditioned hypernetwork PPO over Two Axis ratio"
-algorithm: "design_hypernetwork"
+algorithm: "ppo"
 env: "TwoAxis"
 backend: jnp # always jnp for training
 
 env_config:
   ctrl_dt: 0.01
   sim_dt: 0.01
-  action_scale: 5.0
+  action_scale: 10.0
   history_length: 5
   ideal_base_height: 0.5
   ideal_base_vel: 0.5
@@ -27,10 +27,14 @@ env_config:
     weights:
       x_track:     1.0
       y_track:     1.0
-      force:       0.00001
+      force:       1.0
+    sigmas:
+      x_track:     10.0
+      y_track:     10.0
+      force:       10.0
     optimization:
       objectives:        [['x_track'], ['y_track']]
-      shared_objectives: ['force']
+      shared_objectives: []
       labels:            ['Track X', 'Track Y']
   termination:
     enabled: False
@@ -39,7 +43,7 @@ learning_params:
   reward_objective_weights: [0.5, 0.5]
   ppo_params:
     num_timesteps: 50000000
-    episode_length: 50
+    episode_length: 500
     num_envs: 128
     unroll_length: 20
     batch_size: 64
@@ -59,10 +63,13 @@ learning_params:
     deterministic_eval: true
     seed: 0
   network_params:
-    hypersize: [128, 128]
-    num_features: 16
     policy_hidden_layer_sizes: [64, 64]
-    value_hidden_layer_sizes:  [64, 64]
+    value_hidden_layer_sizes:  [64, 64] 
+  design_hypernetwork_params:
+      hypersize: [128, 128]
+      num_features: 16
+      policy_hidden_layer_sizes: [64, 64]
+      value_hidden_layer_sizes:  [64, 64]
   design_params:
     design_low: 0.01
     design_high: 0.99

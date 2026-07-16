@@ -10,6 +10,7 @@ import argparse
 import minimal_mjx as mm
 import moplayground as mop
 
+from codesign.envs.CodesignBase import CodesignMO2SO
 from codesign.envs.EnvLoader import load_env
 from codesign.hyperdesigners import setup_design_hypernetwork
 
@@ -32,13 +33,16 @@ def main(config_path: str):
     env = load_env(env_name=env_name, env_params=env_params, backend="jnp")
     eval_env = load_env(env_name=env_name, env_params=env_params, backend="jnp")
 
+    so_env = CodesignMO2SO(env, config['learning_params']['reward_objective_weights'])
+    so_eval_env = CodesignMO2SO(eval_env, config['learning_params']['reward_objective_weights'])
+
     # Run via minimal-mjx's trainer with our handle_params
     return mm.learning.training.train(
         config,
-        env,
-        eval_env,
+        so_env,
+        so_eval_env,
         run=run,
-        handle_params=setup_design_hypernetwork,
+        # handle_params=setup_design_hypernetwork,
     )
 
 

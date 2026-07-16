@@ -76,11 +76,11 @@ class CodesignMO2SO:
             reward=self.env._np.sum(state.reward * self.weighting)
         )
 
-    def reset(self, rng: jax.Array, model) -> Any:
-        return self._scalarize(self.env.reset(rng, model))
+    def reset(self, rng: jax.Array) -> Any:
+        return self._scalarize(self.env.reset(rng, self.env.mjx_model if self.env.backend == 'jnp' else self.env.mj_model))
 
-    def step(self, state, action: jax.Array, model) -> Any:
-        return self._scalarize(self.env.step(state, action, model))
+    def step(self, state, action: jax.Array) -> Any:
+        return self._scalarize(self.env.step(state, action, self.env.mjx_model if self.env.backend == 'jnp' else self.env.mj_model))
 
     def __getattr__(self, name):
         """Delegate any attribute not defined on the wrapper to the wrapped env."""

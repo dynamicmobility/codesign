@@ -22,7 +22,7 @@ def setup_design_hypernetwork(config):
     """
     lp = config["learning_params"]
     ppo = dict(lp["ppo_params"])
-    net = dict(lp["network_params"])
+    net = dict(lp["design_hypernetwork_params"])
     design = dict(lp["design_params"])
 
     network_factory = functools.partial(
