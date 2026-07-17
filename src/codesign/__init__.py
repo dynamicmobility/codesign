@@ -24,12 +24,12 @@ from .envs import (
 
 # eval
 from .eval import (
-    rollout_policy,
-    rollout_parallel,
-    rollout_mo_designs,
-    rollout_single,
+    rollout_so_parallel,
     rollout_design_hypernetwork,
     rollout_mo_design_hypernetwork,
+    rollout_single_video,
+    rollout_design_hypernetwork_video,
+    rollout_mo_design_hypernetwork_video,
 )
 
 # hyperdesigners
@@ -88,14 +88,14 @@ __all__ = [
     "CodesignCheetah",
     "RHex",
     # eval
-    "rollout_policy",
     "make_open_loop_policy",
     "from_inference_fn",
-    "rollout_parallel",
-    "rollout_mo_designs",
-    "rollout_single",
+    "rollout_so_parallel",
     "rollout_design_hypernetwork",
     "rollout_mo_design_hypernetwork",
+    "rollout_single_video",
+    "rollout_design_hypernetwork_video",
+    "rollout_mo_design_hypernetwork_video",
     # hyperdesigners
     "train_design_hypernetwork",
     "train_mo_design_hypernetwork",

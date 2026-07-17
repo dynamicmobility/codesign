@@ -177,9 +177,5 @@ class MOCodesignCheetah(MOCodesignBase):
         spec.body("bshin").pos = new_shin_pos
         thigh_geom = spec.geom("bthigh")
         thigh_geom.pos = midpoint  # Change to desired position (x, y, z)
-        thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos)/2
+        thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos) / 2
         return spec.compile()
-
-# def resample_design(rng):
-#     length = np.random.uniform(shape=(1,), minval=0.5, maxval=2)
-#     return length

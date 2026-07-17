@@ -1,7 +1,7 @@
 """Evaluate a trained ``mo_design_hypernetwork`` across a uniform sweep of designs
 and tradeoffs.
 Logs the results in a ``.npz`` file for later plotting.
-The parallel rollout itself lives in ``codesign.eval.rollout_mo_designs``.
+The parallel rollout itself lives in ``codesign.eval.rollout_mo_design_hypernetwork``.
 """
 
 import argparse
@@ -71,7 +71,7 @@ def main(
         env_params = mm.utils.config.create_config_dict(config["env_config"])
         env        = codesign.CodesignCheetah(env_params=env_params, backend="jnp")
 
-        grid = codesign.rollout_mo_designs(
+        grid = codesign.rollout_mo_design_hypernetwork(
             env             = env,
             config          = config,
             n_designs       = n_designs,

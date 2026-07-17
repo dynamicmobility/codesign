@@ -9,15 +9,15 @@ config file.
 from . import CodesignBase, CodesignCheetah
 from .EnvLoader import load_env, RHex
 
-from codesign.envs.CodesignBase import CodesignBase as CodesignBase
-from codesign.envs.CodesignBase import CodesignMO2SO
-from codesign.envs.CodesignCheetah import CodesignCheetah as CodesignCheetah
+from codesign.envs.CodesignBase import CodesignBase, MOCodesignBase, CodesignMO2SO
+from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.envs.RHex import RHex as RHex
 
 __all__ = [
     "CodesignBase",
     "CodesignMO2SO",
     "CodesignCheetah",
+    "MOCodesignBase",
     "RHex",
     "load_env",
 ]

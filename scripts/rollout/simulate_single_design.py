@@ -10,7 +10,7 @@ from pathlib import Path
 
 import minimal_mjx as mm
 from codesign.eval import make_open_loop_policy
-from codesign.eval.single_eval import rollout_single
+from codesign.eval.rollout_video import rollout_single_video
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt
 import numpy as np
@@ -37,7 +37,7 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str) 
         policy = pd
     else:
         policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
-    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single(
+    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single_video(
         env, design, policy, steps, camera=camera, width=640, height=480,
     )
 

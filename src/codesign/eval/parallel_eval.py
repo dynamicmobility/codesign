@@ -8,16 +8,15 @@ import jax.numpy as jnp
 import numpy as np
 from mujoco import mjx
 
-from codesign.envs.CodesignBase import CodesignMO2SO, CodesignBase
+from codesign.envs.CodesignBase import CodesignMO2SO, CodesignBase, MOCodesignBase
 from minimal_mjx.eval import policy as policy_lib
 from codesign.hyperdesigners import acting
 from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork
 from codesign.utils import model as model_lib
 from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid
-from codesign.utils.model import uniform_design_sweep
 
 
-def rollout_parallel(
+def rollout_so_parallel(
     env,
     batched_model,
     policy,
@@ -28,7 +27,10 @@ def rollout_parallel(
     mask_after_done: bool = True,
     seed: int = 0,
 ) -> np.ndarray:
-    """Scan ``n_steps`` of a batched policy over a stacked, per-env ``mjx.Model``.
+    """Scan ``n_steps`` of a batched single-objective policy over a stacked, per-env ``mjx.Model``.
+
+    For the design x tradeoff grid with per-objective accumulated reward, see
+    :func:`build_grid_rollout_fn`.
 
     Every env (one per stacked model) is reset, then stepped together for ``n_steps``
     under ``policy``. A configurable ``record_fn`` extracts the per-step value to log.
@@ -76,7 +78,7 @@ def rollout_parallel(
     rng_reset = jax.random.split(jax.random.PRNGKey(seed + 1), num_envs)
     return np.asarray(rollout(rng_reset, jax.random.PRNGKey(seed + 2)))
 
-def get_pareto_rollout(env, n_steps, make_policy, deterministic=True):
+def build_grid_rollout_fn(env, n_steps, make_policy, deterministic=True):
     """Build a jitted rollout of a design/tradeoff-conditioned hypernetwork policy,
     vmapped over grid axes (design, tradeoff, rep).
 
@@ -112,7 +114,7 @@ def get_pareto_rollout(env, n_steps, make_policy, deterministic=True):
     over_designs   = jax.vmap(over_tradeoffs, in_axes=(0, 0, None, 0, None))
     return jax.jit(over_designs)
 
-def rollout_mo_designs(
+def rollout_mo_design_hypernetwork(
     env: CodesignBase,
     config,
     n_designs: int,
@@ -145,27 +147,26 @@ def rollout_mo_designs(
         A :class:`DesignTradeoffRolloutGrid` with ``rewards`` of shape
         ``(n_designs, n_tradeoffs, per_cell, num_objectives)``.
     """
-    designs = uniform_design_sweep(config, n_designs)
-    tradeoffs = jax.random.dirichlet(
-        jax.random.PRNGKey(seed + 1),
-        alpha=np.ones(len(env.objectives)),
-        shape=(n_tradeoffs,),
+    # Create the sample grid
+    grid = DesignTradeoffSampleGrid.from_uniform_sample(
+        env, seed=seed, n_tradeoffs=n_tradeoffs, n_designs=n_designs, per_cell=per_cell
     )
-    grid = DesignTradeoffSampleGrid(
-        designs=np.asarray(designs), tradeoffs=np.asarray(tradeoffs), per_cell=per_cell
-    )
-    designs_input = model_lib.normalize_design(jnp.asarray(designs), config=config)
-
-    # One stacked, batched mjx.Model per design (host-side, via the env's generator).
+    designs_input = model_lib.normalize_design(jnp.asarray(grid.designs), config=config)
     batched_model = grid.build_models(env, tiled=False)
 
+    # Create the rollout function
     make_policy_fn, params = load_mo_design_hypernetwork(config, path=checkpoint_path)
-
-    rollout_fn = get_pareto_rollout(env, n_steps, make_policy_fn, deterministic=deterministic)
     keys = jax.random.split(
         jax.random.PRNGKey(seed), grid.num_envs
     ).reshape(n_designs, n_tradeoffs, per_cell, -1)
-
+    rollout_fn = build_grid_rollout_fn(
+        env           = env,
+        n_steps       = n_steps,
+        make_policy   = make_policy_fn,
+        deterministic = deterministic
+    )
+    
+    # Run the rollouts
     (_, final_rewards), _ = rollout_fn(keys, designs_input, jnp.asarray(grid.tradeoffs), batched_model, params)
 
     return DesignTradeoffRolloutGrid(
@@ -178,7 +179,7 @@ def rollout_mo_designs(
 
 
 def rollout_design_hypernetwork(
-    env: CodesignBase,
+    env: CodesignBase | MOCodesignBase,
     config,
     num_envs: int,
     n_steps: int,
@@ -191,7 +192,7 @@ def rollout_design_hypernetwork(
 ):
     """Rollout design hypernetwork across a uniform design sweep, in parallel.
     Note that the design hypernetwork is for single-objective rewards, so this
-    function expects a multi-objective env and scalarizes the reward.
+    function will scalarize the reward of a MOCodesignBase policy.
 
     Args:
         env: a model-as-input env (e.g. ``CodesignCheetah``) — see module docstring.
@@ -210,12 +211,26 @@ def rollout_design_hypernetwork(
     """
     if trials_per_env < 1:
         raise ValueError("trials_per_env must be at least 1")
+    
+    # Collapse the multi-objective reward to a scalar by wrapping the env.
+    if weighting is None:
+        weighting = config["learning_params"].get("reward_objective_weights")
+    
+    if type(env) == MOCodesignBase:
+        env = CodesignMO2SO(env, weighting)
 
     design = config["learning_params"]["design_params"]
     design_low = float(design["design_low"])
     design_high = float(design["design_high"])
+    design_dim = int(design["design_dim"])
 
-    designs = uniform_design_sweep(config, num_envs)
+    designs = model_lib.sample_designs(
+        rng         = np.random.default_rng(seed),
+        num_envs    = num_envs,
+        low         = design_low,
+        high        = design_high,
+        dim         = design_dim,
+    )
     repeated_designs = np.repeat(designs, trials_per_env, axis=0)
 
     # One stacked, batched mjx.Model per design (host-side, via the env's generator).
@@ -224,19 +239,14 @@ def rollout_design_hypernetwork(
         jnp.asarray(repeated_designs), design_low, design_high
     )
 
-    # Collapse the multi-objective reward to a scalar by wrapping the env.
-    if weighting is None:
-        weighting = config["learning_params"].get("reward_objective_weights")
-    so_env = CodesignMO2SO(env, weighting)
-
     # Load the trained, design-conditioned policy (obs/action sizes come from the
     # checkpoint's saved config) and adapt it to the (obs, key, t) rollout protocol.
     inference_fn, params = load_design_hypernetwork(config, path=checkpoint_path)
     base_policy = inference_fn(params, designs_input, deterministic=deterministic)
     policy = policy_lib.from_inference_fn(base_policy)
 
-    rewards = rollout_parallel(
-        so_env,
+    rewards = rollout_so_parallel(
+        env,
         batched_model,
         policy,
         num_envs * trials_per_env,

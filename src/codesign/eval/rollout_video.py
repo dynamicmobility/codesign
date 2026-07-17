@@ -9,7 +9,7 @@ from mujoco_playground._src.mjx_env import render_array
 from minimal_mjx.utils import plotting
 from tqdm import tqdm
 
-from codesign.envs import CodesignBase
+from codesign.envs import CodesignBase, MOCodesignBase
 from minimal_mjx.eval import policy as policy_lib
 from codesign.learning.inference import (
     load_design_hypernetwork,
@@ -20,8 +20,8 @@ from codesign.utils.model import normalize_design
 from minimal_mjx.learning.inference import get_step_reset
 
 
-def rollout_single(
-    env: CodesignBase,
+def rollout_single_video(
+    env: CodesignBase | MOCodesignBase,
     design,
     policy,
     n_steps: int,
@@ -90,7 +90,7 @@ def rollout_single(
     return frames, traj, reward_plotter, data_plotter, info_plotter
 
 
-def rollout_design_hypernetwork(
+def rollout_design_hypernetwork_video(
     env,
     config: dict,
     design,
@@ -107,10 +107,10 @@ def rollout_design_hypernetwork(
     """Render a trained design-hypernetwork policy on a single design.
 
     Loads the checkpoint, builds the (unbatched) design-conditioned policy for ``design``,
-    and rolls it out via :func:`rollout_single`. Single-instance analogue of
+    and rolls it out via :func:`rollout_single_video`. Single-instance analogue of
     :func:`codesign.eval.parallel_eval.rollout_design_hypernetwork`.
 
-    Returns ``(frames, traj)`` (see :func:`rollout_single`).
+    Returns ``(frames, traj)`` (see :func:`rollout_single_video`).
     """
     design       = np.asarray(design, np.float32).reshape(-1) # flatten
     design_input = normalize_design(jnp.asarray(design), config=config)
@@ -120,13 +120,13 @@ def rollout_design_hypernetwork(
     base_policy          = inference_fn(params, design_input, deterministic=deterministic)
     policy               = policy_lib.from_inference_fn(base_policy)
 
-    return rollout_single(
+    return rollout_single_video(
         env, design, policy, n_steps,
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
 
 
-def rollout_mo_design_hypernetwork(
+def rollout_mo_design_hypernetwork_video(
     env,
     config,
     design,
@@ -143,7 +143,7 @@ def rollout_mo_design_hypernetwork(
 ):
     """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
 
-    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single`.
+    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single_video`.
     """
     design       = np.asarray(design, np.float32).reshape(-1) # flatten
     design_input = normalize_design(jnp.asarray(design), config=config)
@@ -159,7 +159,7 @@ def rollout_mo_design_hypernetwork(
     )
     policy = policy_lib.from_inference_fn(base_policy)
 
-    return rollout_single(
+    return rollout_single_video(
         env, design, policy, n_steps,
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
