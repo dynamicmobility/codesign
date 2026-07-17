@@ -33,7 +33,6 @@ class MOCodesignCheetah(MOCodesignBase):
         )
         
         super().__init__(
-            self,
             xml_path          = INTERFACE_PATH / "xmls" / "cheetah.xml",
             env_params        = env_params,
             backend           = backend,
@@ -152,6 +151,8 @@ class MOCodesignCheetah(MOCodesignBase):
         )
         return upside_down | too_low
 
+    def _get_obs(self, data, info):
+        return self.mo_backend.get_metrics(data, info)
     
     @property
     def action_size(self):

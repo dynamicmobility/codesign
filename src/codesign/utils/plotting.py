@@ -144,10 +144,10 @@ def plot_mo_design_progress(
     training_data: MODesignTrainingPlottingInfo,
     save_dir: Path,
     run: wandb.Run = None,
+    times = [],
     **kwargs,
 ):
     print(datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S %Z"))
-
     training_data.iterations.append(num_steps)
     training_data.rewards.append(np.asarray(metrics["reward"]))
     training_data.tradeoffs.append(np.asarray(metrics["tradeoffs"]))
@@ -155,6 +155,7 @@ def plot_mo_design_progress(
     training_data.times.append(time.time())
     training_data.save(save_dir / "mo_design_progress.csv")
 
+    times.append(datetime.now())
     fig, _ = plot_sequential_design_paretos(
         ax_titles   = training_data.iterations,
         rewards_seq = training_data.rewards,

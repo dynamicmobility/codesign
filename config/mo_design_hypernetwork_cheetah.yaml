@@ -5,7 +5,7 @@
 # Multi-objective: the per-objective reward vector is scalarized by the tradeoff w in the
 # loss (as in MORLAX). Each epoch trains a grid of `num_designs` designs x `num_tradeoffs`
 # tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
-name: mo-design-cheetah-3-high-clip-longer-test
+name: test
 save_dir: results/mo-design-hypernetwork-cheetah
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
