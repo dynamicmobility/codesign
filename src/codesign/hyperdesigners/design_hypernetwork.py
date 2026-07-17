@@ -1,13 +1,4 @@
 """``design_hypernetwork`` training algo.
-
-A single-objective PPO algo that trains a *design-conditioned* hypernetwork 
-(policy + separate value hypernetwork) on a model-as-input (MAI) environment. 
-Designs are sampled and stacked every training epoch.
-
-v1 simplifications (documented intentionally):
-  * single device (``jax.jit``, no ``pmap``);
-  * env state is re-sampled each epoch (new designs), so episodes don't span epochs;
-  * ``CodesignCheetah`` resets are deterministic per design (no obs/init randomization).
 """
 
 import functools

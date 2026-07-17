@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mujoco import mjx
 
-import moplayground as mop
 import minimal_mjx as mm
 from codesign.envs.CodesignCheetah import CodesignCheetah
 from codesign.eval import rollout_parallel, make_open_loop_policy
@@ -28,7 +27,7 @@ OUT_DIR = Path('scripts/outputs')
 
 
 def main(n: int, steps: int, policy_kind: str) -> None:
-    train_config = mop.utils.read_config(CONFIG_PATH)
+    train_config = mm.utils.read_config(CONFIG_PATH)
     env_params = mm.utils.config.create_config_dict(train_config['env_config'])
     env = CodesignCheetah(env_params=env_params, backend='jnp')
 

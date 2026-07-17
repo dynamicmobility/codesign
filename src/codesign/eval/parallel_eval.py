@@ -1,4 +1,4 @@
-"""Parallelized rollouts of a model-specific policy across a sweep of MAI variants.
+"""Parallelized rollouts of a model-specific policy across a sweep of Codesign Envs.
 """
 
 import functools

@@ -1,4 +1,4 @@
-# Training config for the `design_hypernetwork` algorithm on MAICheetah.
+# Training config for the `design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d) = \pi(a | s)
 #

@@ -1,11 +1,4 @@
-"""Single-instance (non-parallel) rollout of a policy on one MAI design, rendered to video.
-
-The single-env counterpart of :mod:`codesign.eval.parallel_eval`: instead of stacking a
-sweep of designs and scanning them together, this builds *one* design-specific model,
-steps a single env under a policy, and renders the trajectory to frames. The generic core
-:func:`rollout_single` takes any ``policy(obs, key, t)`` (open-loop or trained — see
-:mod:`codesign.eval.policies`); :func:`rollout_design_hypernetwork_video` is a thin wrapper
-that loads a trained design-conditioned policy for the given design.
+"""Single-instance (non-parallel) rollout of a policy on one Env, rendered to video.
 """
 
 import numpy as np
@@ -41,7 +34,7 @@ def rollout_single(
     show_progress: bool = True,
     scene_option = plotting.get_mj_scene_option(contacts=False, com=False)
 ):
-    """Roll a single MAI env (one design) forward under ``policy`` and render it.
+    """Roll a single Codesign env (one design) forward under ``policy`` and render it.
 
     Args:
         env: a CodesignBase env

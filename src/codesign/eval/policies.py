@@ -58,9 +58,6 @@ def make_sinusoidal_policy(
     action_size: int, amp: float = 0.8, freq: float = 1.5, phases=None
 ):
     """Open-loop sinusoid ``amp * sin(2*pi*freq*t + phases)``, identical across envs.
-
-    ``phases`` defaults to ``linspace(0, pi, action_size)`` so the actuators are spread
-    out of phase (the same default as the original ``rollout_mai_cheetah`` sinusoid).
     """
     phases = (
         jnp.linspace(0.0, jnp.pi, action_size) if phases is None else jnp.asarray(phases)

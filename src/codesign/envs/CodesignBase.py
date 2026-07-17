@@ -1,4 +1,4 @@
-"""Model-as-input (MAI) Cheetah environment."""
+"""Codesign Cheetah environment."""
 
 from abc import abstractmethod
 from typing import Any
