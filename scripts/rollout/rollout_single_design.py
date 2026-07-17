@@ -70,7 +70,7 @@ def main(
     
     elif algorithm == "ppo":
         # Trained, design-conditioned policy for this single design (1-D design -> unbatched).
-        policy = mm.learning.inference.load_policy(config)
+        policy = mm.learning.inference.load_policy(config, deterministic=True, checkpoint_path=checkpoint_path)
         so_eval_env = CodesignMO2SO(env, config['learning_params']['reward_objective_weights'])
         # Rollout
         frames, traj, reward_plotter, _, _ = mm.eval.rollout_policy(

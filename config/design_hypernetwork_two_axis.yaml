@@ -3,7 +3,7 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: so-longer-episode
+name: so-speed-reward
 save_dir: results/two-axis
 description: "Design-conditioned hypernetwork PPO over Two Axis ratio"
 algorithm: "ppo"
@@ -29,8 +29,8 @@ env_config:
       y_track:     1.0
       force:       1.0
     sigmas:
-      x_track:     10.0
-      y_track:     10.0
+      x_track:     5.0
+      y_track:     5.0
       force:       10.0
     optimization:
       objectives:        [['x_track'], ['y_track']]
