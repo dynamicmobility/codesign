@@ -1,20 +1,40 @@
-"""Train a multi-objective design hypernetwork on CodesignCheetah.
-
-A multi-objective design hypernetwork produces policy/value networks given both a design
-and a tradeoff input: H_{\\pi}(d, w) --> pi_{d,w}(a|s) (and analogously for the value
-function). Each epoch trains a grid of sampled designs x sampled tradeoffs.
-"""
-
+"""Generic training script for hyperdesigners"""
 
 import argparse
+import functools
+import time
 
 import minimal_mjx as mm
 import moplayground as mop
 
 from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.hyperdesigners import setup_mo_design_hypernetwork
+from codesign.utils.plotting import (
+    MODesignTrainingPlottingInfo,
+    plot_mo_design_progress,
+)
+import codesign
 
 CONFIG_PATH = "config/mo_design_hypernetwork_cheetah.yaml"
+
+def get_handle_params(config):
+    match config.algorithm:
+        case 'design_hypernetwork':
+            return codesign.hyperdesigners.setup_design_hypernetwork
+        case 'mo_design_hypernetwork':
+            return codesign.hyperdesigners.setup_mo_design_hypernetwork
+
+
+def get_progress_fn(config, env):
+    """Custom progress callback for the MO design hypernetwork (per-design Pareto
+    frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
+    if config.algorithm != 'mo_design_hypernetwork':
+        return None
+    training_data = MODesignTrainingPlottingInfo(
+        start_time = time.time(),
+        labels     = env.objectives,
+    )
+    return functools.partial(plot_mo_design_progress, training_data=training_data)
+
 
 def main(config_path: str):
     # (1) Load the config
@@ -26,10 +46,12 @@ def main(config_path: str):
         config  = config
     )
 
-    # Model-as-input env
+    # Codesign Env
     env_params = mm.utils.config.create_config_dict(config["env_config"])
     env = CodesignCheetah(env_params=env_params, backend="jnp")
     eval_env = CodesignCheetah(env_params=env_params, backend="jnp")
+
+    setup_fn = get_handle_params(config)
 
     # Run via minimal-mjx's trainer with our handle_params
     return mm.learning.training.train(
@@ -37,7 +59,8 @@ def main(config_path: str):
         env,
         eval_env,
         run=run,
-        handle_params=setup_mo_design_hypernetwork,
+        handle_params=setup_fn,
+        progress_fn=get_progress_fn(config, env),
     )
 
 

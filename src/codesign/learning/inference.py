@@ -53,11 +53,6 @@ def load_design_hypernetwork(
     quiet=True,
 ):
     """Load the design-hypernetwork inference fn + saved params from a checkpoint.
-
-    Returns ``(inference_fn, params)`` where ``params = (normalizer_params,
-    hypernet_params)`` and ``inference_fn(params, design, deterministic=False)`` yields a
-    ``policy(obs, key)``. Mirrors
-    ``moplayground.learning.inference.load_hypernetwork_inference_fn``.
     """
     if network_factory is None:
         _, network_factory = setup_design_hypernetwork(config)
@@ -81,11 +76,6 @@ def load_mo_design_hypernetwork(
     quiet=True,
 ):
     """Load the MO design-hypernetwork inference fn + saved params from a checkpoint.
-
-    Returns ``(inference_fn, params)`` where ``params = (normalizer_params,
-    hypernet_params)`` and ``inference_fn(params, designs, directives, deterministic=False)``
-    yields a ``policy(obs, key)``. The multi-objective analogue of
-    :func:`load_design_hypernetwork`.
     """
     if network_factory is None:
         _, network_factory = setup_mo_design_hypernetwork(config)

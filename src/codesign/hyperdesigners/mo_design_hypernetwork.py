@@ -17,6 +17,7 @@ from mujoco import mjx
 from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
+from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_mo_design_hypernet_loss,
@@ -154,9 +155,8 @@ def train_mo_design_hypernetwork(
     ):
         """Sample a design x tradeoff grid and build the tiled per-env model.
 
-        Returns ``(batched_model, designs_input, tradeoffs_full)`` where the arrays have a
-        leading env axis of ``n_designs * n_tradeoffs * per_cell``. Env ordering is
-        ``env = ((design_idx * n_tradeoffs) + tradeoff_idx) * per_cell + rep``.
+        Returns ``(grid, batched_model, designs_input, tradeoffs_full)`` where the last
+        three have a leading env axis of ``grid.num_envs`` in the grid's flat env ordering.
         """
         designs_unique = model_lib.sample_designs(
             d_rng, n_designs, design_low, design_high, design_dim
@@ -166,20 +166,16 @@ def train_mo_design_hypernetwork(
             sampling=sampling, alpha=alpha, warmup_frac=warmup_frac,
             num_warmup_ref=num_evals_after_init,
         )
-
-        reps = n_tradeoffs * per_cell
-        per_design_models = [generate_model_fn(np.asarray(d)) for d in designs_unique]
-        models_list = [m for m in per_design_models for _ in range(reps)]
-        batched_model = model_lib.stack_models(models_list)
-
-        designs_full = np.repeat(designs_unique, reps, axis=0)
-        tradeoffs_full = np.tile(
-            np.repeat(tradeoffs_unique, per_cell, axis=0), (n_designs, 1)
+        grid = DesignTradeoffSampleGrid(
+            designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=per_cell
         )
+
+        batched_model = grid.build_models(generate_model_fn, tiled=True)
+        designs_full, tradeoffs_full = grid.flatten()
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_full), design_low, design_high
         )
-        return batched_model, designs_input, jnp.asarray(tradeoffs_full)
+        return grid, batched_model, designs_input, jnp.asarray(tradeoffs_full)
     
     obs_size = environment.observation_size
     num_objectives = len(environment.params.reward.optimization.objectives)
@@ -347,7 +343,7 @@ def train_mo_design_hypernetwork(
         return ret
 
     def evaluate(training_state, key):
-        eval_model, eval_designs, eval_directives = build_grid(
+        eval_grid, eval_model, eval_designs, eval_directives = build_grid(
             num_designs, num_tradeoffs, eval_envs_per_cell,
             np.random.default_rng(int(key[0])),
             np.random.default_rng(int(key[0]) + 1),
@@ -365,13 +361,21 @@ def train_mo_design_hypernetwork(
             key,
         )
         ret = np.asarray(ret)  # [num_eval_envs, num_objectives]
-        scalarized = np.sum(np.asarray(eval_directives) * ret, axis=-1)
+        directives = np.asarray(eval_directives)
+        scalarized = np.sum(directives * ret, axis=-1)
         metrics = {
             "eval/episode_reward": float(np.mean(scalarized)),
             "eval/episode_reward_std": float(np.std(scalarized)),
         }
         for i in range(num_objectives):
             metrics[f"eval/episode_reward_obj{i}"] = float(np.mean(ret[:, i]))
+
+        # Per-design / per-tradeoff frontier data for Pareto plotting, mean over the reps
+        # so each cell is one point.
+        rollout_grid = DesignTradeoffRolloutGrid.from_flat(eval_grid, ret)
+        metrics["reward"] = rollout_grid.mean_rewards                    # (D, T, num_objectives)
+        metrics["directive"] = eval_grid.unflatten(directives).mean(axis=2)  # (D, T, num_objectives)
+        metrics["designs"] = eval_grid.designs                           # (D, design_dim)
         return metrics
 
     # Initialize training state.
@@ -404,7 +408,7 @@ def train_mo_design_hypernetwork(
 
     walltime = 0.0
     for it in range(num_evals_after_init):
-        batched_model, designs_input, directives = build_grid(
+        _, batched_model, designs_input, directives = build_grid(
             num_designs, num_tradeoffs, envs_per_cell,
             design_rng, tradeoff_rng, it, num_objectives,
         )

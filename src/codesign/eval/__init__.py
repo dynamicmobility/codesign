@@ -10,10 +10,27 @@ from .rollout import rollout_policy
 from . import policies
 from .policies import make_open_loop_policy, from_inference_fn
 from . import parallel_eval
-from .parallel_eval import rollout_parallel, rollout_design_hypernetwork, rollout_mo_designs
+from .parallel_eval import (
+    rollout_parallel,
+    rollout_design_hypernetwork,
+    rollout_mo_designs,
+)
 from . import single_eval
 from .single_eval import (
     rollout_single,
     rollout_design_hypernetwork,
     rollout_mo_design_hypernetwork,
 )
+
+# NOTE: ``rollout_design_hypernetwork`` is defined in both ``parallel_eval`` and
+# ``single_eval``; the ``single_eval`` import above intentionally wins here.
+__all__ = [
+    "rollout_policy",
+    "make_open_loop_policy",
+    "from_inference_fn",
+    "rollout_parallel",
+    "rollout_mo_designs",
+    "rollout_single",
+    "rollout_design_hypernetwork",
+    "rollout_mo_design_hypernetwork",
+]
