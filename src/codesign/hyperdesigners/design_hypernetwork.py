@@ -34,7 +34,6 @@ def train_design_hypernetwork(
     environment,
     num_timesteps: int,
     episode_length: int,
-    generate_model_fn: Callable[[np.ndarray], mjx.Model] | None = None,
     num_envs: int = 128,
     unroll_length: int = 20,
     batch_size: int = 64,
@@ -76,12 +75,6 @@ def train_design_hypernetwork(
         np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
     )
 
-    # By default, derive the (host-side, non-jittable) design->model builder from the env.
-    if generate_model_fn is None:
-        def generate_model_fn(design_row):
-            d = float(np.asarray(design_row).reshape(-1)[0])
-            return mjx.put_model(environment.generate_model(d))
-
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
     key_env = jax.random.fold_in(key, 1)
@@ -96,7 +89,7 @@ def train_design_hypernetwork(
         designs_np = model_lib.sample_designs(
             rng, n, design_low, design_high, design_dim
         )
-        batched_model = model_lib.build_batched_model(generate_model_fn, designs_np)
+        batched_model = model_lib.build_batched_model(environment, designs_np)
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_np), design_low, design_high
         )

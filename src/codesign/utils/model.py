@@ -2,13 +2,13 @@
 """
 
 from collections.abc import Mapping
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from brax.training.acme import specs
 from mujoco import mjx
+from scipy.stats.qmc import Sobol
 
 def total_mass(model) -> float:
     """Total mass of the model underlying a ``CodesignBase`` env.
@@ -44,18 +44,20 @@ def stack_models(models: list[mjx.Model]) -> mjx.Model:
     )
 
 
-def build_batched_model(
-    generate_model_fn: Callable[[np.ndarray], mjx.Model],
-    designs: np.ndarray,
-) -> mjx.Model:
+def put_design_model(env, design_row: np.ndarray) -> mjx.Model:
+    """Build the env's ``mjx.Model`` for a single design row (host-side, ``mjx.put_model``'d)."""
+    d = float(np.asarray(design_row).reshape(-1)[0])
+    return mjx.put_model(env.generate_model(d))
+
+
+def build_batched_model(env, designs: np.ndarray) -> mjx.Model:
     """Generate one ``mjx.Model`` per design row and stack them.
 
     Args:
-        generate_model_fn: maps a single design row -> an ``mjx.Model`` (already
-            ``mjx.put_model``'d).
+        env: a ``CodesignBase`` env whose ``generate_model`` maps a design row -> a model.
         designs: array of shape ``(num_envs, design_dim)``.
     """
-    models = [generate_model_fn(np.asarray(d)) for d in designs]
+    models = [put_design_model(env, d) for d in designs]
     return stack_models(models)
 
 
@@ -66,8 +68,13 @@ def sample_designs(
     high: float = 2.0,
     dim: int = 1,
 ) -> np.ndarray:
-    """Sample ``num_envs`` designs uniformly in ``[low, high]^dim`` (host-side, numpy)."""
-    return rng.uniform(low, high, size=(num_envs, dim)).astype(np.float32)
+    """Spread ``num_envs`` designs evenly through ``[low, high]^dim`` (host-side, numpy).
+
+    Uses Sobol low-discrepancy sequence so the designs cover the hypercube far more
+    uniformly than i.i.d. uniform samples for any num_envs number.
+    """
+    unit = Sobol(d=dim, seed=rng).random(num_envs)  # (num_envs, dim) in [0, 1)
+    return (low + unit * (high - low)).astype(np.float32)
 
 
 def normalize_design(

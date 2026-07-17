@@ -25,8 +25,6 @@ from .envs import (
 # eval
 from .eval import (
     rollout_policy,
-    make_open_loop_policy,
-    from_inference_fn,
     rollout_parallel,
     rollout_mo_designs,
     rollout_single,

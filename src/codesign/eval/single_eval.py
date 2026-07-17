@@ -10,7 +10,7 @@ from minimal_mjx.utils import plotting
 from tqdm import tqdm
 
 from codesign.envs import CodesignBase
-from codesign.eval import policies as policy_lib
+from minimal_mjx.eval import policy as policy_lib
 from codesign.learning.inference import (
     load_design_hypernetwork,
     load_mo_design_hypernetwork,

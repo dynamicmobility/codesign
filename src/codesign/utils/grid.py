@@ -3,12 +3,13 @@
 
 import dataclasses
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
+import jax
 from mujoco import mjx
 
-from codesign.utils.model import stack_models
+from codesign.utils.model import stack_models, sample_designs, put_design_model
+from codesign.envs.CodesignBase import CodesignBase
 
 
 @dataclasses.dataclass
@@ -18,6 +19,30 @@ class DesignTradeoffSampleGrid:
     designs: np.ndarray      # (n_designs, design_dim)
     tradeoffs: np.ndarray    # (n_tradeoffs, num_objectives)
     per_cell: int = 1        # rollout repetitions per (design, tradeoff) cell
+    
+    @classmethod
+    def from_uniform_sample(
+        cls, env: CodesignBase, seed: int, n_tradeoffs, n_designs, per_cell: int = 1
+    ) -> "DesignTradeoffSampleGrid":
+        tradeoffs = jax.random.dirichlet(
+            jax.random.PRNGKey(seed),
+            alpha=np.ones(len(env.objectives)),
+            shape=(n_tradeoffs,),
+        )
+        limits = np.asarray(env.design_limits)
+        designs = sample_designs(
+            np.random.default_rng(seed),
+            n_designs,
+            low=limits[0],
+            high=limits[1],
+            dim=limits.shape[1],
+        )
+        return cls(
+            designs=jax.numpy.asarray(designs),
+            tradeoffs=tradeoffs,
+            per_cell=per_cell,
+        )
+
 
     @property
     def n_designs(self) -> int:
@@ -31,11 +56,9 @@ class DesignTradeoffSampleGrid:
     def num_envs(self) -> int:
         return self.n_designs * self.n_tradeoffs * self.per_cell
 
-    def build_models(
-        self, generate_model_fn: Callable[[np.ndarray], mjx.Model], tiled: bool
-    ) -> mjx.Model:
+    def build_models(self, env: CodesignBase, tiled: bool) -> mjx.Model:
         """Stack one model per design (``tiled=False``) or per flat env (``tiled=True``)."""
-        models = [generate_model_fn(np.asarray(d)) for d in self.designs]
+        models = [put_design_model(env, d) for d in self.designs]
         if tiled:
             reps = self.n_tradeoffs * self.per_cell
             models = [m for m in models for _ in range(reps)]

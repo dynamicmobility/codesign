@@ -9,7 +9,7 @@ import numpy as np
 from mujoco import mjx
 
 from codesign.envs.CodesignBase import CodesignMO2SO, CodesignBase
-from codesign.eval import policies as policy_lib
+from minimal_mjx.eval import policy as policy_lib
 from codesign.hyperdesigners import acting
 from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork
 from codesign.utils import model as model_lib
@@ -157,11 +157,7 @@ def rollout_mo_designs(
     designs_input = model_lib.normalize_design(jnp.asarray(designs), config=config)
 
     # One stacked, batched mjx.Model per design (host-side, via the env's generator).
-    def generate_model_fn(design_row):
-        d = float(np.asarray(design_row).reshape(-1)[0])
-        return mjx.put_model(env.generate_model(d))
-
-    batched_model = grid.build_models(generate_model_fn, tiled=False)
+    batched_model = grid.build_models(env, tiled=False)
 
     make_policy_fn, params = load_mo_design_hypernetwork(config, path=checkpoint_path)
 
@@ -223,11 +219,7 @@ def rollout_design_hypernetwork(
     repeated_designs = np.repeat(designs, trials_per_env, axis=0)
 
     # One stacked, batched mjx.Model per design (host-side, via the env's generator).
-    def generate_model_fn(design_row):
-        d = float(np.asarray(design_row).reshape(-1)[0])
-        return mjx.put_model(env.generate_model(d))
-
-    batched_model = model_lib.build_batched_model(generate_model_fn, repeated_designs)
+    batched_model = model_lib.build_batched_model(env, repeated_designs)
     designs_input = model_lib.normalize_design(
         jnp.asarray(repeated_designs), design_low, design_high
     )

@@ -163,6 +163,10 @@ class TwoAxis(MultiObjectiveBase, CodesignBase):
     def default_spec(cls) -> mj.MjSpec:
         return CodesignBase.default_spec(xml_path=INTERFACE_PATH / "xmls" / xml_name)
     
+    @property
+    def design_limits(self):
+        return self._np.array([[0.0], [1.0]])
+    
     # d goes from 0 to 1 and modifies the ratio of x force range to y force range
     @classmethod
     def generate_model(cls, d):

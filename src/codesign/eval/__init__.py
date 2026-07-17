@@ -7,8 +7,6 @@ open-loop / adapted policies live in :mod:`codesign.eval.policies`.
 """
 from . import rollout
 from .rollout import rollout_policy
-from . import policies
-from .policies import make_open_loop_policy, from_inference_fn
 from . import parallel_eval
 from .parallel_eval import (
     rollout_parallel,
@@ -26,8 +24,6 @@ from .single_eval import (
 # ``single_eval``; the ``single_eval`` import above intentionally wins here.
 __all__ = [
     "rollout_policy",
-    "make_open_loop_policy",
-    "from_inference_fn",
     "rollout_parallel",
     "rollout_mo_designs",
     "rollout_single",

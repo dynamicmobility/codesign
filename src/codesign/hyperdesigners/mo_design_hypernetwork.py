@@ -78,7 +78,6 @@ def train_mo_design_hypernetwork(
     environment,
     num_timesteps: int,
     episode_length: int,
-    generate_model_fn: Callable[[np.ndarray], mjx.Model] | None = None,
     num_envs: int = 1024,
     num_designs: int = 8,
     num_tradeoffs: int = 8,
@@ -133,12 +132,6 @@ def train_mo_design_hypernetwork(
         np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
     )
 
-    # By default, derive the (host-side, non-jittable) design->model builder from the env.
-    if generate_model_fn is None:
-        def generate_model_fn(design_row):
-            d = float(np.asarray(design_row).reshape(-1)[0])
-            return mjx.put_model(environment.generate_model(d))
-
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
     key_env = jax.random.fold_in(key, 1)
@@ -170,7 +163,7 @@ def train_mo_design_hypernetwork(
             designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=per_cell
         )
 
-        batched_model = grid.build_models(generate_model_fn, tiled=True)
+        batched_model = grid.build_models(environment, tiled=True)
         designs_full, tradeoffs_full = grid.flatten()
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_full), design_low, design_high
