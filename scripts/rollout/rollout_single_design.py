@@ -28,8 +28,7 @@ def main(
     camera: str
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-    env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env = load_env(env_name=config["env"], env_params=env_params, backend="np")
+    env, env_params = load_env(config, backend = 'np')
 
     algorithm = config["algorithm"]
     OUT_DIR.mkdir(parents=True, exist_ok=True)

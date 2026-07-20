@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 
 import minimal_mjx as mm
-from codesign.eval import make_open_loop_policy
+from minimal_mjx.eval import make_open_loop_policy
 from codesign.eval.rollout_video import rollout_single_video
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt

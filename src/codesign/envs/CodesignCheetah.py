@@ -152,7 +152,7 @@ class MOCodesignCheetah(MOCodesignBase):
         return upside_down | too_low
 
     def _get_obs(self, data, info):
-        return self.mo_backend.get_metrics(data, info)
+        return self.mo_backend._get_obs(data, info)
     
     @property
     def action_size(self):

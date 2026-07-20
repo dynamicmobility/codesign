@@ -107,7 +107,6 @@ def train_design_hypernetwork(
         reward_weights = jnp.ones(num_objectives)
     else:
         reward_weights = jnp.asarray(reward_objective_weights, dtype=jnp.float32)
-    scalarize_reward = lambda r: jnp.sum(r * reward_weights, axis=-1)
 
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
@@ -187,7 +186,6 @@ def train_design_hypernetwork(
                 unroll_length,
                 first_state,
                 episode_length,
-                scalarize_reward=scalarize_reward,
                 extra_fields=(),
             )
             return (nstate, nk), data
@@ -245,7 +243,7 @@ def train_design_hypernetwork(
             k, sub = jax.random.split(k)
             act, _ = policy(st.obs, sub)
             nst = jax.vmap(environment.step, in_axes=(0, 0, 0))(st, act, batched_model)
-            ret = ret + scalarize_reward(nst.reward) * alive
+            ret = ret + nst.reward * alive
             alive = alive * (1.0 - nst.done)
             return (nst, k, alive, ret), None
 

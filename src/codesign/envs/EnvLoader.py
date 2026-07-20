@@ -1,13 +1,14 @@
-from codesign.envs.CodesignBase import CodesignBase
+from codesign.envs.CodesignBase import CodesignBase, CodesignMO2SO
 from codesign.envs.CodesignCheetah import MOCodesignCheetah
 from codesign.envs.TwoAxis import TwoAxis
 from codesign.envs.RHex import RHex
 import minimal_mjx as mm
 
-def load_env(config: dict) -> CodesignBase:
+def load_env(config: dict, backend: str | None = None) -> tuple[CodesignBase, dict]:
     env_name = config['env']
     env_params = mm.create_config_dict(config['env_config'])
-    backend = config['backend']
+    if backend is None:
+        backend = config['backend']
     
     if(env_name == "CodesignCheetah"):
         env = MOCodesignCheetah(env_params=env_params, backend=backend)
@@ -17,5 +18,9 @@ def load_env(config: dict) -> CodesignBase:
         env = RHex(env_params=env_params, backend=backend)
     else:
         raise ValueError(f"Unknown env '{env_name}'")
+
+    # Single Objective wrapper  
+    if(config['algorithm'] == "design_hypernetwork"): 
+        env = CodesignMO2SO(env, config['learning_params']['reward_objective_weights'])
 
     return env, env_params
