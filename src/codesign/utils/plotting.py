@@ -147,7 +147,9 @@ def plot_mo_design_progress(
     times = [],
     **kwargs,
 ):
-    print(datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S %Z"))
+    print('=== TRAINING EPOCH ===')
+    print('time',datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S %Z") )
+    print('num_steps', num_steps)
     training_data.iterations.append(num_steps)
     training_data.rewards.append(np.asarray(metrics["reward"]))
     training_data.tradeoffs.append(np.asarray(metrics["tradeoffs"]))

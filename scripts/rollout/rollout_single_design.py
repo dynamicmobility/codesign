@@ -23,6 +23,7 @@ def main(
     config_path: str, 
     checkpoint_path: str | None, 
     design: float,
+    eval_design: float | None,
     tradeoff: list[float] | None, 
     steps: int, 
     camera: str
@@ -49,7 +50,7 @@ def main(
         
         # Rollout
         frames, traj, reward_plotter, _, _ = rollout_mo_design_hypernetwork_video(
-            env, config, design=design, tradeoff=tradeoff, n_steps=steps,
+            env, config, design=design, eval_design=eval_design, tradeoff=tradeoff, n_steps=steps,
             checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
         )
         out = OUT_DIR / f"mo_design_hypernetwork.mp4"
@@ -61,7 +62,7 @@ def main(
         
         # Rollout
         frames, traj, reward_plotter, _, _ = rollout_design_hypernetwork_video(
-            env, config, design=design, n_steps=steps,
+            env, config, design=design, eval_design=eval_design, n_steps=steps,
             checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
         )
         out = OUT_DIR / f"design_hypernetwork.mp4"
@@ -104,12 +105,21 @@ if __name__ == "__main__":
         "--checkpoint", type=str, default=None,
         help="explicit checkpoint dir; defaults to latest under save_dir/name",
     )
-    parser.add_argument("--design", type=float, default=1.0, help="back-leg length scale")
+    parser.add_argument("--design", type=float, default=1.0, help="design parameter for hypernet input")
     parser.add_argument(
         "--tradeoff", type=float, nargs="+", default=None,
         help="objective scalarization w. Only used for mo_design_hypernetwork.",
     )
     parser.add_argument("--steps", type=int, default=500, help="rollout length (env steps)")
     parser.add_argument("--camera", type=str, default="track", help="render camera name")
+    parser.add_argument("--eval_design", type=float, default = 1.0, help="design parameter for environment evaluation")
     args = parser.parse_args()
-    main(args.config, args.checkpoint, args.design, args.tradeoff, args.steps, args.camera)
+    main(
+        config_path = args.config, 
+        checkpoint_path = args.checkpoint, 
+        design = args.design, 
+        tradeoff = args.tradeoff, 
+        steps = args.steps, 
+        camera = args.camera, 
+        eval_design = args.eval_design
+    )

@@ -103,6 +103,7 @@ def rollout_design_hypernetwork_video(
     width: int | None = None,
     height: int | None = None,
     gen_video: bool = True,
+    eval_design = None,
 ):
     """Render a trained design-hypernetwork policy on a single design.
 
@@ -112,6 +113,8 @@ def rollout_design_hypernetwork_video(
 
     Returns ``(frames, traj)`` (see :func:`rollout_single_video`).
     """
+    if(eval_design is None):
+        eval_design = design
     design       = np.asarray(design, np.float32).reshape(-1) # flatten
     design_input = normalize_design(jnp.asarray(design), config=config)
 
@@ -121,7 +124,7 @@ def rollout_design_hypernetwork_video(
     policy               = policy_lib.from_inference_fn(base_policy)
 
     return rollout_single_video(
-        env, design, policy, n_steps,
+        env, eval_design, policy, n_steps,
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
 
@@ -140,11 +143,14 @@ def rollout_mo_design_hypernetwork_video(
     width: int | None = None,
     height: int | None = None,
     gen_video: bool = True,
+    eval_design = None,
 ):
     """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
 
     Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single_video`.
     """
+    if(eval_design is None):
+        eval_design = design
     design       = np.asarray(design, np.float32).reshape(-1) # flatten
     design_input = normalize_design(jnp.asarray(design), config=config)
 
@@ -160,6 +166,6 @@ def rollout_mo_design_hypernetwork_video(
     policy = policy_lib.from_inference_fn(base_policy)
 
     return rollout_single_video(
-        env, design, policy, n_steps,
+        env, eval_design, policy, n_steps,
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
