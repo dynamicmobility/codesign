@@ -119,7 +119,7 @@ class TwoAxis(MultiObjectiveBase, CodesignBase):
         xpos = data.qpos[0]
         xvel = data.qvel[0]
         target_xpos = 2.0
-        reward = -(xpos - target_xpos)**2 - 0.1*xvel**2
+        reward = -(xpos - target_xpos)**2 - xvel**2
         return self._np.exp(reward/sigma)
 
     def y_track_reward(self, data, info, sigma):
@@ -127,7 +127,7 @@ class TwoAxis(MultiObjectiveBase, CodesignBase):
         ypos = data.qpos[1]
         yvel = data.qvel[1]
         target_ypos = 2.0
-        reward = -(ypos - target_ypos)**2 - 0.1*yvel**2
+        reward = -(ypos - target_ypos)**2 - yvel**2
         return self._np.exp(reward/sigma)
 
     def force_reward(self, data, action, sigma):
