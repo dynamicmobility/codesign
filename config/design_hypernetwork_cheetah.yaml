@@ -3,7 +3,7 @@
 # H_\pi(d) = \pi(a | s)
 #
 # This is a 'single objective model', so reward scalarization is required.
-name: hypernet_design_sweep
+name: test-design-hypernetwork-cheetah
 save_dir: results/design-hypernetwork-cheetah
 description: "Design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths. based on less-stiffness-equal-no-energy"
 algorithm: "design_hypernetwork"
@@ -65,7 +65,7 @@ learning_params:
     num_eval_envs: 64
     deterministic_eval: true
     seed: 0
-  network_params:
+  design_hypernetwork_params:
     hypersize: [128, 128]
     num_features: 16
     policy_hidden_layer_sizes: [64, 64]

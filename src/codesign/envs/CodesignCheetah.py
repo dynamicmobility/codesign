@@ -6,7 +6,7 @@ import jax
 from ml_collections import config_dict
 from mujoco_playground._src import mjx_env
 
-from codesign.envs.CodesignBase import CodesignBase
+from codesign.envs.CodesignBase import MOCodesignBase
 from moplayground.envs.dmcontrol.interface import CheetahInterface
 from moplayground.envs.dmcontrol.cheetah import MOCheetah
 from mujoco.mjx._src.types import Model
@@ -17,7 +17,7 @@ from pathlib import Path
 
 INTERFACE_PATH = Path(__file__).resolve().parent
     
-class CodesignCheetah(CodesignBase, MOCheetah):
+class MOCodesignCheetah(MOCodesignBase):
     """Multi-Objective Cheetah Environment. 
     Objectives are speed, energy, and jumping height."""
 
@@ -26,19 +26,18 @@ class CodesignCheetah(CodesignBase, MOCheetah):
         env_params        : config_dict.ConfigDict,
         backend           : str,
     ):
-        CodesignBase.__init__(
-            self,
-            base_xml_path     = INTERFACE_PATH / "xmls" / "cheetah.xml",
+        mo_backend: MOCheetah = MOCheetah(
+            env_params = env_params,
+            backend = backend,
+            xml_path = INTERFACE_PATH / "xmls" / "cheetah.xml",
+        )
+        
+        super().__init__(
+            xml_path          = INTERFACE_PATH / "xmls" / "cheetah.xml",
             env_params        = env_params,
             backend           = backend,
-            num_free          = 3
-        )
-
-        MOCheetah.__init__(
-            self,
-            env_params    = env_params,
-            backend       = backend,
-            xml_path      = INTERFACE_PATH / 'xmls' / 'cheetah.xml'
+            num_free          = 3,
+            mo_backend        = mo_backend
         )
 
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
@@ -129,9 +128,9 @@ class CodesignCheetah(CodesignBase, MOCheetah):
         rewards = {
             'alive'  : self.reward_alive(),
             'energy' : self.reward_power(data, info),
-            'height' : self.reward_height(data),
-            'run'    : self.reward_run(info),
-            'done'   : self.reward_done(done)
+            'height' : self.mo_backend.reward_height(data),
+            'run'    : self.mo_backend.reward_run(info),
+            'done'   : self.mo_backend.reward_done(done)
         }
         return rewards
 
@@ -152,6 +151,8 @@ class CodesignCheetah(CodesignBase, MOCheetah):
         )
         return upside_down | too_low
 
+    def _get_obs(self, data, info):
+        return self.mo_backend._get_obs(data, info)
     
     @property
     def action_size(self):
@@ -159,24 +160,23 @@ class CodesignCheetah(CodesignBase, MOCheetah):
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
-        return CodesignBase.default_spec(xml_path=INTERFACE_PATH / "xmls" / "cheetah.xml")
+        return super().default_spec(xml_path=INTERFACE_PATH / "xmls" / "cheetah.xml")
     
-
+    @property
+    def design_limits(self):
+        return self._np.array([[0.5], [2.0]])
+    
     @classmethod
     def generate_model(cls, d):
         shin_pos = jnp.array([0.2, 0, -0.26])
         new_shin_pos = shin_pos*d
         midpoint = new_shin_pos/2
 
-        spec = CodesignCheetah.default_spec()
+        spec = MOCodesignCheetah.default_spec()
 
         # load spec from file
         spec.body("bshin").pos = new_shin_pos
         thigh_geom = spec.geom("bthigh")
         thigh_geom.pos = midpoint  # Change to desired position (x, y, z)
-        thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos)/2
+        thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos) / 2
         return spec.compile()
-
-# def resample_design(rng):
-#     length = np.random.uniform(shape=(1,), minval=0.5, maxval=2)
-#     return length

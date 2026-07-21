@@ -1,11 +1,4 @@
-"""Single-instance (non-parallel) rollout of a policy on one MAI design, rendered to video.
-
-The single-env counterpart of :mod:`codesign.eval.parallel_eval`: instead of stacking a
-sweep of designs and scanning them together, this builds *one* design-specific model,
-steps a single env under a policy, and renders the trajectory to frames. The generic core
-:func:`rollout_single` takes any ``policy(obs, key, t)`` (open-loop or trained — see
-:mod:`codesign.eval.policies`); :func:`rollout_design_hypernetwork_video` is a thin wrapper
-that loads a trained design-conditioned policy for the given design.
+"""Single-instance (non-parallel) rollout of a policy on one Env, rendered to video.
 """
 
 import numpy as np
@@ -16,8 +9,8 @@ from mujoco_playground._src.mjx_env import render_array
 from minimal_mjx.utils import plotting
 from tqdm import tqdm
 
-from codesign.envs import CodesignBase
-from codesign.eval import policies as policy_lib
+from codesign.envs import CodesignBase, MOCodesignBase
+from minimal_mjx.eval import policy as policy_lib
 from codesign.learning.inference import (
     load_design_hypernetwork,
     load_mo_design_hypernetwork,
@@ -27,8 +20,8 @@ from codesign.utils.model import normalize_design
 from minimal_mjx.learning.inference import get_step_reset
 
 
-def rollout_single(
-    env: CodesignBase,
+def rollout_single_video(
+    env: CodesignBase | MOCodesignBase,
     design,
     policy,
     n_steps: int,
@@ -41,7 +34,7 @@ def rollout_single(
     show_progress: bool = True,
     scene_option = plotting.get_mj_scene_option(contacts=False, com=False)
 ):
-    """Roll a single MAI env (one design) forward under ``policy`` and render it.
+    """Roll a single Codesign env (one design) forward under ``policy`` and render it.
 
     Args:
         env: a CodesignBase env
@@ -97,7 +90,7 @@ def rollout_single(
     return frames, traj, reward_plotter, data_plotter, info_plotter
 
 
-def rollout_design_hypernetwork(
+def rollout_design_hypernetwork_video(
     env,
     config: dict,
     design,
@@ -110,15 +103,18 @@ def rollout_design_hypernetwork(
     width: int | None = None,
     height: int | None = None,
     gen_video: bool = True,
+    eval_design = None,
 ):
     """Render a trained design-hypernetwork policy on a single design.
 
     Loads the checkpoint, builds the (unbatched) design-conditioned policy for ``design``,
-    and rolls it out via :func:`rollout_single`. Single-instance analogue of
+    and rolls it out via :func:`rollout_single_video`. Single-instance analogue of
     :func:`codesign.eval.parallel_eval.rollout_design_hypernetwork`.
 
-    Returns ``(frames, traj)`` (see :func:`rollout_single`).
+    Returns ``(frames, traj)`` (see :func:`rollout_single_video`).
     """
+    if(eval_design is None):
+        eval_design = design
     design       = np.asarray(design, np.float32).reshape(-1) # flatten
     design_input = normalize_design(jnp.asarray(design), config=config)
 
@@ -127,13 +123,13 @@ def rollout_design_hypernetwork(
     base_policy          = inference_fn(params, design_input, deterministic=deterministic)
     policy               = policy_lib.from_inference_fn(base_policy)
 
-    return rollout_single(
-        env, design, policy, n_steps,
+    return rollout_single_video(
+        env, eval_design, policy, n_steps,
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
 
 
-def rollout_mo_design_hypernetwork(
+def rollout_mo_design_hypernetwork_video(
     env,
     config,
     design,
@@ -147,11 +143,14 @@ def rollout_mo_design_hypernetwork(
     width: int | None = None,
     height: int | None = None,
     gen_video: bool = True,
+    eval_design = None,
 ):
     """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
 
-    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single`.
+    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single_video`.
     """
+    if(eval_design is None):
+        eval_design = design
     design       = np.asarray(design, np.float32).reshape(-1) # flatten
     design_input = normalize_design(jnp.asarray(design), config=config)
 
@@ -166,7 +165,7 @@ def rollout_mo_design_hypernetwork(
     )
     policy = policy_lib.from_inference_fn(base_policy)
 
-    return rollout_single(
-        env, design, policy, n_steps,
+    return rollout_single_video(
+        env, eval_design, policy, n_steps,
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )

@@ -9,9 +9,8 @@ import argparse
 from pathlib import Path
 
 import minimal_mjx as mm
-import moplayground as mop
-from codesign.eval import make_open_loop_policy
-from codesign.eval.single_eval import rollout_single
+from minimal_mjx.eval import make_open_loop_policy
+from codesign.eval.rollout_video import rollout_single_video
 from codesign.utils.model import total_mass
 from matplotlib import pyplot as plt
 import numpy as np
@@ -26,7 +25,7 @@ OUT_DIR = Path("scripts/outputs")
 
 
 def main(config: str, design: float, steps: int, policy_kind: str, camera: str) -> None:
-    train_config = mop.utils.read_config(config)
+    train_config = mm.utils.read_config(config)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
     env = load_env(env_name=train_config["env"], env_params=env_params, backend="np")
     
@@ -38,12 +37,12 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str) 
         policy = pd
     else:
         policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
-    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single(
+    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single_video(
         env, design, policy, steps, camera=camera, width=640, height=480,
     )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"mai_{train_config['env']}_d{str(design).replace('.', '_')}_{policy_kind}.mp4"
+    out = OUT_DIR / f"{train_config['env']}_d{str(design).replace('.', '_')}_{policy_kind}.mp4"
     mm.utils.plotting.save_video(frames, env.dt, out)
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 

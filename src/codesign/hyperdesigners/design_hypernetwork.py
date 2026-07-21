@@ -1,13 +1,4 @@
 """``design_hypernetwork`` training algo.
-
-A single-objective PPO algo that trains a *design-conditioned* hypernetwork 
-(policy + separate value hypernetwork) on a model-as-input (MAI) environment. 
-Designs are sampled and stacked every training epoch.
-
-v1 simplifications (documented intentionally):
-  * single device (``jax.jit``, no ``pmap``);
-  * env state is re-sampled each epoch (new designs), so episodes don't span epochs;
-  * ``CodesignCheetah`` resets are deterministic per design (no obs/init randomization).
 """
 
 import functools
@@ -43,7 +34,6 @@ def train_design_hypernetwork(
     environment,
     num_timesteps: int,
     episode_length: int,
-    generate_model_fn: Callable[[np.ndarray], mjx.Model] | None = None,
     num_envs: int = 128,
     unroll_length: int = 20,
     batch_size: int = 64,
@@ -85,12 +75,6 @@ def train_design_hypernetwork(
         np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
     )
 
-    # By default, derive the (host-side, non-jittable) design->model builder from the env.
-    if generate_model_fn is None:
-        def generate_model_fn(design_row):
-            d = float(np.asarray(design_row).reshape(-1)[0])
-            return mjx.put_model(environment.generate_model(d))
-
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
     key_env = jax.random.fold_in(key, 1)
@@ -105,7 +89,7 @@ def train_design_hypernetwork(
         designs_np = model_lib.sample_designs(
             rng, n, design_low, design_high, design_dim
         )
-        batched_model = model_lib.build_batched_model(generate_model_fn, designs_np)
+        batched_model = model_lib.build_batched_model(environment, designs_np)
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_np), design_low, design_high
         )
@@ -123,7 +107,6 @@ def train_design_hypernetwork(
         reward_weights = jnp.ones(num_objectives)
     else:
         reward_weights = jnp.asarray(reward_objective_weights, dtype=jnp.float32)
-    scalarize_reward = lambda r: jnp.sum(r * reward_weights, axis=-1)
 
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
@@ -203,7 +186,6 @@ def train_design_hypernetwork(
                 unroll_length,
                 first_state,
                 episode_length,
-                scalarize_reward=scalarize_reward,
                 extra_fields=(),
             )
             return (nstate, nk), data
@@ -261,7 +243,7 @@ def train_design_hypernetwork(
             k, sub = jax.random.split(k)
             act, _ = policy(st.obs, sub)
             nst = jax.vmap(environment.step, in_axes=(0, 0, 0))(st, act, batched_model)
-            ret = ret + scalarize_reward(nst.reward) * alive
+            ret = ret + nst.reward * alive
             alive = alive * (1.0 - nst.done)
             return (nst, k, alive, ret), None
 

@@ -7,6 +7,7 @@ import time
 import minimal_mjx as mm
 import moplayground as mop
 
+from codesign.envs.CodesignBase import MOCodesignBase
 from codesign.envs.EnvLoader import load_env
 from codesign.utils.plotting import (
     MODesignTrainingPlottingInfo,
@@ -24,7 +25,7 @@ def get_handle_params(config):
             return codesign.hyperdesigners.setup_mo_design_hypernetwork
 
 
-def get_progress_fn(config, env):
+def get_progress_fn(config, env: MOCodesignBase):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     if config.algorithm != 'mo_design_hypernetwork':
@@ -47,9 +48,8 @@ def main(config_path: str):
     )
 
     # Codesign Env
-    env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env = load_env(env_name=config["env"], env_params=env_params, backend="jnp")
-    eval_env = load_env(env_name=config["env"], env_params=env_params, backend="jnp")
+    env, _ = load_env(config)
+    eval_env, _ = load_env(config)
 
     setup_fn = get_handle_params(config)
 

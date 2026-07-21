@@ -1,36 +1,29 @@
 """Evaluation utilities: single-env video rollouts and batched parallel rollouts.
 
-``rollout_policy`` drives one env (video/plots). ``rollout_parallel`` scans a batched
-policy over a stacked, per-env ``mjx.Model`` (one model-as-input variant per env);
-``rollout_design_hypernetwork`` wraps it for a trained design-conditioned policy. Batched
-open-loop / adapted policies live in :mod:`codesign.eval.policies`.
+``rollout_so_parallel`` scans a batched single-objective policy over a stacked, per-env
+``mjx.Model`` (one model-as-input variant per env); ``rollout_design_hypernetwork`` wraps
+it for a trained design-conditioned policy. For the generic single-env video driver, use
+:func:`minimal_mjx.eval.rollout_policy`. Batched open-loop / adapted policies live in
+:mod:`codesign.eval.policies`.
 """
-from . import rollout
-from .rollout import rollout_policy
-from . import policies
-from .policies import make_open_loop_policy, from_inference_fn
 from . import parallel_eval
 from .parallel_eval import (
-    rollout_parallel,
-    rollout_design_hypernetwork,
-    rollout_mo_designs,
-)
-from . import single_eval
-from .single_eval import (
-    rollout_single,
+    rollout_so_parallel,
     rollout_design_hypernetwork,
     rollout_mo_design_hypernetwork,
 )
+from . import rollout_video
+from .rollout_video import (
+    rollout_single_video,
+    rollout_design_hypernetwork_video,
+    rollout_mo_design_hypernetwork_video,
+)
 
-# NOTE: ``rollout_design_hypernetwork`` is defined in both ``parallel_eval`` and
-# ``single_eval``; the ``single_eval`` import above intentionally wins here.
 __all__ = [
-    "rollout_policy",
-    "make_open_loop_policy",
-    "from_inference_fn",
-    "rollout_parallel",
-    "rollout_mo_designs",
-    "rollout_single",
+    "rollout_so_parallel",
     "rollout_design_hypernetwork",
     "rollout_mo_design_hypernetwork",
+    "rollout_single_video",
+    "rollout_design_hypernetwork_video",
+    "rollout_mo_design_hypernetwork_video",
 ]

@@ -51,13 +51,9 @@ def actor_step(
     key: PRNGKey,
     first_state,
     episode_length: int,
-    scalarize_reward=lambda r: r,
     extra_fields: Sequence[str] = (),
 ) -> Tuple[Any, DesignTransition]:
     """Step every env once (per-env model), build a transition, then auto-reset.
-
-    ``scalarize_reward`` collapses the (possibly multi-objective) env reward to the single
-    scalar reward this algorithm optimizes.
     """
     actions, policy_extras = policy(state.obs, key)
     nstate = jax.vmap(env.step, in_axes=(0, 0, 0))(state, actions, models)
@@ -74,7 +70,7 @@ def actor_step(
     transition = DesignTransition(
         observation=state.obs,
         action=actions,
-        reward=scalarize_reward(nstate.reward),
+        reward=nstate.reward,
         design=designs,
         discount=1.0 - termination.astype(jnp.float32),
         next_observation=nstate.obs,
@@ -98,7 +94,6 @@ def generate_unroll(
     unroll_length: int,
     first_state,
     episode_length: int,
-    scalarize_reward=lambda r: r,
     extra_fields: Sequence[str] = (),
 ) -> Tuple[Any, DesignTransition]:
     """Roll out ``unroll_length`` steps; data has leading dims ``[unroll_length, num_envs]``."""
@@ -115,7 +110,6 @@ def generate_unroll(
             cur_key,
             first_state,
             episode_length,
-            scalarize_reward=scalarize_reward,
             extra_fields=extra_fields,
         )
         return (nstate, next_key), transition
