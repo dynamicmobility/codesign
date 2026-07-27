@@ -19,6 +19,7 @@ from codesign.utils.plotting import (
     plot_design_objective_pareto,
     plot_sequential_design_paretos,
     plot_mo_design_progress,
+    plot_cum_hv_progress,
     MODesignTrainingPlottingInfo,
 )
 
@@ -38,4 +39,5 @@ __all__ = [
     "plot_sequential_design_paretos",
     "plot_mo_design_progress",
     "MODesignTrainingPlottingInfo",
+    "plot_cum_hv_progress"
 ]

@@ -122,13 +122,13 @@ def generate_unroll(
 
 class MODesignTransition(NamedTuple):
     """A multi-objective transition carrying the per-env robot ``design`` and tradeoff
-    ``directive`` alongside the usual fields. ``reward`` is a per-objective vector."""
+    ``tradeoff`` alongside the usual fields. ``reward`` is a per-objective vector."""
 
     observation: NestedArray
     action: NestedArray
     reward: NestedArray
     design: NestedArray
-    directive: NestedArray
+    tradeoff: NestedArray
     discount: NestedArray
     next_observation: NestedArray
     extras: NestedArray = ()
@@ -140,7 +140,7 @@ def mo_actor_step(
     models,
     policy,
     designs: jax.Array,
-    directives: jax.Array,
+    tradeoffs: jax.Array,
     key: PRNGKey,
     first_state,
     episode_length: int,
@@ -164,7 +164,7 @@ def mo_actor_step(
         action=actions,
         reward=nstate.reward,  # keep the per-objective vector
         design=designs,
-        directive=directives,
+        tradeoff=tradeoffs,
         discount=1.0 - termination.astype(jnp.float32),
         next_observation=nstate.obs,
         extras={"policy_extras": policy_extras, "state_extras": state_extras},
@@ -183,7 +183,7 @@ def mo_generate_unroll(
     models,
     policy,
     designs: jax.Array,
-    directives: jax.Array,
+    tradeoffs: jax.Array,
     key: PRNGKey,
     unroll_length: int,
     first_state,
@@ -201,7 +201,7 @@ def mo_generate_unroll(
             models,
             policy,
             designs,
-            directives,
+            tradeoffs,
             cur_key,
             first_state,
             episode_length,

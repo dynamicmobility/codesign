@@ -1,10 +1,10 @@
 #!/bin/bash
 
 SESSION_NAME="CODESIGN"
-PYTHON_SCRIPT=$1
+PYTHON_SCRIPT="train"
 MODULE_NAME="scripts"
 CONDA_ENV_NAME="codesign"
-YAML_FILE=$2
+YAML_FILE=$1
 
 # Start a new tmux session (detached) with the specified name
 tmux new-session -d -s "$SESSION_NAME"

@@ -73,6 +73,7 @@ from .utils import (
     plot_sequential_design_paretos,
     plot_mo_design_progress,
     MODesignTrainingPlottingInfo,
+    plot_cum_hv_progress
 )
 
 __all__ = [
@@ -130,4 +131,5 @@ __all__ = [
     "plot_sequential_design_paretos",
     "plot_mo_design_progress",
     "MODesignTrainingPlottingInfo",
+    "plot_cum_hv_progress",
 ]

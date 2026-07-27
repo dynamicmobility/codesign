@@ -138,7 +138,7 @@ def compute_mo_design_hypernet_loss(
     Args:
         params: trainable hypernetwork params.
         normalizer_params: observation normalizer params.
-        data: ``MODesignTransition`` with leading dims ``[B, T]``. ``reward``/``directive``
+        data: ``MODesignTransition`` with leading dims ``[B, T]``. ``reward``/``tradeoff``
             carry a trailing objective axis of size ``M``. Requires
             ``extras['state_extras']['truncation']``,
             ``extras['policy_extras']['raw_action']``,
@@ -157,10 +157,10 @@ def compute_mo_design_hypernet_loss(
         design_networks.value_network.apply, in_axes=(None, 0, 0)
     )
 
-    # Per-env policy/value params from the hypernetwork. Design and directive are constant
+    # Per-env policy/value params from the hypernetwork. Design and tradeoff are constant
     # over time, so use their value at the first timestep.
     cond = jnp.concatenate(
-        [data.design[:, 0], data.directive[:, 0]], axis=-1
+        [data.design[:, 0], data.tradeoff[:, 0]], axis=-1
     )
     policy_params, value_params = design_networks.hypernetwork.apply(
         params.hypernetwork, cond
@@ -180,8 +180,8 @@ def compute_mo_design_hypernet_loss(
         normalizer_params, value_params, terminal_obs
     )
 
-    # Scalarize the per-objective reward by the per-step directive: [T, B, M] -> [T, B].
-    rewards = jnp.sum(data.directive * data.reward, axis=2) * reward_scaling
+    # Scalarize the per-objective reward by the per-step tradeoff: [T, B, M] -> [T, B].
+    rewards = jnp.sum(data.tradeoff * data.reward, axis=2) * reward_scaling
 
     truncation = data.extras["state_extras"]["truncation"]
     termination = (1 - data.discount) * (1 - truncation)

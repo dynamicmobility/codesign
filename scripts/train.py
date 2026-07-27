@@ -29,7 +29,12 @@ def get_progress_fn(config, env: MOCodesignBase):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     if config.algorithm != 'mo_design_hypernetwork':
-        return None
+        training_data = MODesignTrainingPlottingInfo(
+            start_time = time.time(),
+            labels     = env.objectives,
+        )
+        return functools.partial(codesign.plot_cum_hv_progress, training_data=training_data)
+    
     training_data = MODesignTrainingPlottingInfo(
         start_time = time.time(),
         labels     = env.objectives,

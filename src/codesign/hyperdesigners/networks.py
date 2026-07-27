@@ -189,9 +189,9 @@ def make_mo_design_hypernet_networks(
 def make_mo_design_inference_fn(networks_: DesignHypernetNetworks):
     """Inference-fn factory keyed on ``(design, tradeoff)``.
 
-    Returns ``inference_fn(params, designs, directives, deterministic=False) ->
+    Returns ``inference_fn(params, designs, tradeoffs, deterministic=False) ->
     policy(obs, key)``, where ``params = (normalizer_params, hypernet_params)``. ``designs``
-    (normalized to ``[0, 1]``) and ``directives`` (simplex tradeoffs) may be single vectors
+    (normalized to ``[0, 1]``) and ``tradeoffs`` (simplex tradeoffs) may be single vectors
     or batched ``(num_envs, ...)``; they are concatenated along the last axis before the
     hypernetwork is applied.
     """

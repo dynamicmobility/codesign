@@ -232,14 +232,14 @@ def train_mo_design_hypernetwork(
         return (opt_state, params, key), metrics
 
     def training_step(
-        carry, unused_t, batched_model, designs, directives, first_state
+        carry, unused_t, batched_model, designs, tradeoffs, first_state
     ):
         training_state, state, key = carry
         key_sgd, key_unroll, new_key = jax.random.split(key, 3)
         policy = inference_fn(
             (training_state.normalizer_params, training_state.params.hypernetwork),
             designs,
-            directives,
+            tradeoffs,
         )
 
         def scan_unroll(c, _):
@@ -251,7 +251,7 @@ def train_mo_design_hypernetwork(
                 batched_model,
                 policy,
                 designs,
-                directives,
+                tradeoffs,
                 cur_key,
                 unroll_length,
                 first_state,
@@ -289,13 +289,13 @@ def train_mo_design_hypernetwork(
 
     @jax.jit
     def training_epoch(
-        training_state, state, key, batched_model, designs, directives, first_state
+        training_state, state, key, batched_model, designs, tradeoffs, first_state
     ):
         step = functools.partial(
             training_step,
             batched_model=batched_model,
             designs=designs,
-            directives=directives,
+            tradeoffs=tradeoffs,
             first_state=first_state,
         )
         (training_state, state, _), metrics = jax.lax.scan(
@@ -306,13 +306,13 @@ def train_mo_design_hypernetwork(
 
     @jax.jit
     def eval_unroll(
-        normalizer_params, hypernet_params, designs, directives, batched_model, rngs, key
+        normalizer_params, hypernet_params, designs, tradeoffs, batched_model, rngs, key
     ):
         state = acting.reset(environment, rngs, batched_model)
         policy = inference_fn(
             (normalizer_params, hypernet_params),
             designs,
-            directives,
+            tradeoffs,
             deterministic=deterministic_eval,
         )
 
@@ -336,7 +336,7 @@ def train_mo_design_hypernetwork(
         return ret
 
     def evaluate(training_state, key):
-        eval_grid, eval_model, eval_designs, eval_directives = build_grid(
+        eval_grid, eval_model, eval_designs, eval_tradeoffs = build_grid(
             num_designs, num_tradeoffs, eval_envs_per_cell,
             np.random.default_rng(int(key[0])),
             np.random.default_rng(int(key[0]) + 1),
@@ -348,14 +348,14 @@ def train_mo_design_hypernetwork(
             training_state.normalizer_params,
             training_state.params.hypernetwork,
             eval_designs,
-            eval_directives,
+            eval_tradeoffs,
             eval_model,
             eval_rngs,
             key,
         )
         ret = np.asarray(ret)  # [num_eval_envs, num_objectives]
-        directives = np.asarray(eval_directives)
-        scalarized = np.sum(directives * ret, axis=-1)
+        tradeoffs = np.asarray(eval_tradeoffs)
+        scalarized = np.sum(tradeoffs * ret, axis=-1)
         metrics = {
             "eval/episode_reward": float(np.mean(scalarized)),
             "eval/episode_reward_std": float(np.std(scalarized)),
@@ -367,7 +367,7 @@ def train_mo_design_hypernetwork(
         # so each cell is one point.
         rollout_grid = DesignTradeoffRolloutGrid.from_flat(eval_grid, ret)
         metrics["reward"]    = rollout_grid.mean_rewards                    # (D, T, num_objectives)
-        metrics["tradeoffs"] = eval_grid.unflatten(directives).mean(axis=2)  # (D, T, num_objectives)
+        metrics["tradeoffs"] = eval_grid.unflatten(tradeoffs).mean(axis=2)  # (D, T, num_objectives)
         metrics["designs"]   = eval_grid.designs                           # (D, design_dim)
         return metrics
 
@@ -401,7 +401,7 @@ def train_mo_design_hypernetwork(
 
     walltime = 0.0
     for it in range(num_evals_after_init):
-        _, batched_model, designs_input, directives = build_grid(
+        _, batched_model, designs_input, tradeoffs = build_grid(
             num_designs, num_tradeoffs, envs_per_cell,
             design_rng, tradeoff_rng, it, num_objectives,
         )
@@ -414,7 +414,7 @@ def train_mo_design_hypernetwork(
         t0 = time.time()
         training_state, env_state, train_metrics = training_epoch(
             training_state, env_state, epoch_key, batched_model,
-            designs_input, directives, first_state,
+            designs_input, tradeoffs, first_state,
         )
         train_metrics = jax.tree_util.tree_map(
             lambda x: x.block_until_ready(), train_metrics
