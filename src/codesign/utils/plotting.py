@@ -71,7 +71,7 @@ def plot_design_objective_pareto(
     show_dominated = True,
 ):
     """Global Pareto frontier over all (design x tradeoff) points, each frontier point
-    coloured by the design that achieves it."""
+    colored by the design that achieves it."""
     rewards = np.asarray(rewards)
     n_designs, n_tradeoffs, num_obj = rewards.shape
     rewards = rewards.reshape(-1, num_obj)
@@ -93,12 +93,10 @@ def plot_design_objective_pareto(
 
 def plot_sequential_design_paretos(
     ax_titles: list,
-    rewards_seq: list,             # list of (num_designs, num_tradeoffs, num_objectives)
-    objectives: list = None,
-    designs: np.ndarray = None,
+    grids: list,                   # list of DesignTradeoffRolloutGrid
 ):
     """One subplot per checkpoint, each showing every design's Pareto frontier."""
-    rewards_seq = [np.asarray(r) for r in rewards_seq]
+    rewards_seq = [g.mean_rewards for g in grids]
     n_designs, _, num_obj = rewards_seq[0].shape
     colors = design_colors(n_designs)
 
@@ -107,8 +105,8 @@ def plot_sequential_design_paretos(
     fig, axs = plt.subplots(nrows, ncols, subplot_kw=subplot_kw, squeeze=False)
     axs = axs.flatten()
 
-    for ax, title, rewards in zip(axs, ax_titles, rewards_seq):
-        plot_design_paretos(ax, rewards, objectives, designs, colors)
+    for ax, title, grid, rewards in zip(axs, ax_titles, grids, rewards_seq):
+        plot_design_paretos(ax, rewards, grid.objectives, grid.designs, colors)
         ax.set_title(title)
     for ax in axs[len(ax_titles):]:
         ax.axis("off")
@@ -121,6 +119,50 @@ def plot_sequential_design_paretos(
     return fig, axs
 
 
+def plot_pareto_statistics(
+    iterations: list,
+    cum_hvs: np.ndarray,
+    sps: np.ndarray,
+):
+    """Cumulative hypervolume and front spacing vs. env steps, one panel each.
+
+    The spacing panel is overlaid with a band at ``mean(sps) +/- std(sps)`` over the
+    evals so far.
+    """
+    fig, (hv_ax, sp_ax) = plt.subplots(
+        2, 1, sharex=True, figsize=(6.5, 5.5), height_ratios=[1, 1]
+    )
+    panels = (
+        (hv_ax, cum_hvs, "#2a78d6", "Cumulative hypervolume"),
+        (sp_ax, sps,     "#eb6834", "Front spacing"),
+    )
+    for ax, values, color, label in panels:
+        ax.plot(iterations, values, color=color, lw=2, marker="o", ms=4.5)
+        ax.set_ylabel(label, color="#0b0b0b")
+        ax.grid(True, color="#0b0b0b", alpha=0.12, lw=0.8)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        for side in ("left", "bottom"):
+            ax.spines[side].set_color("#52514e")
+        ax.tick_params(colors="#52514e")
+
+    mean_sp, std_sp = float(sps.mean()), float(sps.std())
+    sp_ax.axhspan(
+        mean_sp - std_sp, mean_sp + std_sp,
+        color="#eb6834", alpha=0.12, lw=0,
+        label=f"mean $\\pm$ 1 sd  ({mean_sp:.3g} $\\pm$ {std_sp:.3g})",
+    )
+    sp_ax.axhline(mean_sp, color="#eb6834", lw=1, ls="--", alpha=0.6)
+    sp_ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor="#52514e")
+
+    last = f"HV {cum_hvs[-1]:.3g}   spacing {sps[-1]:.3g}"
+    hv_ax.set_title(f"Pareto front progress   ({last})", loc="left", fontsize=11)
+    sp_ax.set_xlabel("environment steps")
+    fig.tight_layout()
+    return fig
+
+
 @dataclass(frozen=False)
 class MODesignTrainingPlottingInfo:
     """
@@ -131,9 +173,7 @@ class MODesignTrainingPlottingInfo:
     """
     start_time    : float
     iterations    : list = field(default_factory=list)
-    rewards       : list = field(default_factory=list)
-    tradeoffs     : list = field(default_factory=list)
-    designs       : list = field(default_factory=list)
+    grids         : list = field(default_factory=list)
     times         : list = field(default_factory=list)
     labels        : list = field(default_factory=list)
     aux           : dict[str, list] = field(default_factory=dict)
@@ -142,18 +182,22 @@ class MODesignTrainingPlottingInfo:
         pd.DataFrame(
             {"times": self.times, "iters": self.iterations}
         ).to_csv(save_dir)
-    
-    def update(self, num_steps, reward, tradeoff, design, time, **aux_kwargs):
+
+    def update(self, num_steps, grid, time, **aux_kwargs):
         self.iterations.append(num_steps)
-        self.rewards.append(np.asarray(reward))
-        self.tradeoffs.append(np.asarray(tradeoff))
-        self.designs.append(np.asarray(design))
+        self.grids.append(grid)
         self.times.append(time)
-        for key in aux_kwargs:
-            if key not in self.aux:
-                self.aux[key] = []
-                
-            self.aux[key].append(aux_kwargs[key])
+        for key, value in aux_kwargs.items():
+            self.aux.setdefault(key, []).append(value)
+
+
+def scalar_metrics(metrics: dict) -> dict:
+    """The numeric-scalar entries of ``metrics``, as floats."""
+    return {
+        k: float(v) for k, v in metrics.items()
+        if isinstance(v, (int, float, np.number))
+    }
+
 
 def print_training_update(num_steps):
     print('=== TRAINING EPOCH ===')
@@ -171,21 +215,15 @@ def plot_mo_design_progress(
     **kwargs,
 ):
     print_training_update(num_steps)
-    training_data.update(
-        num_steps   = num_steps,
-        reward      = metrics['reward'],
-        tradeoff    = metrics['tradeoff'],
-        design      = metrics['design'],
-        time        = time.time()
-    )
+    grid = metrics['eval_grid']
+    training_data.update(num_steps=num_steps, grid=grid, time=time.time())
     training_data.save(save_dir / "mo_design_progress.csv")
+    grid.save(save_dir / f"eval_grid_{num_steps}.npz")
 
     times.append(datetime.now())
     fig, _ = plot_sequential_design_paretos(
-        ax_titles   = training_data.iterations,
-        rewards_seq = training_data.rewards,
-        objectives  = training_data.labels,
-        designs     = training_data.designs[-1],
+        ax_titles = training_data.iterations,
+        grids     = training_data.grids,
     )
     fig.savefig(save_dir / "mo_design_progress.svg")
     plt.close(fig)
@@ -194,57 +232,46 @@ def plot_mo_design_progress(
         with open(save_dir / "mo_design_progress.svg", "r") as f:
             svg = f.read()
         run.log({"pareto_plot": wandb.Html(svg)}, step=num_steps)
-        scalars = {
-            k: float(v) for k, v in metrics.items()
-            if np.ndim(v) == 0 and not isinstance(v, str)
-        }
-        run.log(scalars, step=num_steps)
+        run.log(scalar_metrics(metrics), step=num_steps)
         
 def plot_cum_hv_progress(
     num_steps: int,
     metrics: dict,
     training_data: MODesignTrainingPlottingInfo,
+    times: list,
     save_dir: Path = None,
     run: wandb.Run = None,
     **kwargs
 ):  
     print_training_update(num_steps)
-    hvs = []
-    sps = []
-    for i, d in enumerate(training_data.designs):
-        hv, sp = mop.get_pareto_statistics(training_data.rewards[i])
-        
-        hvs.append(hv)
-        sps.append(sp)
-
-    cum_hv = np.sum(hv)
-    avg_sp = np.mean(sps)
-    std_sp = np.std(sps)
-    
+    times.append(time.time())
+    grid = metrics['eval_grid']
+    rewards = grid.mean_rewards.reshape(-1, grid.mean_rewards.shape[-1])
+    hv, sp = mop.get_pareto_statistics(rewards)
     training_data.update(
-        num_steps   = num_steps,
-        reward      = np.sum(hvs),
-        tradeoff    = metrics['tradeoff'],
-        design      = metrics['design'],
-        time        = time.time(),
-        cum_hv      = cum_hv,
-        avg_sp      = avg_sp,
-        std_sp      = std_sp
+        num_steps = num_steps,
+        grid      = grid,
+        time      = time.time(),
+        hv        = float(hv),
+        sp        = float(sp),
     )
 
+    cum_hvs = np.cumsum(training_data.aux['hv'])
+    sps = np.asarray(training_data.aux['sp'])
+
     if run:
-        # Log metics to native wandb plots
-        scalars = {
-            'Cumulative Hypervolume'    : cum_hv,
-            'Average Spacing'           : avg_sp,
-            'Spacing Standard Dev.'     : std_sp
-        }
-        run.log(scalars, step=num_steps)
+        run.log(
+            {
+                'Cumulative Hypervolume' : float(cum_hvs[-1]),
+                'Average Spacing'        : float(sps.mean()),
+                'Spacing Standard Dev.'  : float(sps.std()),
+            },
+            step=num_steps,
+        )
 
     if save_dir:
-        fig, lax = plt.subplot()
-        rax = lax.twinx()
-        lax.plot(training_data.iterations, training_data.aux['cum_hv'])
-        rax.plot(training_data.iterations, training_data.aux['avg_sp'])
+        grid.save(save_dir / f"eval_grid_{num_steps}.npz")
+        fig = plot_pareto_statistics(training_data.iterations, cum_hvs, sps)
         fig.savefig(save_dir / 'progress.svg')
+        plt.close(fig)
 

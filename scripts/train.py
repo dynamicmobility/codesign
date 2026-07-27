@@ -29,22 +29,20 @@ def get_progress_fn(config, env: MOCodesignBase):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     if config.algorithm != 'mo_design_hypernetwork':
-        training_data = MODesignTrainingPlottingInfo(
-            start_time = time.time(),
-            labels     = env.objectives,
-        )
-        return functools.partial(codesign.plot_cum_hv_progress, training_data=training_data)
+        return None
     
     training_data = MODesignTrainingPlottingInfo(
         start_time = time.time(),
         labels     = env.objectives,
     )
-    return functools.partial(plot_mo_design_progress, training_data=training_data)
+    # return functools.partial(plot_mo_design_progress, training_data=training_data)
+    return functools.partial(codesign.plot_cum_hv_progress, training_data=training_data)
 
 
 def main(config_path: str):
     # (1) Load the config
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
+    # run = None
     run = mm.utils.logging.initialize_wandb(
         name    = config["name"].replace('/', ''),
         entity  = 'vmadabushi3-georgia-institute-of-technology',

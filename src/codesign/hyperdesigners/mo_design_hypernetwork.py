@@ -363,12 +363,10 @@ def train_mo_design_hypernetwork(
         for i in range(num_objectives):
             metrics[f"eval/episode_reward_obj{i}"] = float(np.mean(ret[:, i]))
 
-        # Per-design / per-tradeoff frontier data for Pareto plotting, mean over the reps
-        # so each cell is one point.
-        rollout_grid = DesignTradeoffRolloutGrid.from_flat(eval_grid, ret)
-        metrics["reward"]    = rollout_grid.mean_rewards                    # (D, T, num_objectives)
-        metrics["tradeoffs"] = eval_grid.unflatten(tradeoffs).mean(axis=2)  # (D, T, num_objectives)
-        metrics["designs"]   = eval_grid.designs                           # (D, design_dim)
+        # Design x tradeoff grid of per-objective returns, for Pareto plotting.
+        metrics["eval_grid"] = DesignTradeoffRolloutGrid.from_flat(
+            eval_grid, ret, objectives=environment.objectives
+        )
         return metrics
 
     # Initialize training state.
