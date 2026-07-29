@@ -114,7 +114,7 @@ class CodesignMO2SO:
         weighting: Per-objective weights; length must match the env's reward dimension.
     """
 
-    def __init__(self, env: CodesignBase, weighting):
+    def __init__(self, env: MOCodesignBase, weighting):
         self.env = env
         self.weighting = env._np.asarray(weighting)
 
@@ -132,6 +132,30 @@ class CodesignMO2SO:
         if(model == None):
             return self._scalarize(self.env.step(state, action, self.env.mjx_model if self.env.backend == 'jnp' else self.env.mj_model))
         return self._scalarize(self.env.step(state, action, model))
+
+    def __getattr__(self, name):
+        """Delegate any attribute not defined on the wrapper to the wrapped env."""
+        return getattr(self.env, name)
+    
+class Codesign2SingleDesign:
+    """Wrap a codesign (mulit or single objective) env to use a preset model.
+
+    Args:
+        env: A codesign env (e.g. ``CodesignCheetah``).
+        design: design vector to set as the single design.
+    """
+
+    def __init__(self, env: CodesignBase, design):
+        self.env = env
+        
+        model = env.generate_model(np.asarray(design))
+        self.model = model if env.backend == 'np' else mjx.put_model(model)
+
+    def reset(self, rng: jax.Array) -> Any:
+        return self.env.reset(rng, self.model)
+
+    def step(self, state, action: jax.Array) -> Any:
+        return self.env.step(state, action, self.model)
 
     def __getattr__(self, name):
         """Delegate any attribute not defined on the wrapper to the wrapped env."""

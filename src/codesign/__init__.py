@@ -20,6 +20,8 @@ from .envs import (
     CodesignMO2SO,
     CodesignCheetah,
     RHex,
+    Codesign2SingleDesign,
+    MOCodesignCheetah
 )
 
 # eval
@@ -88,6 +90,8 @@ __all__ = [
     "CodesignMO2SO",
     "CodesignCheetah",
     "RHex",
+    "Codesign2SingleDesign",
+    "MOCodesignCheetah",
     # eval
     "make_open_loop_policy",
     "from_inference_fn",

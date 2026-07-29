@@ -31,6 +31,7 @@ def main(
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env, env_params = load_env(config, backend = 'np')
 
+    if eval_design is None: eval_design = design
     algorithm = config["algorithm"]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -112,7 +113,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--steps", type=int, default=500, help="rollout length (env steps)")
     parser.add_argument("--camera", type=str, default="track", help="render camera name")
-    parser.add_argument("--eval_design", type=float, default = 1.0, help="design parameter for environment evaluation")
+    parser.add_argument("--eval_design", type=float, default = None, help="design parameter for environment evaluation. defaults to design")
     args = parser.parse_args()
     main(
         config_path = args.config, 

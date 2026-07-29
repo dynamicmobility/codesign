@@ -1,15 +1,9 @@
-# Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
-#
-# H_\pi(d, w) = \pi(a | s)
-#
-# Multi-objective: the per-objective reward vector is scalarized by the tradeoff w in the
-# loss (as in MORLAX). Each epoch trains a grid of `num_designs` designs x `num_tradeoffs`
-# tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
-name: lr-03-iters-750M-batches-64-nummini-16
-save_dir: results/mo-design-hypernetwork-cheetah
-description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
-algorithm: "mo_design_hypernetwork"
-env: "CodesignCheetah"
+# PPO training config.
+name: test
+save_dir: results/ppo-cheetah
+description: Normal RL
+algorithm: ppo
+env: CodesignCheetah
 backend: jnp # always jnp for training
 
 env_config:
@@ -46,8 +40,10 @@ env_config:
     base_height: 0.2
 
 learning_params:
+  reward_objective_weights: [1.0, 1.0, 0.0]
+  default_design: [1.0]
   ppo_params:
-    num_timesteps: 750000000
+    num_timesteps: 50000000
     episode_length: 500
     num_envs: 1024
     unroll_length: 20
@@ -68,17 +64,5 @@ learning_params:
     deterministic_eval: true
     seed: 0
   network_params:
-    hypersize: [256, 256]
-    num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-  design_params:
-    num_designs: 8 # designs sampled per epoch
-    design_low: 0.5
-    design_high: 2.0
-    design_dim: 1
-  tradeoff_params:
-    num_tradeoffs: 8
-    alpha: 1.0
-    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
-    warmup_frac: 0.0 # fraction of epochs training only the uniform tradeoff
