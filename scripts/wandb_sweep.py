@@ -58,10 +58,20 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
             ppo_params              = learning_params['ppo_params']
             network_params          = learning_params['network_params']
             
-            print(type(train_config['save_dir']))
             train_config['save_dir'] = (Path(train_config['save_dir']) / str(run.id)).as_posix()
-            if PACE:
-                train_config['save_dir'] 
+            if PACE:                
+                save_path = Path(train_config['save_dir'])
+                scratch_path = Path('scratch/logs/codesign')
+                
+                save_root = scratch_path / save_path
+                print(save_root)
+                if not os.path.exists(save_root):
+                    os.makedirs(save_root)
+                    print(f"Directory '{save_root}' created.")
+                else:
+                    print(f"Directory '{save_root}' already exists.")
+                
+                train_config['save_dir'] = save_root.as_posix()
             
             # derive hyperparameters that have constraints. Only batch_size is written
             derived = derive_batching(ppo_params, sweep_parameters)
@@ -113,7 +123,8 @@ if __name__ == '__main__':
     parser.add_argument("--config", type=str)
     parser.add_argument("--sweep", type=str)
     parser.add_argument("--num_trials", type=int, default=3)
+    parser.add_argument("--pace", type=bool, default=False)
     args = parser.parse_args()
     config = mm.read_config(args.config)
     sweep = mm.read_config(args.sweep)
-    run_sweep(sweep, config, args.num_trials)
+    run_sweep(sweep, config, count=args.num_trials, PACE=args.pace)

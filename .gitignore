@@ -230,3 +230,5 @@ results/
 scripts/outputs
 
 MUJOCO_LOG.TXT
+
+logs/
