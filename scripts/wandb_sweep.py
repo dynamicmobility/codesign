@@ -1,0 +1,119 @@
+import minimal_mjx as mm
+import wandb
+import scripts.train as train
+import argparse
+import math
+from pathlib import Path
+import os
+
+class UniqueSet(set):
+    def add(self, element):
+        if element in self:
+            raise ValueError(f"Duplicate item added: {element}")
+        super().add(element)
+
+def derive_batching(ppo_params, sweep_parameters):
+    """Derives batch_size so that related args (num_minibatches, etc) are consistent.
+    Returns the derived values, or None if the sweep doesn't specify batch params.
+    """
+    BATCHING_PARAMS = (
+        'num_envs', 
+        'num_minibatches', 
+        'rollouts_per_step', 
+        'batch_size'
+    )
+    if not any(param in sweep_parameters for param in BATCHING_PARAMS):
+        return None
+
+    if 'batch_size' in sweep_parameters:
+        raise ValueError(
+            "batch_size is derived. Sweep 'rollouts_per_step' instead to vary data per training step."
+        )
+
+    num_envs        = sweep_parameters.get('num_envs', ppo_params['num_envs'])
+    num_minibatches = sweep_parameters.get('num_minibatches', ppo_params['num_minibatches'])
+    rollouts        = sweep_parameters.get('rollouts_per_step', 1)
+
+    # Smallest batch_size making `batch_size * num_minibatches` a multiple of num_envs.
+    batch_size = rollouts * num_envs // math.gcd(num_envs, num_minibatches)
+
+    derived = {
+        'num_envs'        : num_envs,
+        'num_minibatches' : num_minibatches,
+        'batch_size'      : batch_size,
+    }
+    assert batch_size * num_minibatches % num_envs == 0, derived
+    ppo_params.update(derived)
+    return derived
+
+def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
+    """Runs a hyperparameter sweep"""
+
+    def edit_and_train(config=None):
+        """Edits a codesign config (specified below via a wandb sweep config)"""
+        with wandb.init(config=config) as run:
+            sweep_parameters        = run.config # this is the sweep instance's config
+            train_config            = mm.deepcopy_config(codesign_config)
+            learning_params         = train_config['learning_params']
+            ppo_params              = learning_params['ppo_params']
+            network_params          = learning_params['network_params']
+            
+            print(type(train_config['save_dir']))
+            train_config['save_dir'] = (Path(train_config['save_dir']) / str(run.id)).as_posix()
+            if PACE:
+                train_config['save_dir'] 
+            
+            # derive hyperparameters that have constraints. Only batch_size is written
+            derived = derive_batching(ppo_params, sweep_parameters)
+            if derived is not None:
+                sweep_parameters.update({'batch_size': derived['batch_size']}, allow_val_change=True)
+
+            # Update config with sweep instance params. Error if duplicate is found
+            used_params = UniqueSet()
+            for param in sweep_parameters.keys():
+                
+                if param in ppo_params:
+                    ppo_params[param] = sweep_parameters[param]
+                    used_params.add(param)
+                
+                if param in network_params:
+                    network_params[param] = sweep_parameters[param]
+                    used_params.add(param)
+
+            # Codesign Env
+            env, _        = train.load_env(train_config)
+            eval_env, _   = train.load_env(train_config)
+            
+            env           = train.wrap_env(train_config, env)
+            eval_env      = train.wrap_env(train_config, eval_env)
+
+            setup_fn      = train.get_handle_params(train_config)
+
+            # Run via minimal-mjx's trainer with our handle_params
+            return mm.learning.training.train(
+                config          = train_config,
+                env             = env,
+                eval_env        = eval_env,
+                run             = run,
+                handle_params   = setup_fn,
+                progress_fn     = train.get_progress_fn(train_config, env),
+            )
+    
+    sweep_config = wandb_sweep_config.to_dict()
+    sweep_id = wandb.sweep(
+        sweep=sweep_config,
+        entity='vmadabushi3-georgia-institute-of-technology',
+        project="codesign"
+    )
+    wandb.agent(sweep_id, edit_and_train, count=count)
+                
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=str)
+    parser.add_argument("--sweep", type=str)
+    parser.add_argument("--num_trials", type=int, default=3)
+    args = parser.parse_args()
+    config = mm.read_config(args.config)
+    sweep = mm.read_config(args.sweep)
+    run_sweep(sweep, config, args.num_trials)

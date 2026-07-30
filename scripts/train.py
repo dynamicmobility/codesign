@@ -15,8 +15,6 @@ from codesign.utils.plotting import (
 )
 import codesign
 
-CONFIG_PATH = "config/mo_design_hypernetwork_two_axis.yaml"
-
 def get_handle_params(config):
     match config.algorithm:
         case 'design_hypernetwork':
@@ -66,9 +64,7 @@ def wrap_env(config, env):
     return env
 
 
-def main(config_path: str):
-    # (1) Load the config
-    config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
+def train(config):    
     # run = None
     run = mm.utils.logging.initialize_wandb(
         name    = config["name"].replace('/', ''),
@@ -99,6 +95,7 @@ def main(config_path: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=str, default=CONFIG_PATH)
+    parser.add_argument("--config", type=str)
     args = parser.parse_args()
-    main(args.config)
+    config = mm.read_config(args.config)
+    train(config)
