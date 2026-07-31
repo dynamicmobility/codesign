@@ -58,6 +58,8 @@ def wrap_env(config, env):
                 env       = env,
                 weighting = config.learning_params.reward_objective_weights
             )
+        case 'mo_design_hypernetwork':
+            pass
         case e:
             raise Exception(f'Unknown algorithm {e}')
     
