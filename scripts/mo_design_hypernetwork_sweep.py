@@ -1,9 +1,10 @@
 """Grid hyperparameter search for the MO design hypernetwork on CodesignCheetah.
 
-Trial ``i`` of the grid trains under ``save_dir/sweep_name/sweep_i`` and is scored by
-the Pareto statistics ``plot_cum_hv_progress`` accumulates over its evals. W&B runs are
-named ``sweep_i`` and grouped under ``sweep_name``. Results are written to
-``save_dir/sweep_name/sweep.csv`` after every trial.
+Trial ``i`` of the grid trains under ``save_dir/sweep_name/sweep_i`` and is scored by the
+Pareto statistics ``plot_cum_hv_progress`` records at each eval (hypervolume summed over
+the design axis), reduced to ``auc_hv``/``final_hv``. W&B runs are named ``sweep_i`` and
+grouped under ``sweep_name``. Results are written to ``save_dir/sweep_name/sweep.csv``
+after every trial.
 """
 
 import argparse
@@ -129,7 +130,10 @@ def run_trial(
     return {
         **trial_columns(overrides),
         "name"          : config["name"],
-        "cum_hv"        : float(hvs.sum()),
+        # Each entry of ``hvs`` is already the hypervolume summed over designs at one eval,
+        # so summing over evals is an area-under-the-curve score: it rewards reaching a
+        # good front early as well as ending on one. Only comparable at equal ``num_evals``.
+        "auc_hv"        : float(hvs.sum()),
         "final_hv"      : float(hvs[-1]),
         "mean_spacing"  : float(sps.mean()),
         "final_spacing" : float(sps[-1]),
@@ -179,7 +183,7 @@ def main(
         pd.DataFrame(rows).to_csv(results_path, index=False)
 
     if rows:
-        table = pd.DataFrame(rows).sort_values("cum_hv", ascending=False)
+        table = pd.DataFrame(rows).sort_values("auc_hv", ascending=False)
         print(f"\n=== SWEEP RESULTS (best first, {results_path}) ===")
         print(table.to_string(index=False))
 

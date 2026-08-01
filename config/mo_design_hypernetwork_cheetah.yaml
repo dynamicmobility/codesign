@@ -3,8 +3,9 @@
 # H_\pi(d, w) = \pi(a | s)
 #
 # Multi-objective: the per-objective reward vector is scalarized by the tradeoff w in the
-# loss (as in MORLAX). Each epoch trains a grid of `num_designs` designs x `num_tradeoffs`
-# tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
+# loss (as in MORLAX). Training runs against a grid of `num_designs` designs x
+# `num_tradeoffs` tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
+# The grid is redrawn `resamples_per_epoch` times per eval epoch.
 name: long-training
 save_dir: scratch/logs/codesign/results/mo-design-hypernetwork-cheetah
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
@@ -47,7 +48,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 5000000000
+    num_timesteps: 500000000
     episode_length: 500
     num_envs: 1024
     unroll_length: 20
@@ -73,7 +74,8 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_params:
-    num_designs: 8 # designs sampled per epoch
+    num_designs: 8 # designs sampled per resample
+    resamples_per_epoch: 2
     design_low: 0.5
     design_high: 2.0
     design_dim: 1
