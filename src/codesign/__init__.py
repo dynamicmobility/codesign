@@ -32,6 +32,8 @@ from .eval import (
     rollout_single_video,
     rollout_design_hypernetwork_video,
     rollout_mo_design_hypernetwork_video,
+    save_policy_rollout_video,
+    default_video_design,
 )
 
 # hyperdesigners
@@ -101,6 +103,8 @@ __all__ = [
     "rollout_single_video",
     "rollout_design_hypernetwork_video",
     "rollout_mo_design_hypernetwork_video",
+    "save_policy_rollout_video",
+    "default_video_design",
     # hyperdesigners
     "train_design_hypernetwork",
     "train_mo_design_hypernetwork",

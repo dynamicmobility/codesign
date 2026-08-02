@@ -52,7 +52,7 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
     def edit_and_train(config=None):
         """Edits a codesign config (specified below via a wandb sweep config)"""
         with wandb.init(config=config) as run:
-            sweep_parameters        = run.config # this is the sweep instance's config
+            sweep_parameters        = dict(run.config)
             train_config            = mm.deepcopy_config(codesign_config)
             learning_params         = train_config['learning_params']
             ppo_params              = learning_params['ppo_params']
@@ -76,7 +76,7 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
             # derive hyperparameters that have constraints. Only batch_size is written
             derived = derive_batching(ppo_params, sweep_parameters)
             if derived is not None:
-                sweep_parameters.update({'batch_size': derived['batch_size']}, allow_val_change=True)
+                run.config.update({'batch_size': derived['batch_size']}, allow_val_change=True)
 
             # Update config with sweep instance params. Error if duplicate is found
             used_params = UniqueSet()
@@ -89,6 +89,10 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
                 if param in network_params:
                     network_params[param] = sweep_parameters[param]
                     used_params.add(param)
+
+            # Publish all of train config, not just the swept params, so we
+            # can rebuild the whole config from the run later.
+            run.config.update(mm.flatten_config(train_config), allow_val_change=True)
 
             # Codesign Env
             env, _        = train.load_env(train_config)
