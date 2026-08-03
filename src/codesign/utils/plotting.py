@@ -121,11 +121,13 @@ def plot_sequential_design_paretos(
 
 def plot_pareto_statistics(
     iterations: list,
-    cum_hvs: np.ndarray,
+    hvs: np.ndarray,
     sps: np.ndarray,
 ):
-    """Cumulative hypervolume and front spacing vs. env steps, one panel each.
+    """Hypervolume and front spacing vs. env steps, one panel each.
 
+    ``hvs`` holds the per-eval hypervolume summed over designs -- it is *not* a running
+    total over evals, so a flat curve means the fronts stopped improving.
     The spacing panel is overlaid with a band at ``mean(sps) +/- std(sps)`` over the
     evals so far.
     """
@@ -133,8 +135,8 @@ def plot_pareto_statistics(
         2, 1, sharex=True, figsize=(6.5, 5.5), height_ratios=[1, 1]
     )
     panels = (
-        (hv_ax, cum_hvs, "#2a78d6", "Cumulative hypervolume"),
-        (sp_ax, sps,     "#eb6834", "Front spacing"),
+        (hv_ax, hvs, "#2a78d6", "Hypervolume (sum over designs)"),
+        (sp_ax, sps, "#eb6834", "Front spacing"),
     )
     for ax, values, color, label in panels:
         ax.plot(iterations, values, color=color, lw=2, marker="o", ms=4.5)
@@ -156,7 +158,7 @@ def plot_pareto_statistics(
     sp_ax.axhline(mean_sp, color="#eb6834", lw=1, ls="--", alpha=0.6)
     sp_ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor="#52514e")
 
-    last = f"HV {cum_hvs[-1]:.3g}   spacing {sps[-1]:.3g}"
+    last = f"HV {hvs[-1]:.3g}   spacing {sps[-1]:.3g}"
     hv_ax.set_title(f"Pareto front progress   ({last})", loc="left", fontsize=11)
     sp_ax.set_xlabel("environment steps")
     fig.tight_layout()
@@ -242,36 +244,46 @@ def plot_cum_hv_progress(
     save_dir: Path = None,
     run: wandb.Run = None,
     **kwargs
-):  
+):
+    """Log Pareto statistics accumulated over the *design* axis of the eval grid.
+
+    Hypervolume is summed over designs. Spacing is averaged over them.
+    """
     print_training_update(num_steps)
     times.append(time.time())
     grid = metrics['eval_grid']
-    rewards = grid.mean_rewards.reshape(-1, grid.mean_rewards.shape[-1])
-    hv, sp = mop.get_pareto_statistics(rewards)
+    mean_rewards = grid.mean_rewards
+    per_design = [
+        mop.get_pareto_statistics(mean_rewards[d])
+        for d in range(mean_rewards.shape[0])
+    ]
+    hv = float(np.sum([h for h, _ in per_design]))
+    sp = float(np.mean([s for _, s in per_design]))
     training_data.update(
         num_steps = num_steps,
         grid      = grid,
         time      = time.time(),
-        hv        = float(hv),
-        sp        = float(sp),
+        hv        = hv,
+        sp        = sp,
     )
 
-    cum_hvs = np.cumsum(training_data.aux['hv'])
+    hvs = np.asarray(training_data.aux['hv'])
     sps = np.asarray(training_data.aux['sp'])
 
     if run:
         run.log(
             {
-                'Cumulative Hypervolume' : float(cum_hvs[-1]),
+                'Cumulative Hypervolume' : hv,
                 'Average Spacing'        : float(sps.mean()),
                 'Spacing Standard Dev.'  : float(sps.std()),
+                **scalar_metrics(metrics),
             },
             step=num_steps,
         )
 
     if save_dir:
         grid.save(save_dir / f"eval_grid_{num_steps}.npz")
-        fig = plot_pareto_statistics(training_data.iterations, cum_hvs, sps)
+        fig = plot_pareto_statistics(training_data.iterations, hvs, sps)
         fig.savefig(save_dir / 'progress.svg')
         plt.close(fig)
 

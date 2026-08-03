@@ -58,11 +58,13 @@ class DesignTradeoffSampleGrid:
 
     def build_models(self, env: CodesignBase, tiled: bool) -> mjx.Model:
         """Stack one model per design (``tiled=False``) or per flat env (``tiled=True``)."""
-        models = [put_design_model(env, d) for d in self.designs]
-        if tiled:
-            reps = self.n_tradeoffs * self.per_cell
-            models = [m for m in models for _ in range(reps)]
-        return stack_models(models)
+        stacked = stack_models([put_design_model(env, d) for d in self.designs])
+        if not tiled:
+            return stacked
+        reps = self.n_tradeoffs * self.per_cell
+        return jax.tree_util.tree_map(
+            lambda x: jax.numpy.repeat(x, reps, axis=0), stacked
+        )
 
     def flatten(self) -> tuple[np.ndarray, np.ndarray]:
         """Tile designs/tradeoffs to the flat env axis.

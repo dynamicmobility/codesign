@@ -97,6 +97,7 @@ def train_mo_design_hypernetwork(
     design_low: float = 0.5,
     design_high: float = 2.0,
     design_dim: int = 1,
+    resamples_per_epoch: int = 1,
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
@@ -123,14 +124,19 @@ def train_mo_design_hypernetwork(
     assert (batch_size * num_minibatches) % num_envs == 0, (
         "batch_size * num_minibatches must be divisible by num_envs"
     )
+    assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
     envs_per_cell = num_envs // num_cells
     eval_envs_per_cell = num_eval_envs // num_cells
     num_scans = batch_size * num_minibatches // num_envs
     env_step_per_training_step = batch_size * unroll_length * num_minibatches
     num_evals_after_init = max(num_evals - 1, 1)
-    num_training_steps_per_epoch = int(
-        np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
+    num_training_steps_per_chunk = int(
+        np.ceil(
+            num_timesteps
+            / (num_evals_after_init * resamples_per_epoch * env_step_per_training_step)
+        )
     )
+    num_training_steps_per_epoch = num_training_steps_per_chunk * resamples_per_epoch
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
@@ -143,6 +149,7 @@ def train_mo_design_hypernetwork(
         lambda rngs, model: acting.reset(environment, rngs, model)
     )
 
+    model_treedef = None
     def build_grid(
         n_designs, n_tradeoffs, per_cell, d_rng, w_rng, it, num_objectives
     ):
@@ -151,6 +158,7 @@ def train_mo_design_hypernetwork(
         Returns ``(grid, batched_model, designs_input, tradeoffs_full)`` where the last
         three have a leading env axis of ``grid.num_envs`` in the grid's flat env ordering.
         """
+        nonlocal model_treedef
         designs_unique = model_lib.sample_designs(
             d_rng, n_designs, design_low, design_high, design_dim
         )
@@ -164,6 +172,11 @@ def train_mo_design_hypernetwork(
         )
 
         batched_model = grid.build_models(environment, tiled=True)
+        leaves, treedef = jax.tree_util.tree_flatten(batched_model)
+        if model_treedef is None:
+            model_treedef = treedef
+        batched_model = jax.tree_util.tree_unflatten(model_treedef, leaves)
+
         designs_full, tradeoffs_full = grid.flatten()
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_full), design_low, design_high
@@ -288,9 +301,10 @@ def train_mo_design_hypernetwork(
         return (new_ts, state, new_key), metrics
 
     @jax.jit
-    def training_epoch(
+    def training_chunk(
         training_state, state, key, batched_model, designs, tradeoffs, first_state
     ):
+        """Train for one resample chunk against a fixed design x tradeoff grid."""
         step = functools.partial(
             training_step,
             batched_model=batched_model,
@@ -299,7 +313,7 @@ def train_mo_design_hypernetwork(
             first_state=first_state,
         )
         (training_state, state, _), metrics = jax.lax.scan(
-            step, (training_state, state, key), (), length=num_training_steps_per_epoch
+            step, (training_state, state, key), (), length=num_training_steps_per_chunk
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, state, metrics
@@ -335,14 +349,16 @@ def train_mo_design_hypernetwork(
         (_, _, _, ret), _ = jax.lax.scan(body, init, (), length=episode_length)
         return ret
 
+    eval_grid_bundle = build_grid(
+        num_designs, num_tradeoffs, eval_envs_per_cell,
+        np.random.default_rng(seed + 1000),
+        np.random.default_rng(seed + 1001),
+        num_evals_after_init,  # past warmup for eval
+        num_objectives,
+    )
+
     def evaluate(training_state, key):
-        eval_grid, eval_model, eval_designs, eval_tradeoffs = build_grid(
-            num_designs, num_tradeoffs, eval_envs_per_cell,
-            np.random.default_rng(int(key[0])),
-            np.random.default_rng(int(key[0]) + 1),
-            num_evals_after_init,  # past warmup for eval
-            num_objectives,
-        )
+        eval_grid, eval_model, eval_designs, eval_tradeoffs = eval_grid_bundle
         eval_rngs = jax.random.split(key, num_eval_envs)
         ret = eval_unroll(
             training_state.normalizer_params,
@@ -399,20 +415,29 @@ def train_mo_design_hypernetwork(
 
     walltime = 0.0
     for it in range(num_evals_after_init):
-        _, batched_model, designs_input, tradeoffs = build_grid(
-            num_designs, num_tradeoffs, envs_per_cell,
-            design_rng, tradeoff_rng, it, num_objectives,
-        )
-        key_env, sub = jax.random.split(key_env)
-        rngs = jax.random.split(sub, num_envs)
-        env_state = jit_reset(rngs, batched_model)
-        first_state = env_state
-
-        key, epoch_key = jax.random.split(key)
         t0 = time.time()
-        training_state, env_state, train_metrics = training_epoch(
-            training_state, env_state, epoch_key, batched_model,
-            designs_input, tradeoffs, first_state,
+        chunk_metrics = []
+        for _ in range(resamples_per_epoch):
+            # Redraw the grid, rebuild the per-env models, and restart the envs on them
+            # (the robot itself changed, so the carried state is stale).
+            _, batched_model, designs_input, tradeoffs = build_grid(
+                num_designs, num_tradeoffs, envs_per_cell,
+                design_rng, tradeoff_rng, it, num_objectives,
+            )
+            key_env, sub = jax.random.split(key_env)
+            rngs = jax.random.split(sub, num_envs)
+            env_state = jit_reset(rngs, batched_model)
+            first_state = env_state
+
+            key, chunk_key = jax.random.split(key)
+            training_state, env_state, train_metrics = training_chunk(
+                training_state, env_state, chunk_key, batched_model,
+                designs_input, tradeoffs, first_state,
+            )
+            chunk_metrics.append(train_metrics)
+
+        train_metrics = jax.tree_util.tree_map(
+            lambda *xs: jnp.mean(jnp.stack(xs)), *chunk_metrics
         )
         train_metrics = jax.tree_util.tree_map(
             lambda x: x.block_until_ready(), train_metrics

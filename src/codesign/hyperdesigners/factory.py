@@ -70,15 +70,16 @@ def setup_mo_design_hypernetwork(config):
 
     train_fn = functools.partial(
         train_mo_design_hypernetwork,
-        network_factory   = network_factory,
-        design_low        = design["design_low"],
-        design_high       = design["design_high"],
-        design_dim        = design["design_dim"],
-        num_designs       = design["num_designs"],
-        num_tradeoffs     = tradeoff["num_tradeoffs"],
-        alpha             = tradeoff["alpha"],
-        sampling          = tradeoff["sampling"],
-        warmup_frac       = tradeoff["warmup_frac"],
+        network_factory       = network_factory,
+        design_low            = design["design_low"],
+        design_high           = design["design_high"],
+        design_dim            = design["design_dim"],
+        num_designs           = design["num_designs"],
+        resamples_per_epoch   = design["resamples_per_epoch"],
+        num_tradeoffs         = tradeoff["num_tradeoffs"],
+        alpha                 = tradeoff["alpha"],
+        sampling              = tradeoff["sampling"],
+        warmup_frac           = tradeoff["warmup_frac"],
         **ppo,
     )
     return train_fn, network_factory

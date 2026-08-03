@@ -17,6 +17,9 @@ from .rollout_video import (
     rollout_single_video,
     rollout_design_hypernetwork_video,
     rollout_mo_design_hypernetwork_video,
+    save_policy_rollout_video,
+    default_video_design,
+    extreme_tradeoffs_with_labels,
 )
 
 __all__ = [
@@ -26,4 +29,7 @@ __all__ = [
     "rollout_single_video",
     "rollout_design_hypernetwork_video",
     "rollout_mo_design_hypernetwork_video",
+    "save_policy_rollout_video",
+    "default_video_design",
+    "extreme_tradeoffs_with_labels",
 ]
