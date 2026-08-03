@@ -1,10 +1,12 @@
 """``codesign`` — design-conditioned (multi-objective) hypernetwork RL for robots.
 
 Subpackages remain importable as ``codesign.envs``, ``codesign.eval``,
-``codesign.hyperdesigners``, ``codesign.learning`` and ``codesign.utils``. For
-convenience each subpackage's public API is also re-exported at the top level, so e.g.
-``codesign.train_mo_design_hypernetwork`` and ``codesign.plot_design_paretos`` work
-directly.
+``codesign.hyperdesigners``, ``codesign.learning``, ``codesign.utils`` and
+``codesign.config``. For convenience each subpackage's public API is also re-exported at
+the top level, so e.g. ``codesign.train_mo_design_hypernetwork`` and
+``codesign.plot_design_paretos`` work directly. ``codesign.config`` is the exception:
+its names stay namespaced (``codesign.config.Train``, not ``codesign.Train``) because
+they are generic enough to collide with the rest of the API.
 
 Re-exports are written out explicitly (rather than looped) so static tooling
 (Pylance/Pyright, IDE autocomplete) can see them. Keep this file in sync with the
@@ -12,7 +14,7 @@ subpackage ``__all__`` lists; a name exported by two subpackages would show up h
 shadowed re-import.
 """
 
-from . import envs, eval, hyperdesigners, learning, utils
+from . import config, envs, eval, hyperdesigners, learning, utils
 
 # envs
 from .envs import (
@@ -85,6 +87,7 @@ from .utils import (
 
 __all__ = [
     # subpackages
+    "config",
     "envs",
     "eval",
     "hyperdesigners",

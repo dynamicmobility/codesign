@@ -21,6 +21,15 @@ class MOCodesignCheetah(MOCodesignBase):
     """Multi-Objective Cheetah Environment. 
     Objectives are speed, energy, and jumping height."""
 
+    GEOM_BODY_PAIRS = [
+        ('fthigh', 'fshin'),
+        ('fshin', 'ffoot'),
+        ('ffoot', 'ftoe'),
+        ('bthigh', 'bshin'),
+        ('bshin', 'bfoot'),
+        ('bfoot', 'btoe')
+    ]
+
     def __init__(
         self,
         env_params        : config_dict.ConfigDict,
@@ -206,3 +215,26 @@ class MOCodesignCheetah(MOCodesignBase):
         thigh_geom.pos = midpoint  # Change to desired position (x, y, z)
         thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos) / 2
         return spec.compile()
+    
+
+class MOCodesignCheetah1D(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('bthigh', 'bshin'),
+    ]
+
+class MOCodesignCheetahBackLegs(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('bthigh', 'bshin'),
+        ('bshin', 'bfoot'),
+        ('bfoot', 'btoe')
+    ]
+
+class MOCodesignCheetahFrontLegs(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('fthigh', 'fshin'),
+        ('fshin', 'ffoot'),
+        ('ffoot', 'ftoe'),
+    ]

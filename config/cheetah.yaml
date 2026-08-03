@@ -10,15 +10,6 @@ env_config:
   ctrl_dt: 0.01
   sim_dt: 0.01
   action_scale: 1.0
-  history_length: 5
-  ideal_base_height: 0.5
-  ideal_base_vel: 0.5
-  min_base_height: 0.3
-  add_random_joint_state: False
-  add_random_pitch: False
-  codesign:
-    enabled: true
-    strategy: random # design sampling strategy per training epoch
   reward:
     weights:
       run:        1.0
@@ -26,22 +17,20 @@ env_config:
       energy:     0.00003
       alive:      1.0
       done:       0
-    sigmas:
-      height:     0.01
-      speed:      0.01
-      energy:     0.1
-      imitation:  0.03
     optimization:
-      objectives:        [['run'], ['energy'], ['height']]
-      shared_objectives: ['alive']
-      labels:            ['Running Speed', 'Height']
+      objectives:            [['run'], ['energy'], ['height']]
+      shared_objectives:     ['alive']
+      labels:                ['Running Speed', 'Height']
+      default_scalarization: [1.0, 1.0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
+  codesign:
+    default_design: [1.0]
+    low: [0.5]
+    high: [2.0]
 
 learning_params:
-  reward_objective_weights: [1.0, 1.0, 0.0]
-  default_design: [1.0]
   ppo_params:
     num_timesteps: 50000000
     episode_length: 500
