@@ -55,7 +55,7 @@ def rollout_single_video(
         ``(frames, traj)``: ``frames`` is a list of RGB arrays (or ``None``) and 
         ``traj`` the list of per-step env states.
     """
-    d = float(np.asarray(design).reshape(-1)[0])
+    d = np.asarray(design, np.float32).reshape(-1)
     model = env.generate_model(d)
 
     if env.backend == 'jnp':

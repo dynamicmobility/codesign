@@ -9,7 +9,7 @@ import jax
 from mujoco import mjx
 
 from codesign.utils.model import stack_models, sample_designs, put_design_model
-from codesign.envs.CodesignBase import CodesignBase
+from codesign.envs.codesign_base import CodesignBase
 
 
 @dataclasses.dataclass

@@ -8,7 +8,7 @@ from moplayground.envs.generic.mobase import MultiObjectiveBase
 from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
-from codesign.envs.CodesignBase import CodesignBase
+from codesign.envs.codesign_base import CodesignBase
 from mujoco.mjx._src.types import Model
 import mujoco as mj
 import jax.numpy as jnp

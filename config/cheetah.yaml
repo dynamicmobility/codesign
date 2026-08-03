@@ -3,7 +3,7 @@ name: test
 save_dir: results/ppo-cheetah
 description: Normal RL
 algorithm: ppo
-env: CodesignCheetah
+env: MOCodesignCheetah
 backend: jnp # always jnp for training
 
 env_config:
@@ -26,9 +26,9 @@ env_config:
     enabled: true
     base_height: 0.2
   codesign:
-    default_design: [1.0]
-    low: [0.5]
-    high: [2.0]
+    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
 learning_params:
   ppo_params:

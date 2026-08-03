@@ -48,7 +48,7 @@ def stack_models(models: list[mjx.Model]) -> mjx.Model:
 
 def put_design_model(env, design_row: np.ndarray) -> mjx.Model:
     """Build the env's ``mjx.Model`` for a single design row (host-side, ``mjx.put_model``'d)."""
-    d = float(np.asarray(design_row).reshape(-1)[0])
+    d = np.asarray(design_row, np.float32).reshape(-1)
     return mjx.put_model(env.generate_model(d))
 
 

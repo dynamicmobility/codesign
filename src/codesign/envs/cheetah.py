@@ -6,9 +6,8 @@ import jax
 from ml_collections import config_dict
 from mujoco_playground._src import mjx_env
 
-from codesign.envs.CodesignBase import MOCodesignBase
-from moplayground.envs.dmcontrol.interface import CheetahInterface
-from moplayground.envs.dmcontrol.cheetah import MOCheetah
+from codesign.envs.codesign_base import MOCodesignBase
+import moplayground as mop
 from mujoco.mjx._src.types import Model
 import mujoco as mj
 import jax.numpy as jnp
@@ -35,7 +34,7 @@ class MOCodesignCheetah(MOCodesignBase):
         env_params        : config_dict.ConfigDict,
         backend           : str,
     ):
-        mo_backend: MOCheetah = MOCheetah(
+        mo_backend: mop.MOCheetah = mop.MOCheetah(
             env_params = env_params,
             backend = backend,
             xml_path = INTERFACE_PATH / "xmls" / "cheetah.xml",
@@ -52,8 +51,8 @@ class MOCodesignCheetah(MOCodesignBase):
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
         # input better initialization parameters as a func of mjx_model here
         qpos = self._np.hstack([
-            self._np.array(CheetahInterface.DEFAULT_FF),
-            self._np.array(CheetahInterface.DEFAULT_JT)
+            self._np.array(mop.CheetahInterface.DEFAULT_FF),
+            self._np.array(mop.CheetahInterface.DEFAULT_JT)
         ])
         qvel = self._np.zeros(self.mj_model.nv)
         ctrl = self._np.zeros(self.mj_model.nu)
@@ -176,21 +175,17 @@ class MOCodesignCheetah(MOCodesignBase):
     
     @property
     def design_limits(self):
-        return self._np.array([[0.5], [2.0]])
+        """``[low, high]``, one entry per ``GEOM_BODY_PAIRS`` link scale."""
+        return self._np.array([
+            self.params.codesign.low,
+            self.params.codesign.high,
+        ])
     
     @classmethod
     def generate_model(cls, d):
-        spec = MOCodesignCheetah.default_spec()
+        spec = cls.default_spec()
         
-        geom_body_pairs = [
-            ('fthigh', 'fshin'),
-            ('fshin', 'ffoot'),
-            ('ffoot', 'ftoe'),
-            ('bthigh', 'bshin'),
-            ('bshin', 'bfoot'),
-            ('bfoot', 'btoe')
-        ]
-        for pair, d_dim in zip(geom_body_pairs, d):
+        for pair, d_dim in zip(cls.GEOM_BODY_PAIRS, d, strict=True):
             parent_geom, child_body = pair
             spec = cls.change_link_length(
                 spec,
@@ -199,21 +194,6 @@ class MOCodesignCheetah(MOCodesignBase):
                 scale_factor     = d_dim
             )
         
-        return spec.compile()
-
-    @classmethod
-    def _generate_model(cls, d):
-        shin_pos = jnp.array([0.2, 0, -0.26])
-        new_shin_pos = shin_pos*d
-        midpoint = new_shin_pos/2
-
-        spec = MOCodesignCheetah.default_spec()
-
-        # load spec from file
-        spec.body("bshin").pos = new_shin_pos
-        thigh_geom = spec.geom("bthigh")
-        thigh_geom.pos = midpoint  # Change to desired position (x, y, z)
-        thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos) / 2
         return spec.compile()
     
 

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from mujoco import mjx
 
-from codesign.envs.CodesignBase import CodesignMO2SO, CodesignBase, MOCodesignBase
+from codesign.envs.codesign_base import CodesignMO2SO, CodesignBase, MOCodesignBase
 from minimal_mjx.eval import policy as policy_lib
 from codesign.hyperdesigners import acting
 from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork

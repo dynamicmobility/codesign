@@ -11,9 +11,6 @@ from mujoco import mjx
 
 import minimal_mjx as mm
 import codesign
-from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.eval import rollout_parallel
-from codesign.utils.model import build_batched_model
 
 N = 256          # number of cheetah variants
 T = 50           # rollout length (control steps)
@@ -26,18 +23,18 @@ OUT_DIR = Path('scripts/outputs')
 
 def main(config: str, n: int, steps: int, policy_desc: str) -> None:
     train_config = mm.utils.read_config(config)
-    env, env_params = codesign.envs.EnvLoader.load_env(train_config)
+    env, env_params = codesign.envs.create.load_env(train_config)
 
     # 1. sample leg-length scales and build/stack the batched model
     ds = np.linspace(D_MIN, D_MAX, n)
-    batched_model = build_batched_model(env, ds.reshape(n, 1))
+    batched_model = codesign.build_batched_model(env, ds.reshape(n, 1))
 
     # 2. make a dummy policy
     policy = mm.make_open_loop_policy(policy_desc, env.action_size, amp=AMP, freq=FREQ)
 
     # 3. parallel rollout, recording base [x, z] each step (no termination masking)
     record_xz = lambda prev, act, nst: nst.data.qpos[:, jnp.array([0, 1])]
-    traj = rollout_parallel(
+    traj = codesign.rollout_parallel(
         env, batched_model, policy, n, steps,
         record_fn=record_xz, mask_after_done=False,
     )  # (T, N, 2)

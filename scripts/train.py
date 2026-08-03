@@ -13,14 +13,6 @@ from pathlib import Path
 import minimal_mjx as mm
 import moplayground as mop
 import numpy as np
-
-from codesign.envs.CodesignBase import MOCodesignBase
-from codesign.envs.EnvLoader import load_env
-from codesign.utils.model import maximin_designs
-from codesign.utils.plotting import (
-    MODesignTrainingPlottingInfo,
-    plot_mo_design_progress,
-)
 import codesign
 
 def get_handle_params(config):
@@ -33,12 +25,12 @@ def get_handle_params(config):
             return None
 
 
-def get_progress_fn(config, env: MOCodesignBase):
+def get_progress_fn(config, env: codesign.MOCodesignBase):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     
     if config.algorithm == 'mo_design_hypernetwork':
-        training_data = MODesignTrainingPlottingInfo(
+        training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = env.objectives,
         )
@@ -90,13 +82,13 @@ def log_rollout_videos(
     """
     video_dir = Path(config['save_dir']) / config['name'] / 'videos'
     # Rendering needs a host-side (mujoco, not mjx) env; reused across designs.
-    env, _ = load_env(config, backend='np')
+    env, _ = codesign.load_env(config, backend='np')
 
     if config['algorithm'] == 'ppo' or num_designs < 2:
         designs = [codesign.default_video_design(config)]
     else:
         design_params = config['learning_params']['design_params']
-        designs = list(maximin_designs(
+        designs = list(codesign.maximin_designs(
             num_designs,
             low  = float(design_params['design_low']),
             high = float(design_params['design_high']),
@@ -139,8 +131,8 @@ def train(config, log_video=True, **video_kwargs):
     )
 
     # Codesign Env
-    env, _ = load_env(config)
-    eval_env, _ = load_env(config)
+    env, _ = codesign.load_env(config)
+    eval_env, _ = codesign.load_env(config)
     
     env = wrap_env(config, env)
     eval_env = wrap_env(config, eval_env)

@@ -18,9 +18,7 @@ from matplotlib.colors import Normalize
 
 import minimal_mjx as mm
 import moplayground as mop
-from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.envs.EnvLoader import load_env
-from codesign.eval.parallel_eval import rollout_design_hypernetwork
+import codesign
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
@@ -38,10 +36,10 @@ def main(
 ) -> None:
     config     = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env        = load_env(env_name=config["env"], env_params=env_params, backend="jnp")
+    env        = codesign.load_env(env_name=config["env"], env_params=env_params, backend="jnp")
 
     # Parallel rollout of the trained hypernetwork across the design sweep.
-    designs, rewards = rollout_design_hypernetwork(
+    designs, rewards = codesign.rollout_design_hypernetwork(
         env             = env,
         config          = config,
         num_envs        = num_designs,

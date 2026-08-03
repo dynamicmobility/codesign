@@ -2,7 +2,7 @@
 """
 import os
 
-from codesign.envs.CodesignBase import CodesignMO2SO
+from codesign.envs.codesign_base import CodesignMO2SO
 os.environ["MUJOCO_GL"] = "egl"
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 
@@ -12,8 +12,7 @@ from pathlib import Path
 import minimal_mjx as mm
 import matplotlib.pyplot as plt
 import moplayground as mop
-from codesign.eval.rollout_video import rollout_design_hypernetwork_video, rollout_mo_design_hypernetwork_video, rollout_single_video
-from codesign.envs.EnvLoader import load_env
+import codesign
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 OUT_DIR = Path("scripts/outputs")
@@ -29,7 +28,7 @@ def main(
     camera: str
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-    env, env_params = load_env(config, backend = 'np')
+    env, env_params = codesign.load_env(config, backend = 'np')
 
     if eval_design is None: eval_design = design
     algorithm = config["algorithm"]
@@ -50,7 +49,7 @@ def main(
             print(f"  {label} {obj}: {raw:g} -> {w:.3f}")
         
         # Rollout
-        frames, traj, reward_plotter, _, _ = rollout_mo_design_hypernetwork_video(
+        frames, traj, reward_plotter, _, _ = codesign.rollout_mo_design_hypernetwork_video(
             env, config, design=design, eval_design=eval_design, tradeoff=tradeoff, n_steps=steps,
             checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
         )
@@ -62,7 +61,7 @@ def main(
             print("note: H(d) is single-objective; --tradeoff is ignored.")
         
         # Rollout
-        frames, traj, reward_plotter, _, _ = rollout_design_hypernetwork_video(
+        frames, traj, reward_plotter, _, _ = codesign.rollout_design_hypernetwork_video(
             env, config, design=design, eval_design=eval_design, n_steps=steps,
             checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
         )
