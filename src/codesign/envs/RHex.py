@@ -1,4 +1,4 @@
-"""Cheetah environment."""
+"""RHex environment."""
 
 from typing import Any
 
@@ -8,8 +8,6 @@ from mujoco import mjx
 from mujoco_playground._src import mjx_env
 
 from codesign.envs.CodesignBase import CodesignBase
-from moplayground.envs.dmcontrol.interface import CheetahInterface
-from moplayground.envs.dmcontrol.cheetah import MOCheetah
 from mujoco.mjx._src.types import Model
 import mujoco as mj
 import jax.numpy as jnp
@@ -17,10 +15,11 @@ import numpy as np
 from pathlib import Path
 
 INTERFACE_PATH = Path(__file__).resolve().parent
+DEFAULT_FF = [0.0, 0.0, 0.1, 1.0, 0.0, 0.0, 0.0]
     
 class RHex(CodesignBase):
-    """Multi-Objective Cheetah Environment. 
-    Objectives are speed, energy, and jumping height."""
+    """Multi-Objective RHex Environment. 
+    Objectives are speed and energy"""
 
     def __init__(
         self,
@@ -29,40 +28,35 @@ class RHex(CodesignBase):
     ):
         CodesignBase.__init__(
             self,
-            base_xml_path     = INTERFACE_PATH / "cheetah.xml",
+            xml_path          = INTERFACE_PATH / "xmls/rhex.xml",
             env_params        = env_params,
             backend           = backend,
-            num_free          = 3
+            num_free          = 7,
         )
 
-        MOCheetah.__init__(
-            self,
-            env_params    = env_params,
-            backend       = backend,
-            xml_path      = INTERFACE_PATH / 'cheetah.xml'
-        )
 
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
         # input better initialization parameters as a func of mjx_model here
         qpos = self._np.hstack([
-            self._np.array(CheetahInterface.DEFAULT_FF),
-            self._np.array(CheetahInterface.DEFAULT_JT)
+            self._np.array(DEFAULT_FF),
+            self._np.zeros((model.nq - len(DEFAULT_FF),))
         ])
-        qvel = self._np.zeros(self.mj_model.nv)
-        ctrl = self._np.zeros(self.mj_model.nu)
+        assert len(qpos) == model.nq
+        qvel = self._np.zeros(model.nv)
+        ctrl = self._np.zeros(model.nu)
 
-        site_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
-        probe = self._data_init_fn(
-            model        = model,
-            qpos         = qpos,
-            qvel         = qvel,
-            ctrl         = ctrl,
-            time         = 0.0,
-            xfrc_applied = self._np.zeros((model.nbody, 6)),
-        )
-        ground_margin = 0.02
-        tip_z = probe.site_xpos[site_id][2]
-        qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
+        # site_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
+        # probe = self._data_init_fn(
+        #     model        = model,
+        #     qpos         = qpos,
+        #     qvel         = qvel,
+        #     ctrl         = ctrl,
+        #     time         = 0.0,
+        #     xfrc_applied = self._np.zeros((model.nbody, 6)),
+        # )
+        # ground_margin = 0.02
+        # tip_z = probe.site_xpos[site_id][2]
+        # qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
         
         data = self._data_init_fn(
             model        = model,
@@ -76,8 +70,7 @@ class RHex(CodesignBase):
         info = {}
         info['xposbefore'] = 0.0
         info['xposafter']  = 0.01
-        info['ang']        = data.qpos[2]
-        info['height']     = data.qpos[1]
+        info['height']     = data.qpos[2]
 
         done = self._np.array(0.0)
         rewards = self.reward_function(
@@ -103,10 +96,9 @@ class RHex(CodesignBase):
         )
         data = self._step_fn(state.data, action, model)
         state.info['xposafter'] = data.qpos[0]
-        state.info['ang']       = data.qpos[2]
-        state.info['height']    = data.qpos[1]
+        state.info['height']    = data.qpos[2]
         
-        done = self.fall_termination(state.info)
+        done = self.termination(state.info)
         rewards = self.reward_function(
             data   = data,
             action = action,
@@ -120,6 +112,10 @@ class RHex(CodesignBase):
         )
         done = done.astype(float)
         return self._state_init_fn(data, obs, reward, done, metrics, state.info)
+
+    def termination(self, info):
+        return self._np.array(0.0)
+
 
     def reward_function(
         self,
@@ -136,57 +132,73 @@ class RHex(CodesignBase):
         return rewards
 
     def reward_power(self, data, info):
-        P = jnp.sum(jnp.square(data.qfrc_actuator[6:])) # power = force * velocity
-        assert len(data.qfrc_actuator[6:]) == 6
+        P = jnp.sum(jnp.square(data.actuator_force)) # power = force * velocity
+        assert len(data.actuator_force) == 6
         return -P
     
     def reward_run(self, info):
         return info['xposafter'] - info['xposbefore']
 
-    
+    def _get_obs(self, data, info):
+        obs = jnp.concatenate([
+            data.qpos[3:7], # Angle States
+            data.qpos[self._np.array(self.actuated_joint_pos_idxs())], # Indices of all actuated joints
+            data.qvel[3:6], # Angular Velocity States,
+            data.qvel[self._np.array(self.actuated_joint_vel_idxs())], # Indices of all actuated joints
+        ])
+        return {
+            'state': obs,
+            'privileged_state': obs
+        }
+    @property
+    def observation_size(self):
+        return 19
+
     @property
     def action_size(self):
         return 6
 
     @property
-    def observation_size(self):
-        """Observation structure, inferred with a nominal design.
-
-        The base ``MjxEnv.observation_size`` traces ``self.reset(rng)``, but this env is
-        model-as-input (``reset(rng, model)``), so we trace against a model built from a
-        nominal design (d=1.0). Returns a dict of shapes (obs is a dict).
-        """
-        model = mjx.put_model(self.generate_model(1.0))
-        abstract_state = jax.eval_shape(
-            lambda rng: self.reset(rng, model), jax.random.PRNGKey(0)
-        )
-        obs = abstract_state.obs
-        if isinstance(obs, dict):
-            return jax.tree_util.tree_map(lambda x: x.shape, obs)
-        return obs.shape[-1]
+    def default_design(self):
+        return np.array([0.0016, 0.032, 0.0])
 
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
-        leg_thickness = 0.0016
-        leg_radius = 0.032
-        stance = 0.0
-
-        d_default = np.array([leg_thickness, leg_radius, stance])
-        return cls.generate_model(d_default)
-    
+        return cls.generate_spec(cls.default_design)
+         
 
     @classmethod
-    def generate_model(cls, d):
+    def actuated_joint_names(cls):
+        return [
+            "leg_bl_joint_0",
+            "leg_ml_joint_0",
+            "leg_fl_joint_0",
+            "leg_br_joint_0",
+            "leg_mr_joint_0",
+            "leg_fr_joint_0"
+        ]
 
+    @classmethod
+    def actuated_joint_pos_idxs(cls):
+        return [7, 15, 23, 31, 39, 47]
+        # joint_names = cls.actuated_joint_names()
+        # return [model.jnt_qposadr[model.joint(joint_name).id] for joint_name in joint_names]
+
+    @classmethod
+    def actuated_joint_vel_idxs(cls):
+        return [6, 14, 22, 30, 38, 46]
+
+    @classmethod
+    def generate_spec(cls, d) -> mj.MjSpec:
         leg_width = 0.014
         leg_thickness = d[0]
         mid_radius = d[1]
         stance = d[2]
         n_segments = 8
-        spec = mj.MjSpec()
+        spec = mj.MjSpec.from_file((INTERFACE_PATH / "xmls/rhex.xml").as_posix())
 
-        front_radius = mid_radius + stance
-        back_radius = mid_radius - stance
+        front_radius = mid_radius + mid_radius*stance
+        back_radius = mid_radius - mid_radius*stance
 
 
         spec.option.integrator = mj.mjtIntegrator.mjINT_EULER
@@ -216,7 +228,13 @@ class RHex(CodesignBase):
             pos=(0.0, 0.0, -0.05),
             contype = 1,
             conaffinity = 1,
+            material="groundplane",
             **contact_params,
+        )
+        spec.worldbody.add_camera(
+            name="fixed",
+            pos=(0.0, 0.0, 3.0),
+            quat=(1.0, 0.0, 0.0, 0.0),
         )
         
         body = spec.worldbody.add_body(name="robot_body", pos=(0.0, 0.0, 0.0))
@@ -235,7 +253,12 @@ class RHex(CodesignBase):
             mass=0.4,
             **contact_params,
         )
-
+        # Add tracking camera
+        body.add_camera(
+            name="track",
+            pos=(0.0, -3.0, 0.05),
+            quat = (0.707, 0.707, 0, 0),
+        )
 
         DENSITY = 1.23 # g/cm^3
         YOUNGS_MODULUS = 3.2e9 # Pa
@@ -272,7 +295,7 @@ class RHex(CodesignBase):
                     mass=segment_mass,
                     **contact_params,
                     contype = 2,
-                    conaffinity = 1,
+                    conaffinity = 1 if i > n_segments/2 else 0, # only the second half of the leg can collide with the ground,
                     # euler = tuple(0.0, 0.0, 0.0) if i == 0 else (0.0, dtheta, 0.0),
                 )
                 if(i == 0):
@@ -281,13 +304,20 @@ class RHex(CodesignBase):
                         type=mj.mjtJoint.mjJNT_HINGE,
                         axis=(0.0, 1.0, 0.0),
                         stiffness=0.0,
-                        damping=1.0,
+                        damping=0.1, # TODO: Tune damping to match real RHex
                     )
+                    Kp_vel = 0.1
                     spec.add_actuator(
                         name=f"{leg_name}_act",
                         target=this_joint_name,
                         trntype=mj.mjtTrn.mjTRN_JOINT,
-                        biastype=mj.mjtBias.mjBIAS_NONE,
+                        gaintype = mj.mjtGain.mjGAIN_FIXED,
+                        biastype=mj.mjtBias.mjBIAS_AFFINE,
+                        dyntype=mj.mjtDyn.mjDYN_NONE,
+                        gainprm=(Kp_vel, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                        biasprm=(0.0, 0.0, -Kp_vel, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                        # forcelimited=True,
+                        # forcerange=(-0.1, 0.1),
                     )
                 else:
                     this_body.add_joint(
@@ -295,7 +325,7 @@ class RHex(CodesignBase):
                         type=mj.mjtJoint.mjJNT_HINGE,
                         axis=(0.0, 1.0, 0.0),
                         stiffness=Kt,
-                        damping=0.01,
+                        damping=2*jnp.sqrt(Kt*segment_mass),
                     )
 
                 parent = this_body
@@ -307,8 +337,17 @@ class RHex(CodesignBase):
         add_leg("leg_br", np.array([-0.08, -0.064, 0.0]), radius=back_radius)
         add_leg("leg_mr", np.array([0.0, -0.08, 0.0]), radius=mid_radius)
         add_leg("leg_fr", np.array([0.08, -0.064, 0.0]), radius=front_radius)
+        return spec
+
+    @classmethod
+    def generate_model(cls, d):
+        spec = cls.generate_spec(d)
         return spec.compile()
 
-# def resample_design(rng):
-#     length = np.random.uniform(shape=(1,), minval=0.5, maxval=2)
-#     return length
+    @property
+    def design_limits(self):
+        widths = self._np.array([0.001, 0.005])
+        mid_radii = self._np.array([0.01, 0.02])
+        stances = self._np.array([-0.3, 0.3])
+
+        return self._np.vstack([widths, mid_radii, stances])

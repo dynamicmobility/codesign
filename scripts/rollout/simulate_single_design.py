@@ -17,17 +17,18 @@ import numpy as np
 
 CONFIG_PATH = "config/design_hypernetwork_two_axis.yaml"
 
-D = 1.0          # back-leg length scale to render
 T = 250          # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
 FREQ = 0.5       # action frequency [Hz]
 OUT_DIR = Path("scripts/outputs")
 
 
-def main(config: str, design: float, steps: int, policy_kind: str, camera: str) -> None:
+def main(config: str, design: float | np.ndarray | None, steps: int, policy_kind: str, camera: str) -> None:
+
+
     train_config = mm.utils.read_config(config)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-    env = load_env(env_name=train_config["env"], env_params=env_params, backend="np")
+    env, _ = load_env(config=train_config, backend="np")
     
     if(train_config["env"] == "TwoAxis"):
         def pd(obs, key, t):
@@ -35,8 +36,17 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str) 
             frc = K @ (obs - np.array([2.0, 2.0, 0.0, 0.0]))
             return frc, {}
         policy = pd
+    elif(train_config["env"] == "RHex"):
+        def my_policy(obs, key, t):
+            frc = np.array([-1, -1, -1, -1, -1, -1])
+            return frc, {}
+        policy = my_policy
     else:
         policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
+
+    if(design is None):
+        design = env.default_design
+        print(design)
     frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single_video(
         env, design, policy, steps, camera=camera, width=640, height=480,
     )
@@ -53,7 +63,7 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str) 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--design", type=float, default=D, help="back-leg length scale")
+    parser.add_argument("--design", type=float, default=None, help="design vector")
     parser.add_argument("--steps", type=int, default=T, help="rollout length (control steps)")
     parser.add_argument(
         "--policy", type=str, default="sinusoid",

@@ -45,7 +45,13 @@ class CodesignBase(SwappableBase):
             filename=xml_path.as_posix(),
             assets=common.get_assets()
         )
-        
+
+    @property
+    @abstractmethod
+    def default_design(self):
+        """Returns a _np array of the default design parameters."""
+        raise NotImplementedError()
+
     @property
     def observation_size(self):
         """Observation structure, inferred from the env's nominal compiled model.

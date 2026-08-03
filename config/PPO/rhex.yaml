@@ -1,0 +1,76 @@
+# PPO Training config for RHex.
+name: test-rhex
+save_dir: results/rhex
+description: "Simple PPO on RHex"
+algorithm: ppo
+env: RHex
+backend: jnp # always jnp for training
+
+env_config:
+  ctrl_dt: 0.01
+  sim_dt: 0.0005
+  action_scale: 1.0
+  history_length: 5
+  ideal_base_height: 0.5
+  ideal_base_vel: 0.5
+  min_base_height: 0.3
+  add_random_joint_state: False
+  add_random_pitch: False
+  codesign:
+    enabled: true
+    strategy: random # design sampling strategy per training epoch
+  reward:
+    weights:
+      run:        1.0
+      height:     10.0
+      energy:     0.00003
+      alive:      1.0
+      done:       0
+    sigmas:
+      height:     0.01
+      speed:      0.01
+      energy:     0.1
+    optimization:
+      objectives:        [['run'], ['energy']]
+      shared_objectives: ['alive']
+      labels:            ['Running Speed', 'Efficiency']
+  termination:
+    enabled: true
+    base_height: 0.2
+
+learning_params:
+  reward_objective_weights: [1.0, 0.0, 1.0]
+  default_design: [0.0016, 0.032, 0.0]
+  ppo_params:
+    num_timesteps: 50000000
+    episode_length: 500
+    num_envs: 128
+    unroll_length: 20
+    batch_size: 64
+    num_minibatches: 2
+    num_updates_per_batch: 4
+    learning_rate: 0.0005
+    entropy_cost: 0.01
+    discounting: 0.98
+    reward_scaling: 1.0
+    clipping_epsilon: 0.1
+    gae_lambda: 0.95
+    max_grad_norm: 1.0
+    normalize_advantage: true
+    normalize_observations: true
+    num_evals: 15
+    num_eval_envs: 64
+    deterministic_eval: true
+    seed: 0
+  network_params:
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
+  design_hypernetwork_params:
+    hypersize: [128, 128]
+    num_features: 16
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
+  design_params:
+    design_low: 0.5
+    design_high: 2.0
+    design_dim: 1
