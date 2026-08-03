@@ -34,6 +34,7 @@ from .eval import (
     rollout_mo_design_hypernetwork_video,
     save_policy_rollout_video,
     default_video_design,
+    extreme_tradeoffs_with_labels,
 )
 
 # hyperdesigners
@@ -68,6 +69,8 @@ from .utils import (
     stack_models,
     build_batched_model,
     sample_designs,
+    maximin_designs,
+    min_design_gap,
     normalize_design,
     total_mass,
     design_colors,
@@ -105,6 +108,7 @@ __all__ = [
     "rollout_mo_design_hypernetwork_video",
     "save_policy_rollout_video",
     "default_video_design",
+    "extreme_tradeoffs_with_labels",
     # hyperdesigners
     "train_design_hypernetwork",
     "train_mo_design_hypernetwork",
@@ -130,6 +134,8 @@ __all__ = [
     "stack_models",
     "build_batched_model",
     "sample_designs",
+    "maximin_designs",
+    "min_design_gap",
     "normalize_design",
     "total_mass",
     "design_colors",

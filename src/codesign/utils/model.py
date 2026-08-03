@@ -8,6 +8,8 @@ import jax.numpy as jnp
 import numpy as np
 from brax.training.acme import specs
 from mujoco import mjx
+from scipy.optimize import minimize
+from scipy.spatial.distance import pdist
 from scipy.stats.qmc import Sobol
 
 def total_mass(model) -> float:
@@ -75,6 +77,55 @@ def sample_designs(
     """
     unit = Sobol(d=dim, seed=rng).random(num_envs)  # (num_envs, dim) in [0, 1)
     return (low + unit * (high - low)).astype(np.float32)
+
+
+def maximin_designs(
+    num_designs: int,
+    low: float = 0.5,
+    high: float = 2.0,
+    dim: int = 1,
+    n_restarts: int = 100,
+    seed: int = 0,
+) -> np.ndarray:
+    """Spread ``num_designs`` designs to maximize the smallest gap between any two.
+
+    Returns an array of shape ``(num_designs, dim)``.
+    """
+    if num_designs < 1:
+        return np.empty((0, dim), np.float32)
+    if num_designs == 1:
+        return np.full((1, dim), 0.5 * (low + high), np.float32)
+    if dim == 1:
+        return np.linspace(low, high, num_designs, dtype=np.float32).reshape(-1, 1)
+
+    rng = np.random.default_rng(seed)
+    bounds = [(low, high)] * (num_designs * dim)
+
+    def neg_min_gap(x):  # scipy minimizes, so negate
+        return -np.min(pdist(x.reshape(num_designs, dim)))
+
+    best, best_gap = None, -np.inf
+    for _ in range(n_restarts):
+        # Take res.x whether or not L-BFGS-B reports success -- on a nonsmooth objective it
+        # often stops at a kink and still holds the best point of that restart.
+        res = minimize(
+            neg_min_gap,
+            rng.uniform(low, high, num_designs * dim),
+            bounds=bounds,
+            method="L-BFGS-B",
+        )
+        if -res.fun > best_gap:
+            best, best_gap = res.x, -res.fun
+
+    return best.reshape(num_designs, dim).astype(np.float32)
+
+
+def min_design_gap(designs: np.ndarray) -> float:
+    """Smallest pairwise distance in a design set; ``inf`` for fewer than two designs."""
+    designs = np.atleast_2d(np.asarray(designs, np.float64))
+    if len(designs) < 2:
+        return float("inf")
+    return float(np.min(pdist(designs)))
 
 
 def normalize_design(

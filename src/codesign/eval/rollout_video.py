@@ -18,6 +18,7 @@ from codesign.learning.inference import (
     load_mo_design_hypernetwork,
 )
 from codesign.utils.model import normalize_design
+from codesign.utils.plotting import objective_labels
 
 # from minimal_mjx.learning.inference import get_step_reset, load_policy
 import minimal_mjx as mm
@@ -188,6 +189,23 @@ def default_video_design(config):
     return np.full((dim,), 0.5 * (low + high), np.float32)
 
 
+def _writable_frame(frame):
+    """A frame OpenCV can draw into, copying only when it has to.
+    """
+    frame = np.asarray(frame)
+    if frame.flags.writeable and frame.flags.c_contiguous:
+        return frame
+    return np.array(frame, order="C")
+
+
+def extreme_tradeoffs_with_labels(config):
+    """The corners of the objective simplex, as ``[(label, w), ...]``.
+    """
+    labels  = objective_labels(config["env_config"]["reward"]["optimization"]["objectives"])
+    corners = np.eye(len(labels), dtype=np.float32)
+    return list(zip(labels, corners))
+
+
 def save_policy_rollout_video(
     config,
     out_path,
@@ -276,6 +294,20 @@ def save_policy_rollout_video(
             f"unsupported algorithm {algorithm!r}; expected 'ppo', 'design_hypernetwork' "
             "or 'mo_design_hypernetwork'."
         )
+
+    frames = [
+        mm.add_text_to_frame(
+            _writable_frame(frame),
+            caption,
+            org               = (10, 28),
+            size              = 0.6,      # 640px-wide frames; larger overflows the caption
+            thickness         = 2,        # 1 gets swallowed by the outline's antialiasing
+            color             = (255, 255, 255),
+            outline_color     = (0, 0, 0),
+            outline_thickness = 2,
+        )
+        for frame in frames
+    ]
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)  # save_video otherwise prompts

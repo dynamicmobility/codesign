@@ -9,6 +9,8 @@ from codesign.utils.model import (
     stack_models,
     build_batched_model,
     sample_designs,
+    maximin_designs,
+    min_design_gap,
     normalize_design,
     total_mass,
 )
@@ -30,6 +32,8 @@ __all__ = [
     "stack_models",
     "build_batched_model",
     "sample_designs",
+    "maximin_designs",
+    "min_design_gap",
     "normalize_design",
     "total_mass",
     "design_colors",

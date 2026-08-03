@@ -1,13 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-#
-# Multi-objective: the per-objective reward vector is scalarized by the tradeoff w in the
-# loss (as in MORLAX). Training runs against a grid of `num_designs` designs x
-# `num_tradeoffs` tradeoffs, with `num_envs / (num_designs * num_tradeoffs)` envs per cell.
-# The grid is redrawn `resamples_per_epoch` times per eval epoch.
-name: long-training
-save_dir: scratch/logs/codesign/results/mo-design-hypernetwork-cheetah
+name: sweep-j24wm6rn-best-again-test
+save_dir: results/mo-design-hypernetwork-cheetah
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
 env: "CodesignCheetah"
@@ -48,18 +43,18 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 500000000
+    num_timesteps: 50000000 #0
     episode_length: 500
-    num_envs: 1024
+    num_envs: 4096
     unroll_length: 20
     batch_size: 128
-    num_minibatches: 8
+    num_minibatches: 32
     num_updates_per_batch: 4
     learning_rate: 0.0001
     entropy_cost: 0.01
-    discounting: 0.98
+    discounting: 0.99
     reward_scaling: 1.0
-    clipping_epsilon: 0.2
+    clipping_epsilon: 0.3
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
@@ -75,7 +70,7 @@ learning_params:
     value_hidden_layer_sizes:  [64, 64]
   design_params:
     num_designs: 8 # designs sampled per resample
-    resamples_per_epoch: 2
+    resamples_per_epoch: 1
     design_low: 0.5
     design_high: 2.0
     design_dim: 1

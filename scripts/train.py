@@ -16,7 +16,7 @@ import numpy as np
 
 from codesign.envs.CodesignBase import MOCodesignBase
 from codesign.envs.EnvLoader import load_env
-from codesign.utils.model import sample_designs
+from codesign.utils.model import maximin_designs
 from codesign.utils.plotting import (
     MODesignTrainingPlottingInfo,
     plot_mo_design_progress,
@@ -77,42 +77,56 @@ def wrap_env(config, env):
 def log_rollout_videos(
     config,
     run          = None,
-    num_videos   = 3,
+    num_designs  = 3,
     n_steps      = 500,
     camera       = 'track',
     seed         = 0,
 ):
     """Render the trained policy from the latest checkpoint and log it to W&B.
+
+    Designs are picked to maximize the smallest gap between them rather than with the Sobol
+    sampler training uses: with only a handful of videos the point is that the designs look
+    different, and Sobol optimizes discrepancy (asymptotically, at powers of two) instead.
     """
     video_dir = Path(config['save_dir']) / config['name'] / 'videos'
     # Rendering needs a host-side (mujoco, not mjx) env; reused across designs.
     env, _ = load_env(config, backend='np')
 
-    if config['algorithm'] == 'ppo' or num_videos < 2:
+    if config['algorithm'] == 'ppo' or num_designs < 2:
         designs = [codesign.default_video_design(config)]
     else:
         design_params = config['learning_params']['design_params']
-        designs = list(sample_designs(
-            np.random.default_rng(seed),
-            num_videos,
+        designs = list(maximin_designs(
+            num_designs,
             low  = float(design_params['design_low']),
             high = float(design_params['design_high']),
             dim  = int(design_params['design_dim']),
         ))
 
-    for design in designs:
-        d = float(np.asarray(design).reshape(-1)[0])
-        codesign.save_policy_rollout_video(
-            config,
-            video_dir / f'rollout_d{d:.3f}.mp4',
-            env      = env,
-            design   = design,
-            n_steps  = n_steps,
-            camera   = camera,
-            seed     = seed,
-            run      = run,
-            log_key  = f'rollout/d={d:.3f}',
-        )
+    # Only the MO hypernetwork takes a tradeoff; (None, None) is one unconditioned pass.
+    if config['algorithm'] == 'mo_design_hypernetwork':
+        tradeoffs = codesign.extreme_tradeoffs_with_labels(config)
+    else:
+        tradeoffs = [(None, None)]
+
+    for label, tradeoff in tradeoffs:
+        for design in designs:
+            d = float(np.asarray(design).reshape(-1)[0])
+            # The designs repeat at every corner, so the tradeoff has to be in both names.
+            stem    = f'rollout_d{d:.3f}' if label is None else f'rollout_w-{label}_d{d:.3f}'
+            log_key = f'rollout/d={d:.3f}' if label is None else f'rollout/{label}/d={d:.3f}'
+            codesign.save_policy_rollout_video(
+                config,
+                video_dir / f'{stem}.mp4',
+                env      = env,
+                design   = design,
+                tradeoff = tradeoff,
+                n_steps  = n_steps,
+                camera   = camera,
+                seed     = seed,
+                run      = run,
+                log_key  = log_key,
+            )
 
 
 def train(config, log_video=True, **video_kwargs):
@@ -160,8 +174,9 @@ if __name__ == "__main__":
         help="skip rendering/logging the policy rollout video after training",
     )
     parser.add_argument(
-        "--num-videos", type=int, default=3,
-        help="designs to sweep across the design range, one video each (hypernetworks only)",
+        "--num-designs", type=int, default=3,
+        help="designs to sweep across the design range (hypernetworks only); one video each, "
+             "or one per extreme tradeoff each for mo_design_hypernetwork",
     )
     parser.add_argument("--video-steps", type=int, default=500, help="rollout length (env steps)")
     parser.add_argument("--video-camera", type=str, default="track", help="render camera name")
@@ -169,8 +184,8 @@ if __name__ == "__main__":
     config = mm.read_config(args.config)
     train(
         config,
-        log_video  = not args.no_video,
-        num_videos = args.num_videos,
-        n_steps    = args.video_steps,
-        camera     = args.video_camera,
+        log_video   = not args.no_video,
+        num_designs = args.num_designs,
+        n_steps     = args.video_steps,
+        camera      = args.video_camera,
     )
