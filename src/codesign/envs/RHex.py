@@ -314,8 +314,8 @@ class RHex(CodesignBase):
                         name=this_joint_name,
                         type=mj.mjtJoint.mjJNT_HINGE,
                         axis=(0.0, 1.0, 0.0),
-                        stiffness=Kt,
-                        damping=2*jnp.sqrt(Kt*segment_mass),
+                        stiffness=np.array([Kt]),
+                        damping=2*np.sqrt(np.array([Kt*segment_mass])),
                     )
 
                 parent = this_body
