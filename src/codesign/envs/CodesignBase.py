@@ -65,6 +65,27 @@ class CodesignBase(SwappableBase):
         the design parameter d."""
         raise NotImplementedError()
     
+    @classmethod
+    def change_link_length(
+        cls,
+        spec: mj.MjSpec,
+        parent_geom_name: str,
+        child_body_name: str | None, 
+        scale_factor
+    ):
+        """Parent geom must be a capsule element"""
+        # spec.body(parent_body_name).pos     *= scale_factor
+        spec.geom(parent_geom_name).pos     *= scale_factor
+        spec.geom(parent_geom_name).size[1] *= scale_factor
+        
+        if child_body_name is not None:
+            spec.body(child_body_name).pos      *= scale_factor
+        return spec
+        
+        
+        
+        
+    
     
 class MOCodesignBase(CodesignBase):
     

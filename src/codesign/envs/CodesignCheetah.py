@@ -49,7 +49,8 @@ class MOCodesignCheetah(MOCodesignBase):
         qvel = self._np.zeros(self.mj_model.nv)
         ctrl = self._np.zeros(self.mj_model.nu)
 
-        site_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
+        bsite_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
+        fsite_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "ffoot_tip")
         probe = self._data_init_fn(
             model        = model,
             qpos         = qpos,
@@ -59,7 +60,9 @@ class MOCodesignCheetah(MOCodesignBase):
             xfrc_applied = self._np.zeros((model.nbody, 6)),
         )
         ground_margin = 0.02
-        tip_z = probe.site_xpos[site_id][2]
+        btip_z = probe.site_xpos[bsite_id][2]
+        ftip_z = probe.site_xpos[fsite_id][2]
+        tip_z = self._np.min(self._np.asarray([btip_z, ftip_z]))
         qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
         
         data = self._data_init_fn(
@@ -168,6 +171,29 @@ class MOCodesignCheetah(MOCodesignBase):
     
     @classmethod
     def generate_model(cls, d):
+        spec = MOCodesignCheetah.default_spec()
+        
+        geom_body_pairs = [
+            ('fthigh', 'fshin'),
+            ('fshin', 'ffoot'),
+            ('ffoot', 'ftoe'),
+            ('bthigh', 'bshin'),
+            ('bshin', 'bfoot'),
+            ('bfoot', 'btoe')
+        ]
+        for pair, d_dim in zip(geom_body_pairs, d):
+            parent_geom, child_body = pair
+            spec = cls.change_link_length(
+                spec,
+                parent_geom_name = parent_geom,
+                child_body_name  = child_body,
+                scale_factor     = d_dim
+            )
+        
+        return spec.compile()
+
+    @classmethod
+    def _generate_model(cls, d):
         shin_pos = jnp.array([0.2, 0, -0.26])
         new_shin_pos = shin_pos*d
         midpoint = new_shin_pos/2

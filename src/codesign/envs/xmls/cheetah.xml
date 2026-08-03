@@ -73,8 +73,9 @@
           <body name="bfoot" pos="-.28 0 -.14">
             <joint name="bfoot" range="-230 50"/>
             <geom name="bfoot" type="capsule" pos=".03 0 -.097" euler="0 -15 0" size="0.046 .094"/>
-            <site name="bfoot_tip" pos=".054 0 -.188" size="0.06" rgba="1 0 0 1"/>
-
+            <body name="btoe" pos=".054 0 -.188">
+              <site name="bfoot_tip" size="0.06" rgba="1 0 0 1"/>
+            </body>
           </body>
         </body>
       </body>
@@ -87,6 +88,9 @@
           <body name="ffoot" pos=".13 0 -.18">
             <joint name="ffoot" range="-28 28"/>
             <geom name="ffoot" type="capsule" pos=".045 0 -.07" euler="0 -34 0" size="0.046 .07"/>
+            <body name="ftoe" pos=".09 0 -.14">
+              <site name="ffoot_tip" size="0.06" rgba="1 0 0 1"/>
+            </body>
           </body>
         </body>
       </body>

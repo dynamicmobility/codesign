@@ -1,9 +1,9 @@
 """Simulate an open-loop policy on a single design.
 """
 import os
+os.environ["MUJOCO_GL"] = "egl"
 
 from codesign.envs.EnvLoader import load_env
-os.environ["MUJOCO_GL"] = "egl"
 
 import argparse
 from pathlib import Path
@@ -24,10 +24,10 @@ FREQ = 0.5       # action frequency [Hz]
 OUT_DIR = Path("scripts/outputs")
 
 
-def main(config: str, design: float, steps: int, policy_kind: str, camera: str) -> None:
-    train_config = mm.utils.read_config(config)
-    env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-    env = load_env(env_name=train_config["env"], env_params=env_params, backend="np")
+def main(config: str, design: float, steps: int, policy_kind: str, camera: str, backend = None) -> None:
+    train_config = mm.read_config(config)
+    backend = args.backend if backend is None else backend
+    env, env_params = load_env(train_config, backend=backend)
     
     if(train_config["env"] == "TwoAxis"):
         def pd(obs, key, t):
@@ -61,5 +61,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--camera", type=str, default="track", help="render camera name")
     parser.add_argument("--config", type=str, default=CONFIG_PATH, help="environment config to use")
+    parser.add_argument("--backend", type=str, default=None, help="which numpy backend to use")
     args = parser.parse_args()
-    main(args.config, args.design, args.steps, args.policy, args.camera)
+    main(args.config, args.design, args.steps, args.policy, args.camera, args.backend)
