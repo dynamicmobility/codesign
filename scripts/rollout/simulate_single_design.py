@@ -2,6 +2,7 @@
 """
 import os
 
+import codesign
 from codesign.envs.EnvLoader import load_env
 os.environ["MUJOCO_GL"] = "egl"
 
@@ -28,7 +29,7 @@ def main(config: str, design: float | np.ndarray | None, steps: int, policy_kind
 
     train_config = mm.utils.read_config(config)
     env_params = mm.utils.config.create_config_dict(train_config["env_config"])
-    env, _ = load_env(config=train_config, backend="np")
+    env, _ = load_env(config=train_config, backend="jnp")
     
     if(train_config["env"] == "TwoAxis"):
         def pd(obs, key, t):
@@ -38,7 +39,7 @@ def main(config: str, design: float | np.ndarray | None, steps: int, policy_kind
         policy = pd
     elif(train_config["env"] == "RHex"):
         def my_policy(obs, key, t):
-            frc = np.array([-1, -1, -1, -1, -1, -1])
+            frc = -1.0*np.ones((6,))
             return frc, {}
         policy = my_policy
     else:
@@ -57,6 +58,25 @@ def main(config: str, design: float | np.ndarray | None, steps: int, policy_kind
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 
     reward_plotter.plot(title=f"{train_config['env']} d={design} reward")
+
+    if(train_config["env"] == "RHex"):
+        env: codesign.envs.RHex = env
+        qpos_list = []
+        for step in traj:
+            qpos_list.append(step.data.qpos.copy())
+
+        qpos_arr = np.stack(qpos_list)
+        joint_ids = env.actuated_joint_pos_idxs()
+
+        plt.figure()
+        for jid in np.asarray(joint_ids).ravel():
+            plt.plot(qpos_arr[:, jid], label=f"joint {jid}")
+        plt.title(f"{train_config['env']} d={design} actuated joint positions")
+        plt.xlabel("step")
+        plt.ylabel("position")
+        plt.legend()
+
+
     plt.show()
 
 

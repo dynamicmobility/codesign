@@ -8,8 +8,8 @@ backend: jnp # always jnp for training
 
 env_config:
   ctrl_dt: 0.01
-  sim_dt: 0.0005
-  action_scale: 1.0
+  sim_dt: 0.0001
+  action_scale: 10.0
   history_length: 5
   ideal_base_height: 0.5
   ideal_base_vel: 0.5
@@ -44,7 +44,7 @@ learning_params:
   ppo_params:
     num_timesteps: 50000000
     episode_length: 500
-    num_envs: 128
+    num_envs: 64
     unroll_length: 20
     batch_size: 64
     num_minibatches: 2

@@ -44,19 +44,6 @@ class RHex(CodesignBase):
         assert len(qpos) == model.nq
         qvel = self._np.zeros(model.nv)
         ctrl = self._np.zeros(model.nu)
-
-        # site_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
-        # probe = self._data_init_fn(
-        #     model        = model,
-        #     qpos         = qpos,
-        #     qvel         = qvel,
-        #     ctrl         = ctrl,
-        #     time         = 0.0,
-        #     xfrc_applied = self._np.zeros((model.nbody, 6)),
-        # )
-        # ground_margin = 0.02
-        # tip_z = probe.site_xpos[site_id][2]
-        # qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
         
         data = self._data_init_fn(
             model        = model,
@@ -91,8 +78,8 @@ class RHex(CodesignBase):
         state.info['xposbefore'] = state.data.qpos[0]
         action = self._np.clip(
             self.params.action_scale * action, 
-            -1.0,
-            1.0
+            -10.0,
+            10.0
         )
         data = self._step_fn(state.data, action, model)
         state.info['xposafter'] = data.qpos[0]
@@ -139,10 +126,13 @@ class RHex(CodesignBase):
     def reward_run(self, info):
         return info['xposafter'] - info['xposbefore']
 
+    def wrap_angle_to_sin_cos(self, angles):
+        return jnp.concatenate([jnp.sin(angles), jnp.cos(angles)])
+    
     def _get_obs(self, data, info):
         obs = jnp.concatenate([
             data.qpos[3:7], # Angle States
-            data.qpos[self._np.array(self.actuated_joint_pos_idxs())], # Indices of all actuated joints
+            self.wrap_angle_to_sin_cos(data.qpos[self._np.array(self.actuated_joint_pos_idxs())]), # Indices of all actuated joints
             data.qvel[3:6], # Angular Velocity States,
             data.qvel[self._np.array(self.actuated_joint_vel_idxs())], # Indices of all actuated joints
         ])
@@ -304,7 +294,7 @@ class RHex(CodesignBase):
                         type=mj.mjtJoint.mjJNT_HINGE,
                         axis=(0.0, 1.0, 0.0),
                         stiffness=0.0,
-                        damping=0.1, # TODO: Tune damping to match real RHex
+                        damping=0.01, # TODO: Tune damping to match real RHex
                     )
                     Kp_vel = 0.1
                     spec.add_actuator(
@@ -316,8 +306,8 @@ class RHex(CodesignBase):
                         dyntype=mj.mjtDyn.mjDYN_NONE,
                         gainprm=(Kp_vel, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
                         biasprm=(0.0, 0.0, -Kp_vel, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-                        # forcelimited=True,
-                        # forcerange=(-0.1, 0.1),
+                        forcelimited=True,
+                        forcerange=(-0.1, 0.1),
                     )
                 else:
                     this_body.add_joint(
