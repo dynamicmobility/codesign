@@ -64,7 +64,7 @@ class RHex(CodesignBase):
             data   = data,
             action = ctrl,
             info   = info,
-            done   = False,
+            done   = done,
         )
         reward, metrics = self.get_reward_and_metrics(rewards, {})
         

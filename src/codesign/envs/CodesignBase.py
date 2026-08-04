@@ -57,7 +57,7 @@ class CodesignBase(SwappableBase):
         """Observation structure, inferred from the env's nominal compiled model.
         """
         abstract_state = jax.eval_shape(
-            lambda rng: self.reset(rng, self._mjx_model), jax.random.PRNGKey(0)
+            lambda rng: self.reset(rng, self._mj_model), jax.random.PRNGKey(0)
         )
         obs = abstract_state.obs
         if isinstance(obs, dict):
@@ -152,12 +152,12 @@ class CodesignMO2SO:
 
     def reset(self, rng: jax.Array, model = None) -> Any:
         if(model == None):
-            return self._scalarize(self.env.reset(rng, self.env.mjx_model if self.env.backend == 'jnp' else self.env.mj_model))
+            return self._scalarize(self.env.reset(rng, self.env.mjx_model if self.env.backend is not 'np' else self.env.mj_model))
         return self._scalarize(self.env.reset(rng, model))
 
     def step(self, state, action: jax.Array, model = None) -> Any:
         if(model == None):
-            return self._scalarize(self.env.step(state, action, self.env.mjx_model if self.env.backend == 'jnp' else self.env.mj_model))
+            return self._scalarize(self.env.step(state, action, self.env.mjx_model if self.env.backend is not 'np' else self.env.mj_model))
         return self._scalarize(self.env.step(state, action, model))
 
     def __getattr__(self, name):
@@ -176,7 +176,7 @@ class Codesign2SingleDesign:
         self.env = env
         
         model = env.generate_model(np.asarray(design))
-        self.model = model if env.backend == 'np' else mjx.put_model(model)
+        self.model = model # if env.backend == 'np' else mjx.put_model(model, impl=env.backend)
 
     def reset(self, rng: jax.Array) -> Any:
         return self.env.reset(rng, self.model)

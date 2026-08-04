@@ -57,7 +57,7 @@ def rollout_single_video(
     """
     mj_model = env.generate_model(design)
 
-    if env.backend == 'jnp':
+    if env.backend == 'jax' or env.backend == 'warp':
         model = mjx.put_model(mj_model)
     else:
         model = mj_model

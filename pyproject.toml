@@ -13,7 +13,7 @@ license = { text = "MIT" }
 dependencies = [
   "numpy",
   "jax",
-  "playground==0.0.5",
+  "playground",
   "pandas",
   "h5py",
   "wandb",

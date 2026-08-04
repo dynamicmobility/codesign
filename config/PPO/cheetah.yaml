@@ -1,10 +1,10 @@
 # PPO training config.
 name: test
-save_dir: results/ppo-cheetah
+save_dir: results/ppo-cheetah-warp
 description: Normal RL
 algorithm: ppo
 env: CodesignCheetah
-backend: jnp # always jnp for training
+backend: warp # warp or jax for training
 
 env_config:
   ctrl_dt: 0.01
@@ -37,6 +37,11 @@ env_config:
   termination:
     enabled: true
     base_height: 0.2
+  backend_params:
+    nconmax: 48
+    nworld: 1024
+    njmax: 64
+    naccdmax: 64
 
 learning_params:
   reward_objective_weights: [1.0, 1.0, 0.0]
