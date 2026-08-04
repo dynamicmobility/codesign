@@ -219,10 +219,10 @@ def rollout_design_hypernetwork(
     if type(env) == MOCodesignBase:
         env = CodesignMO2SO(env, weighting)
 
-    design = config["learning_params"]["design_params"]
-    design_low = float(design["design_low"])
-    design_high = float(design["design_high"])
-    design_dim = int(design["design_dim"])
+    codesign = config["env_config"]["codesign"]
+    design_low = np.asarray(codesign["low"])
+    design_high = np.asarray(codesign["high"])
+    design_dim = len(codesign["low"])
 
     designs = model_lib.sample_designs(
         rng         = np.random.default_rng(seed),

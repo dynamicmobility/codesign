@@ -58,7 +58,7 @@ class DesignTradeoffSampleGrid:
 
     def build_models(self, env: CodesignBase, tiled: bool) -> mjx.Model:
         """Stack one model per design (``tiled=False``) or per flat env (``tiled=True``)."""
-        stacked = stack_models([put_design_model(env, d) for d in self.designs])
+        stacked = stack_models(put_design_model(env, d) for d in self.designs)
         if not tiled:
             return stacked
         reps = self.n_tradeoffs * self.per_cell

@@ -1,7 +1,7 @@
 """Design-construction helpers shared across training/eval.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import jax
 import jax.numpy as jnp
@@ -33,17 +33,22 @@ def uniform_design_sweep(config, num_envs: int) -> np.ndarray:
     return np.linspace(low, high, num_envs).reshape(num_envs, dim).astype(np.float32)
 
 
-def stack_models(models: list[mjx.Model]) -> mjx.Model:
+def stack_models(models: Iterable[mjx.Model]) -> mjx.Model:
     """Stack same-topology ``mjx.Model``s along a new leading batch axis.
 
     Independently compiled models don't share a treedef (a few static fields differ),
-    so we stack only the traced leaves and reuse the first model's treedef.
+    so we stack only the traced leaves and reuse the first model's treedef. Each model's
+    leaves are copied to host arrays as it arrives, so an iterator of freshly compiled
+    models keeps only one alive at a time.
     """
-    leaves = [jax.tree_util.tree_leaves(m) for m in models]
-    _, treedef = jax.tree_util.tree_flatten(models[0])
-    return jax.tree_util.tree_unflatten(
-        treedef, [jnp.stack(col) for col in zip(*leaves)]
-    )
+    cols, treedef = None, None
+    for m in models:
+        leaves, leaf_treedef = jax.tree_util.tree_flatten(m)
+        if cols is None:
+            cols, treedef = [[] for _ in leaves], leaf_treedef
+        for col, leaf in zip(cols, leaves):
+            col.append(np.asarray(leaf))
+    return jax.tree_util.tree_unflatten(treedef, [jnp.stack(col) for col in cols])
 
 
 def put_design_model(env, design_row: np.ndarray) -> mjx.Model:
@@ -57,10 +62,9 @@ def build_batched_model(env, designs: np.ndarray) -> mjx.Model:
 
     Args:
         env: a ``CodesignBase`` env whose ``generate_model`` maps a design row -> a model.
-        designs: array of shape ``(num_envs, design_dim)``.
+        designs: array of shape ``(num_designs, design_dim)``.
     """
-    models = [put_design_model(env, d) for d in designs]
-    return stack_models(models)
+    return stack_models(put_design_model(env, d) for d in designs)
 
 
 def sample_designs(
@@ -83,25 +87,28 @@ def sample_designs(
 
 def maximin_designs(
     num_designs: int,
-    low: float = 0.5,
-    high: float = 2.0,
+    low: float | list | np.ndarray = 0.5,
+    high: float | list | np.ndarray = 2.0,
     dim: int = 1,
     n_restarts: int = 100,
     seed: int = 0,
 ) -> np.ndarray:
     """Spread ``num_designs`` designs to maximize the smallest gap between any two.
 
-    Returns an array of shape ``(num_designs, dim)``.
+    ``low``/``high`` are per-dimension bounds broadcast to ``(dim,)``. The spread is
+    solved in the unit cube and mapped onto the box, so each dimension weighs equally in
+    the gap regardless of its physical range. Returns shape ``(num_designs, dim)``.
     """
+    low = np.broadcast_to(np.asarray(low, np.float64), (dim,))
+    high = np.broadcast_to(np.asarray(high, np.float64), (dim,))
     if num_designs < 1:
         return np.empty((0, dim), np.float32)
     if num_designs == 1:
-        return np.full((1, dim), 0.5 * (low + high), np.float32)
+        return (0.5 * (low + high)).reshape(1, dim).astype(np.float32)
     if dim == 1:
-        return np.linspace(low, high, num_designs, dtype=np.float32).reshape(-1, 1)
+        return np.linspace(low[0], high[0], num_designs, dtype=np.float32).reshape(-1, 1)
 
     rng = np.random.default_rng(seed)
-    bounds = [(low, high)] * (num_designs * dim)
 
     def neg_min_gap(x):  # scipy minimizes, so negate
         return -np.min(pdist(x.reshape(num_designs, dim)))
@@ -112,14 +119,14 @@ def maximin_designs(
         # often stops at a kink and still holds the best point of that restart.
         res = minimize(
             neg_min_gap,
-            rng.uniform(low, high, num_designs * dim),
-            bounds=bounds,
+            rng.random(num_designs * dim),
+            bounds=[(0.0, 1.0)] * (num_designs * dim),
             method="L-BFGS-B",
         )
         if -res.fun > best_gap:
             best, best_gap = res.x, -res.fun
 
-    return best.reshape(num_designs, dim).astype(np.float32)
+    return (low + best.reshape(num_designs, dim) * (high - low)).astype(np.float32)
 
 
 def min_design_gap(designs: np.ndarray) -> float:
@@ -140,8 +147,8 @@ def normalize_design(
     a config dict. Defaults to config dict when provided."""
     if config is not None:
         codesign = config["env_config"]["codesign"]
-        low = np.asarray(codesign["design_low"])
-        high = np.asarray(codesign["design_high"])
+        low = np.asarray(codesign["low"])
+        high = np.asarray(codesign["high"])
     else:
         low = np.asarray(low)
         high = np.asarray(high)

@@ -55,9 +55,9 @@ def main(
     cumulative_max = cumulative_trials.max(axis=0)
     time       = np.arange(steps)
 
-    design      = config["learning_params"]["design_params"]
-    design_low  = float(design["design_low"])
-    design_high = float(design["design_high"])
+    codesign      = config["env_config"]["codesign"]
+    design_low  = np.asarray(codesign["design_low"])
+    design_high = np.asarray(codesign["design_high"])
 
     # Save logged rewards.
     OUT_DIR.mkdir(parents=True, exist_ok=True)

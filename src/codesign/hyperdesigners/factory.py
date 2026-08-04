@@ -17,6 +17,7 @@ def setup_design_hypernetwork(config):
     ppo = dict(lp["ppo_params"])
     net = dict(lp["network_params"])
     design = dict(config['env_config']['codesign'])
+    design_sampling = dict(lp.get("design_sampling", {}))
 
     network_factory = functools.partial(
         make_design_hypernet_networks,
@@ -32,6 +33,7 @@ def setup_design_hypernetwork(config):
         design_low        = design["low"],
         design_high       = design["high"],
         design_dim        = len(design['low']),
+        num_designs       = design_sampling.get("num_designs", 8),
         **ppo,
     )
     return train_fn, network_factory

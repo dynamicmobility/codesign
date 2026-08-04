@@ -182,10 +182,9 @@ def default_video_design(config):
         return np.asarray(config['env_config']['codesign']["default_design"], np.float32).reshape(-1)
 
     codesign = config["env_config"]['codesign']
-    low  = float(codesign["low"])
-    high = float(codesign["high"])
-    dim  = len(codesign["low"])
-    return np.full((dim,), 0.5 * (low + high), np.float32)
+    low  = np.asarray(codesign["low"], np.float32).reshape(-1)
+    high = np.asarray(codesign["high"], np.float32).reshape(-1)
+    return 0.5 * (low + high)  # (design_dim,) box midpoint
 
 
 def _writable_frame(frame):

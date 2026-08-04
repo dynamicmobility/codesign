@@ -75,10 +75,6 @@ def log_rollout_videos(
     seed         = 0,
 ):
     """Render the trained policy from the latest checkpoint and log it to W&B.
-
-    Designs are picked to maximize the smallest gap between them rather than with the Sobol
-    sampler training uses: with only a handful of videos the point is that the designs look
-    different, and Sobol optimizes discrepancy (asymptotically, at powers of two) instead.
     """
     video_dir = Path(config['save_dir']) / config['name'] / 'videos'
     # Rendering needs a host-side (mujoco, not mjx) env; reused across designs.
@@ -87,12 +83,12 @@ def log_rollout_videos(
     if config['algorithm'] == 'ppo' or num_designs < 2:
         designs = [codesign.default_video_design(config)]
     else:
-        design_params = config['learning_params']['design_params']
+        design_params = config['env_config']['codesign']
         designs = list(codesign.maximin_designs(
             num_designs,
-            low  = float(design_params['design_low']),
-            high = float(design_params['design_high']),
-            dim  = int(design_params['design_dim']),
+            low  = np.asarray(design_params['low'], np.float64),
+            high = np.asarray(design_params['high'], np.float64),
+            dim  = len(design_params['low']),
         ))
 
     # Only the MO hypernetwork takes a tradeoff; (None, None) is one unconditioned pass.
