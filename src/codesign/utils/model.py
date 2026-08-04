@@ -12,6 +12,8 @@ from scipy.optimize import minimize
 from scipy.spatial.distance import pdist
 from scipy.stats.qmc import Sobol
 
+from codesign.envs import CodesignBase
+
 def total_mass(model) -> float:
     """Total mass of the model underlying a ``CodesignBase`` env.
 
@@ -51,7 +53,7 @@ def stack_models(models: Iterable[mjx.Model]) -> mjx.Model:
     return jax.tree_util.tree_unflatten(treedef, [jnp.stack(col) for col in cols])
 
 
-def put_design_model(env, design_row: np.ndarray) -> mjx.Model:
+def put_design_model(env: CodesignBase, design_row: np.ndarray) -> mjx.Model:
     """Build the env's ``mjx.Model`` for a single design row (host-side, ``mjx.put_model``'d)."""
     d = np.asarray(design_row, np.float32).reshape(-1)
     return mjx.put_model(env.generate_model(d))

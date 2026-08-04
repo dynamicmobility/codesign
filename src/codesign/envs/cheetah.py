@@ -172,7 +172,7 @@ class MOCodesignCheetah(MOCodesignBase):
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
         return super().default_spec(xml_path=INTERFACE_PATH / "xmls" / "cheetah.xml")
-    
+
     @property
     def design_limits(self):
         """``[low, high]``, one entry per ``GEOM_BODY_PAIRS`` link scale."""
@@ -180,6 +180,9 @@ class MOCodesignCheetah(MOCodesignBase):
             self.params.codesign.low,
             self.params.codesign.high,
         ])
+    def default_design(self):
+        return self.params.codesign.default_design
+
     
     @classmethod
     def generate_model(cls, d):

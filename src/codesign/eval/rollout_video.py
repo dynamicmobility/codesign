@@ -59,7 +59,9 @@ def rollout_single_video(
     model = env.generate_model(d)
 
     if env.backend == 'jnp':
-        model = mjx.put_model(model)
+        model = mjx.put_model(mj_model)
+    else:
+        model = mj_model
     width, height = mm.infer_frame_dim(model, width, height)
 
     step, reset = mm.get_step_reset(env)
@@ -89,7 +91,7 @@ def rollout_single_video(
     if gen_video:
         print("Generating video...")
         frames = render_array(
-            model, traj, height, width, camera, scene_option=scene_option
+            mj_model, traj, height, width, camera, scene_option=scene_option
         )
     return frames, traj, reward_plotter, data_plotter, info_plotter
 
