@@ -178,14 +178,13 @@ def rollout_mo_design_hypernetwork_video(
 def default_video_design(config):
     """Design to roll out when the caller doesn't name one.
     """
-    learning_params = config["learning_params"]
     if config["algorithm"] == "ppo":
-        return np.asarray(learning_params["default_design"], np.float32).reshape(-1)
+        return np.asarray(config['env_config']['codesign']["default_design"], np.float32).reshape(-1)
 
-    design_params = learning_params["design_params"]
-    low  = float(design_params["design_low"])
-    high = float(design_params["design_high"])
-    dim  = int(design_params["design_dim"])
+    codesign = config["env_config"]['codesign']
+    low  = float(codesign["low"])
+    high = float(codesign["high"])
+    dim  = len(codesign["low"])
     return np.full((dim,), 0.5 * (low + high), np.float32)
 
 

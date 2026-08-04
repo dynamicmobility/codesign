@@ -6,6 +6,7 @@ from . import config, envs, eval, hyperdesigners, learning, utils
 # envs
 from .envs import (
     CodesignBase,
+    MOCodesignBase,
     CodesignMO2SO,
     RHex,
     Codesign2SingleDesign,
@@ -86,6 +87,7 @@ __all__ = [
     "utils",
     # envs
     "CodesignBase",
+    "MOCodesignBase",
     "CodesignMO2SO",
     "cheetah",
     "RHex",

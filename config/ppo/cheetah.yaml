@@ -1,13 +1,9 @@
-# Training config for the `design_hypernetwork` algorithm on CodesignCheetah.
-#
-# H_\pi(d) = \pi(a | s)
-#
-# This is a 'single objective model', so reward scalarization is required.
-name: test-design-hypernetwork-cheetah
-save_dir: results/design-hypernetwork-cheetah
-description: "Design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths. based on less-stiffness-equal-no-energy"
-algorithm: "design_hypernetwork"
-env: "CodesignCheetah"
+# PPO training config.
+name: test
+save_dir: results/Aug3
+description: Normal RL
+algorithm: ppo
+env: MOCodesignCheetah
 backend: jnp # always jnp for training
 
 env_config:
@@ -22,9 +18,9 @@ env_config:
       alive:      1.0
       done:       0
     optimization:
-      objectives:        [['run'], ['energy'], ['height']]
-      shared_objectives: ['alive']
-      labels:            ['Running Speed', 'Efficiency', 'Height']
+      objectives:            [['run'], ['energy'], ['height']]
+      shared_objectives:     ['alive']
+      labels:                ['Running Speed', 'Height']
       default_scalarization: [1.0, 1.0, 1.0]
   termination:
     enabled: true
@@ -38,26 +34,24 @@ learning_params:
   ppo_params:
     num_timesteps: 50000000
     episode_length: 500
-    num_envs: 128
+    num_envs: 1024
     unroll_length: 20
     batch_size: 64
-    num_minibatches: 2
+    num_minibatches: 16
     num_updates_per_batch: 4
-    learning_rate: 0.0005
+    learning_rate: 0.0003
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
-    clipping_epsilon: 0.1
+    clipping_epsilon: 0.2
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
     num_evals: 15
-    num_eval_envs: 64
+    num_eval_envs: 256
     deterministic_eval: true
     seed: 0
-  design_hypernetwork_params:
-    hypersize: [128, 128]
-    num_features: 16
+  network_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]

@@ -94,20 +94,8 @@ def train_design_hypernetwork(
             jnp.asarray(designs_np), design_low, design_high
         )
         return designs_np, batched_model, designs_input
-
-    # Observation structure and objective count come straight from the env -- no throwaway
-    # model build or reset. ``observation_size`` is inferred by the env from a nominal model
-    # (design-independent obs dims); ``num_objectives`` is the env's reward-vector length.
+    
     obs_size = environment.observation_size
-
-    # CodesignCheetah emits a multi-objective reward vector; collapse it to the single scalar
-    # reward this algorithm optimizes via a fixed objective-weight vector (default ones).
-    num_objectives = len(environment.params.reward.optimization.objectives)
-    if reward_objective_weights is None:
-        reward_weights = jnp.ones(num_objectives)
-    else:
-        reward_weights = jnp.asarray(reward_objective_weights, dtype=jnp.float32)
-
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
     )

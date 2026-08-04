@@ -23,7 +23,7 @@ def load_env(config: dict, backend: str | None = None) -> tuple[CodesignBase, di
 
     # Single Objective wrapper
     if(config['algorithm'] == "design_hypernetwork"):
-        env = CodesignMO2SO(env, config['learning_params']['reward_objective_weights'])
+        env = CodesignMO2SO(env, env_params.reward.optimization.default_scalarization)
 
     # Single Objective wrapper
     if(config['algorithm'] == "ppo"):

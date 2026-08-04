@@ -2,7 +2,7 @@ from codesign.envs.codesign_base import Codesign2SingleDesign, CodesignMO2SO, MO
 from . import cheetah, codesign_base
 from .create import load_env
 
-from codesign.envs.codesign_base import CodesignBase
+from codesign.envs.codesign_base import CodesignBase, MOCodesignBase
 from codesign.envs.cheetah import (
     MOCodesignCheetah,
     MOCodesignCheetah1D,
@@ -15,6 +15,7 @@ __all__ = [
     "codesign_base",
     "CodesignMO2SO",
     "cheetah",
+    "CodesignBase",
     "MOCodesignBase",
     "RHex",
     "load_env",

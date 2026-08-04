@@ -26,10 +26,10 @@ def uniform_design_sweep(config, num_envs: int) -> np.ndarray:
 
     Returns an array of shape ``(num_envs, design_dim)`` in ``[design_low, design_high]``.
     """
-    design = config["learning_params"]["design_params"]
-    low = float(design["design_low"])
-    high = float(design["design_high"])
-    dim = int(design["design_dim"])
+    codesign = config["env_config"]["codesign"]
+    low = np.asarray(codesign["low"])
+    high = np.asarray(codesign["high"])
+    dim = len(codesign["low"])
     return np.linspace(low, high, num_envs).reshape(num_envs, dim).astype(np.float32)
 
 
@@ -66,8 +66,8 @@ def build_batched_model(env, designs: np.ndarray) -> mjx.Model:
 def sample_designs(
     rng: np.random.Generator,
     num_envs: int,
-    low: float = 0.5,
-    high: float = 2.0,
+    low: float | list | np.ndarray,
+    high: float | list | np.ndarray,
     dim: int = 1,
 ) -> np.ndarray:
     """Spread ``num_envs`` designs evenly through ``[low, high]^dim`` (host-side, numpy).
@@ -75,6 +75,8 @@ def sample_designs(
     Uses Sobol low-discrepancy sequence so the designs cover the hypercube far more
     uniformly than i.i.d. uniform samples for any num_envs number.
     """
+    low = np.asarray(low)
+    high = np.asarray(high)
     unit = Sobol(d=dim, seed=rng).random(num_envs)  # (num_envs, dim) in [0, 1)
     return (low + unit * (high - low)).astype(np.float32)
 
@@ -129,14 +131,20 @@ def min_design_gap(designs: np.ndarray) -> float:
 
 
 def normalize_design(
-    designs: jnp.ndarray, low: float = None, high: float = None, config: dict = None
+    designs: jnp.ndarray, 
+    low: float | np.ndarray = None, 
+    high: float | np.ndarray = None,
+    config: dict = None
 ) -> jnp.ndarray:
     """Normalize designs to ``[0, 1]`` using either explicit ``low``/``high`` or 
     a config dict. Defaults to config dict when provided."""
     if config is not None:
-        design_params = config["learning_params"]["design_params"]
-        low = float(design_params["design_low"])
-        high = float(design_params["design_high"])
+        codesign = config["env_config"]["codesign"]
+        low = np.asarray(codesign["design_low"])
+        high = np.asarray(codesign["design_high"])
+    else:
+        low = np.asarray(low)
+        high = np.asarray(high)
     return (designs - low) / (high - low)
 
 def observation_spec(observation_size):

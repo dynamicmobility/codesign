@@ -40,8 +40,6 @@ def sample_tradeoffs(
     num_objectives: int,
     sampling: str = "dense",
     alpha: float = 1.0,
-    warmup_frac: float = 0.0,
-    num_warmup_ref: int = 1,
 ) -> np.ndarray:
     """Sample ``num_tradeoffs`` simplex tradeoffs (host-side numpy), MORLAX-style.
 
@@ -55,10 +53,6 @@ def sample_tradeoffs(
     During warmup (``it < round(warmup_frac * num_warmup_ref)``) all tradeoffs are uniform.
     Returns an array of shape ``(num_tradeoffs, num_objectives)``.
     """
-    if it < round(warmup_frac * num_warmup_ref):
-        return np.full(
-            (num_tradeoffs, num_objectives), 1.0 / num_objectives, dtype=np.float32
-        )
 
     if sampling == "dense":
         w = rng.dirichlet(np.ones(num_objectives) * alpha, size=num_tradeoffs)
@@ -164,7 +158,7 @@ def train_mo_design_hypernetwork(
         )
         tradeoffs_unique = sample_tradeoffs(
             w_rng, it, n_tradeoffs, num_objectives,
-            sampling=sampling, alpha=alpha, warmup_frac=warmup_frac,
+            sampling=sampling, alpha=alpha,
             num_warmup_ref=num_evals_after_init,
         )
         grid = DesignTradeoffSampleGrid(

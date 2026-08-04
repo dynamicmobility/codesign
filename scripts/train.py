@@ -25,7 +25,7 @@ def get_handle_params(config):
             return None
 
 
-def get_progress_fn(config, env: codesign.MOCodesignBase):
+def get_progress_fn(config, env: codesign.CodesignBase):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     
@@ -47,16 +47,16 @@ def wrap_env(config, env):
         case 'ppo':
             env = codesign.CodesignMO2SO(
                 env       = env,
-                weighting = config.learning_params.reward_objective_weights
+                weighting = config.env_config.reward.optimization.default_scalarization
             )
             env = codesign.Codesign2SingleDesign(
                 env = env,
-                design = config.learning_params.default_design
+                design = config.env_config.codesign.default_design
             )
         case 'design_hypernetwork':
             env = codesign.CodesignMO2SO(
                 env       = env,
-                weighting = config.learning_params.reward_objective_weights
+                weighting = config.env_config.reward.optimization.default_scalarization
             )
         case 'mo_design_hypernetwork':
             pass
