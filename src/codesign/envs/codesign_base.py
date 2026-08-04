@@ -91,11 +91,6 @@ class CodesignBase(SwappableBase):
         if child_body_name is not None:
             spec.body(child_body_name).pos      *= scale_factor
         return spec
-        
-        
-        
-        
-    
     
 class MOCodesignBase(CodesignBase):
     

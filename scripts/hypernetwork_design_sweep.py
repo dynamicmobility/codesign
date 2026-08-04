@@ -9,9 +9,7 @@ import argparse
 
 import minimal_mjx as mm
 import moplayground as mop
-
-from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.hyperdesigners import setup_design_hypernetwork
+import codesign
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 
@@ -37,8 +35,8 @@ def main(config_path: str):
             config["learning_params"]["network_params"]["num_features"] = nf
             # Model-as-input env
             env_params = mm.utils.config.create_config_dict(config["env_config"])
-            env = CodesignCheetah(env_params=env_params, backend="jnp")
-            eval_env = CodesignCheetah(env_params=env_params, backend="jnp")
+            env = codesign.MOCodesignCheetah(env_params=env_params, backend="jnp")
+            eval_env = codesign.MOCodesignCheetah(env_params=env_params, backend="jnp")
 
             # Run via minimal-mjx's trainer with our handle_params
             mm.learning.training.train(
@@ -46,7 +44,7 @@ def main(config_path: str):
                 env,
                 eval_env,
                 run=run,
-                handle_params=setup_design_hypernetwork,
+                handle_params=codesign.setup_design_hypernetwork,
             )
 
 

@@ -69,7 +69,7 @@ def main(
     else:
         config     = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
         env_params = mm.utils.config.create_config_dict(config["env_config"])
-        env        = codesign.CodesignCheetah(env_params=env_params, backend="jnp")
+        env        = codesign.cheetah(env_params=env_params, backend="jnp")
 
         grid = codesign.rollout_mo_design_hypernetwork(
             env             = env,

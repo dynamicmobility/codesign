@@ -3,16 +3,13 @@
 import os
 os.environ["MUJOCO_GL"] = "egl"
 
-from codesign.envs.EnvLoader import load_env
-from codesign.envs.RHex import RHex
+from codesign.envs.create import load_env
 
 import argparse
 from pathlib import Path
 
 import minimal_mjx as mm
-from minimal_mjx.eval import make_open_loop_policy
-from codesign.eval.rollout_video import rollout_single_video
-from codesign.utils.model import total_mass
+import codesign
 from matplotlib import pyplot as plt
 import numpy as np
 
@@ -41,17 +38,17 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str, 
             return frc, {}
         policy = my_policy
     else:
-        policy = make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
+        policy = mm.make_open_loop_policy(policy_kind, env.action_size, amp=AMP, freq=FREQ)
 
     if(design is None):
         design = env.default_design
         print(design)
-    frames, traj, reward_plotter, data_plotter, info_plotter = rollout_single_video(
+    frames, traj, reward_plotter, data_plotter, info_plotter = codesign.rollout_single_video(
         env, design, policy, steps, camera=camera, width=640, height=480,
     )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / f"{train_config['env']}_d{str(design).replace('.', '_')}_{policy_kind}.mp4"
+    out = OUT_DIR / f"{train_config['env']}_simulate.mp4"
     mm.utils.plotting.save_video(frames, env.dt, out)
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 
@@ -81,7 +78,9 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str, 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--design", type=float, default=None, help="design vector")
+    parser.add_argument(
+        "--design", type=float, nargs="+", default=[1.0], help="link length scales",
+    )
     parser.add_argument("--steps", type=int, default=T, help="rollout length (control steps)")
     parser.add_argument(
         "--policy", type=str, default="sinusoid",

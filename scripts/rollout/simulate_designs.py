@@ -23,7 +23,7 @@ OUT_DIR = Path('scripts/outputs')
 
 def main(config: str, n: int, steps: int, policy_desc: str) -> None:
     train_config = mm.utils.read_config(config)
-    env, env_params = codesign.envs.EnvLoader.load_env(train_config)
+    env, env_params = codesign.envs.create.load_env(train_config)
 
     # 1. Sample uniformly over environment's design range
     ds = uniform_design_sweep(env_params, N)  # (N, design_dim)

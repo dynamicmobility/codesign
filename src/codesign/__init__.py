@@ -1,27 +1,21 @@
 """``codesign`` — design-conditioned (multi-objective) hypernetwork RL for robots.
-
-Subpackages remain importable as ``codesign.envs``, ``codesign.eval``,
-``codesign.hyperdesigners``, ``codesign.learning`` and ``codesign.utils``. For
-convenience each subpackage's public API is also re-exported at the top level, so e.g.
-``codesign.train_mo_design_hypernetwork`` and ``codesign.plot_design_paretos`` work
-directly.
-
-Re-exports are written out explicitly (rather than looped) so static tooling
-(Pylance/Pyright, IDE autocomplete) can see them. Keep this file in sync with the
-subpackage ``__all__`` lists; a name exported by two subpackages would show up here as a
-shadowed re-import.
 """
 
-from . import envs, eval, hyperdesigners, learning, utils
+from . import config, envs, eval, hyperdesigners, learning, utils
 
 # envs
 from .envs import (
     CodesignBase,
+    MOCodesignBase,
     CodesignMO2SO,
-    CodesignCheetah,
     RHex,
     Codesign2SingleDesign,
-    MOCodesignCheetah
+    MOCodesignCheetah,
+    MOCodesignCheetah1D,
+    MOCodesignCheetahBackLegs,
+    MOCodesignCheetahFrontLegs,
+    cheetah,
+    load_env
 )
 
 # eval
@@ -85,6 +79,7 @@ from .utils import (
 
 __all__ = [
     # subpackages
+    "config",
     "envs",
     "eval",
     "hyperdesigners",
@@ -92,11 +87,16 @@ __all__ = [
     "utils",
     # envs
     "CodesignBase",
+    "MOCodesignBase",
     "CodesignMO2SO",
-    "CodesignCheetah",
+    "cheetah",
     "RHex",
     "Codesign2SingleDesign",
     "MOCodesignCheetah",
+    "MOCodesignCheetah1D",
+    "MOCodesignCheetahBackLegs",
+    "MOCodesignCheetahFrontLegs",
+    "load_env",
     # eval
     "make_open_loop_policy",
     "from_inference_fn",
