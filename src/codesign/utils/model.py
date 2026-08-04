@@ -12,6 +12,8 @@ from scipy.optimize import minimize
 from scipy.spatial.distance import pdist
 from scipy.stats.qmc import Sobol
 
+from codesign.envs import CodesignBase
+
 def total_mass(model) -> float:
     """Total mass of the model underlying a ``CodesignBase`` env.
 
@@ -26,10 +28,10 @@ def uniform_design_sweep(config, num_envs: int) -> np.ndarray:
 
     Returns an array of shape ``(num_envs, design_dim)`` in ``[design_low, design_high]``.
     """
-    design = config["learning_params"]["design_params"]
-    low = float(design["design_low"])
-    high = float(design["design_high"])
-    dim = int(design["design_dim"])
+    design = config["design_params"]
+    low = design["design_low"]
+    high = design["design_high"]
+    dim = design["design_dim"]
     return np.linspace(low, high, num_envs).reshape(num_envs, dim).astype(np.float32)
 
 
@@ -46,10 +48,9 @@ def stack_models(models: list[mjx.Model]) -> mjx.Model:
     )
 
 
-def put_design_model(env, design_row: np.ndarray) -> mjx.Model:
+def put_design_model(env: CodesignBase, design_row: np.ndarray) -> mjx.Model:
     """Build the env's ``mjx.Model`` for a single design row (host-side, ``mjx.put_model``'d)."""
-    d = float(np.asarray(design_row).reshape(-1)[0])
-    return mjx.put_model(env.generate_model(d))
+    return mjx.put_model(env.generate_model(design_row))
 
 
 def build_batched_model(env, designs: np.ndarray) -> mjx.Model:

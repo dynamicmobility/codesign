@@ -4,6 +4,7 @@ import os
 os.environ["MUJOCO_GL"] = "egl"
 
 from codesign.envs.EnvLoader import load_env
+from codesign.envs.RHex import RHex
 
 import argparse
 from pathlib import Path
@@ -57,7 +58,7 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str, 
     reward_plotter.plot(title=f"{train_config['env']} d={design} reward")
 
     if(train_config["env"] == "RHex"):
-        env: codesign.envs.RHex = env
+        env: RHex = env
         qpos_list = []
         for step in traj:
             qpos_list.append(step.data.qpos.copy())

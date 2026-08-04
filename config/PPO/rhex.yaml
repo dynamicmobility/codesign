@@ -37,6 +37,11 @@ env_config:
   termination:
     enabled: true
     base_height: 0.2
+  design_params:
+    default_design: [0.0016, 0.032, 0.0]
+    design_low: [0.001, 0.01, -0.3]
+    design_high: [0.005, 0.02, 0.3]
+    design_dim: 3
 
 learning_params:
   reward_objective_weights: [1.0, 0.0, 1.0]
@@ -70,7 +75,3 @@ learning_params:
     num_features: 16
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-  design_params:
-    design_low: 0.5
-    design_high: 2.0
-    design_dim: 1

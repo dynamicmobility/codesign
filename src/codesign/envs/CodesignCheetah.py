@@ -164,10 +164,11 @@ class MOCodesignCheetah(MOCodesignBase):
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
         return super().default_spec(xml_path=INTERFACE_PATH / "xmls" / "cheetah.xml")
-    
+
     @property
-    def design_limits(self):
-        return self._np.array([[0.5], [2.0]])
+    def default_design(self):
+        return self._np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+
     
     @classmethod
     def generate_model(cls, d):

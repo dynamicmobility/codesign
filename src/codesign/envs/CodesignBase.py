@@ -50,7 +50,7 @@ class CodesignBase(SwappableBase):
     @abstractmethod
     def default_design(self):
         """Returns a _np array of the default design parameters."""
-        raise NotImplementedError()
+        return self.params.design_params.default_design
 
     @property
     def observation_size(self):
@@ -65,12 +65,16 @@ class CodesignBase(SwappableBase):
         return obs.shape[-1]
     
     @property
-    @abstractmethod
+    def design_dim(self):
+        return self.params.design_params.design_dim
+
+    @property
     def design_limits(self):
-        """Returns a _np array [low, high], where low/high are the same shape as
-        the design parameter d."""
-        raise NotImplementedError()
-    
+        lows = self.params.design_params.design_low
+        highs = self.params.design_params.design_high
+        return self._np.vstack([lows, highs]).T
+
+
     @classmethod
     def change_link_length(
         cls,
