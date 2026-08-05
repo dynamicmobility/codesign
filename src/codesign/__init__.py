@@ -77,6 +77,11 @@ from .utils import (
     plot_cum_hv_progress
 )
 
+from .optimizers import (
+    TurboState,
+    TurboOptimizer
+)
+
 __all__ = [
     # subpackages
     "config",
@@ -146,4 +151,6 @@ __all__ = [
     "plot_mo_design_progress",
     "MODesignTrainingPlottingInfo",
     "plot_cum_hv_progress",
+    # optimizers
+    "TurboState",
 ]
