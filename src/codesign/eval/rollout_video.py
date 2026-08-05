@@ -56,7 +56,7 @@ def rollout_single_video(
         ``traj`` the list of per-step env states.
     """
     d = np.asarray(design, np.float32).reshape(-1)
-    model = env.generate_model(d)
+    mj_model = env.generate_model(d)
 
     if env.backend == 'jnp':
         model = mjx.put_model(mj_model)
