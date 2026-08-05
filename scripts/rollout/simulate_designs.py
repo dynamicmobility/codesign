@@ -13,15 +13,17 @@ import minimal_mjx as mm
 import codesign
 from codesign.eval import rollout_so_parallel
 from codesign.utils.model import build_batched_model, uniform_design_sweep
+import time
 
-N = 256          # number of cheetah variants
-T = 50           # rollout length (control steps)
+N = 256          # number of design variants
+T = 250           # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
 FREQ = 1.5       # action frequency [Hz]
 OUT_DIR = Path('scripts/outputs')
 
 
 def main(config: str, n: int, steps: int, policy_desc: str) -> None:
+    start = time.time()
     train_config = mm.utils.read_config(config)
     env, env_params = codesign.envs.EnvLoader.load_env(train_config)
 
@@ -49,11 +51,12 @@ def main(config: str, n: int, steps: int, policy_desc: str) -> None:
         env, batched_model, policy, n, steps,
         record_fn=record_xz, mask_after_done=False,
     )  # (T, N, 2)
-    time = np.arange(steps) * env.dt
-
+    sim_time = np.arange(steps) * env.dt
+    end = time.time()
+    print(f"Simulation time: {end - start:.2f} seconds")
     # 4. save trajectories
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    np.savez(OUT_DIR / f'{train_config["env"]}_parallel_simulate.npz', time=time, xpos=traj, ds=ds)
+    np.savez(OUT_DIR / f'{train_config["env"]}_parallel_simulate.npz', time=sim_time, xpos=traj, ds=ds)
 
 
 if __name__ == '__main__':

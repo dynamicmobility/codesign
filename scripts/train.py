@@ -59,7 +59,7 @@ def wrap_env(config, env):
             )
             env = codesign.Codesign2SingleDesign(
                 env = env,
-                design = config.learning_params.default_design
+                design = config.env_config.design_params.default_design
             )
         case 'design_hypernetwork':
             env = codesign.CodesignMO2SO(
@@ -95,7 +95,7 @@ def log_rollout_videos(
     if config['algorithm'] == 'ppo' or num_designs < 2:
         designs = [codesign.default_video_design(config)]
     else:
-        design_params = config['learning_params']['design_params']
+        design_params = config['env_config']['design_params']
         designs = list(maximin_designs(
             num_designs,
             low  = float(design_params['design_low']),

@@ -34,6 +34,9 @@ class RHex(CodesignBase):
             num_free          = 7,
         )
 
+        self._mj_model = self.generate_model(self.default_design)
+        self.setup_swappable_backend(backend)
+
 
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
         # input better initialization parameters as a func of mjx_model here
@@ -142,7 +145,7 @@ class RHex(CodesignBase):
         }
     @property
     def observation_size(self):
-        return 19
+        return len(self._get_obs(self._mj_model.data, {})['state'])
 
     @property
     def action_size(self):
