@@ -117,6 +117,8 @@ def main(
     plt.savefig(out.with_suffix(".pdf"))
     print(f"rendered plots -> {out.with_suffix(".pdf")}")
 
+    print(f"Total value: {np.sum(reward_plotter.rewards)}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

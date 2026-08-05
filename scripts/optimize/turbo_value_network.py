@@ -37,7 +37,7 @@ env, env_params = codesign.load_env(config=config, backend="jnp")
 lower_bounds = jnp.array([env_params.codesign.low])
 upper_bounds = jnp.array([env_params.codesign.high])
 
-batch_size=16
+batch_size=4
 dim = 6
 n_init = 2 * dim
 max_cholesky_size = float("inf")  # Always use Cholesky
@@ -66,18 +66,17 @@ def rollout_fun(designs_normalized: torch.Tensor):
         mask_after_done=True,
         seed=0,
     )
-    ret = torch.from_numpy(np.atleast_2d(rewards.sum(axis=0)).T.astype(np.double).copy())
-    return ret
+    return torch.from_numpy(np.atleast_2d(rewards.sum(axis=0)).T.astype(np.double).copy())
 
-def get_initial_points(dim: int, n_pts: int, seed: int = 0) -> torch.Tensor:
+def get_initial_points(dim: int, n_pts: int, seed: int = 0) -> jnp.array:
     """Generate initial points in normalized design space using Sobol sequence."""
-    return torch.tensor(np.atleast_2d(model_lib.sample_designs(
+    return np.atleast_2d(model_lib.sample_designs(
         rng         = np.random.default_rng(seed),
         num_envs    = n_pts,
         low         = jnp.zeros((dim,)),
         high        = jnp.ones((dim,)),
         dim         = dim,
-    )).astype(np.double))
+    )).astype(np.double)
 
 
 # X_turbo = get_initial_points(dim, n_init)
@@ -89,24 +88,15 @@ optim = TurboOptimizer(
 )
 
 designs = get_initial_points(dim, n_init)
-assert torch.any((designs > 1) | (designs < 0))==False
+X_next, X_turbo, Y_next, Y_turbo = optim.optimize(initial_guess=designs)
 
-# trial, rewards = rollout_fun(designs_normalized=designs)
-# print(trial)
+print(X_next)
+print(Y_next)
 
-# plt.plot(rewards)
-# plt.show()
-
-
-best_design, best_value, X_turbo, Y_turbo = optim.optimize(initial_guess=designs)
-
-print("Best Design: ", model_lib.unnormalize_design(best_design.numpy(), low=lower_bounds, high=upper_bounds))
-print("Best Value: ", best_value)
-
+import matplotlib.pyplot as plt
 # import numpy as np
 
 
-import matplotlib.pyplot as plt
 names = ["TuRBO-1"]
 runs = [Y_turbo]
 fig, ax = plt.subplots(figsize=(8, 6))

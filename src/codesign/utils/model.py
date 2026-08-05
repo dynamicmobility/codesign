@@ -164,6 +164,7 @@ def unnormalize_design(
 ) -> jnp.ndarray:
     """Unnormalize designs from ``[0, 1]`` to ``[low, high]`` using either explicit 
     ``low``/``high`` or a config dict. Defaults to config dict when provided."""
+    assert jnp.any((designs > 1) | (designs < 0)) == False
     if config is not None:
         codesign = config["env_config"]["codesign"]
         low = np.asarray(codesign["low"])

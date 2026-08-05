@@ -2,7 +2,7 @@ import math
 import os
 import warnings
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import gpytorch
 import torch
@@ -142,13 +142,16 @@ class TurboOptimizer:
         """This is a helper function we use to unnormalize and evalaute a point."""
         return self.fun(x)
 
-    def optimize(self, initial_guess: torch.Tensor, num_restarts: int = 10, raw_samples: int = 512, n_candidates: int = 5000) -> None:
+    def optimize(self, initial_guess: torch.Tensor,
+                 num_restarts: int = 10,
+                 raw_samples: int = 512,
+                 n_candidates: int = 5000) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
         NUM_RESTARTS = num_restarts
         RAW_SAMPLES = raw_samples
         N_CANDIDATES = min(n_candidates, max(2000, 200 * self.dim))
 
-        X_turbo = torch.tensor(initial_guess)
+        X_turbo = initial_guess
         Y_turbo = self.eval_objective(X_turbo)
         print(X_turbo.shape)
         print(Y_turbo.shape)
@@ -194,6 +197,8 @@ class TurboOptimizer:
             # Print current status
             print(f"{len(X_turbo)}) Best value: {state.best_value:.2e}, TR length: {state.length:.2e}")
 
-        return X_next, X_turbo, Y_next, Y_turbo
+        best_design_idx = torch.argmax(Y_turbo)
+        best_design = X_turbo[best_design_idx, :]
+        return best_design, Y_turbo[best_design_idx], X_turbo, Y_turbo
 
         
