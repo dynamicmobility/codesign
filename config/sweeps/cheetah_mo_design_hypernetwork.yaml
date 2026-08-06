@@ -1,11 +1,11 @@
 name: cheetah-6D-sweep-with-hypersize
 method: bayes
 metric:
-  name: Cumulative Hypervolume
+  name: Cumulative Hypervolume.max # score each run by its best front, not its last
   goal: maximize
 parameters:
   learning_rate:
-    values: [5e-4, 1e-4, 5e-5, 1e-5]
+    values: [5.0e-4, 1.0e-4, 5.0e-5, 1.0e-5] # YAML floats need a '.' and a signed exponent
   discounting:
     values: [0.98, 0.99, 0.995]
   num_envs:
