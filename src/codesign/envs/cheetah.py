@@ -6,9 +6,8 @@ import jax
 from ml_collections import config_dict
 from mujoco_playground._src import mjx_env
 
-from codesign.envs.CodesignBase import MOCodesignBase
-from moplayground.envs.dmcontrol.interface import CheetahInterface
-from moplayground.envs.dmcontrol.cheetah import MOCheetah
+from codesign.envs.codesign_base import MOCodesignBase
+import moplayground as mop
 from mujoco.mjx._src.types import Model
 import mujoco as mj
 import jax.numpy as jnp
@@ -21,12 +20,21 @@ class MOCodesignCheetah(MOCodesignBase):
     """Multi-Objective Cheetah Environment. 
     Objectives are speed, energy, and jumping height."""
 
+    GEOM_BODY_PAIRS = [
+        ('fthigh', 'fshin'),
+        ('fshin', 'ffoot'),
+        ('ffoot', 'ftoe'),
+        ('bthigh', 'bshin'),
+        ('bshin', 'bfoot'),
+        ('bfoot', 'btoe')
+    ]
+
     def __init__(
         self,
         env_params        : config_dict.ConfigDict,
         backend           : str,
     ):
-        mo_backend: MOCheetah = MOCheetah(
+        mo_backend: mop.MOCheetah = mop.MOCheetah(
             env_params = env_params,
             backend = backend,
             xml_path = INTERFACE_PATH / "xmls" / "cheetah.xml",
@@ -43,13 +51,14 @@ class MOCodesignCheetah(MOCodesignBase):
     def reset(self, rng: jax.Array, model: Model) -> mjx_env.State:
         # input better initialization parameters as a func of mjx_model here
         qpos = self._np.hstack([
-            self._np.array(CheetahInterface.DEFAULT_FF),
-            self._np.array(CheetahInterface.DEFAULT_JT)
+            self._np.array(mop.CheetahInterface.DEFAULT_FF),
+            self._np.array(mop.CheetahInterface.DEFAULT_JT)
         ])
         qvel = self._np.zeros(self.mj_model.nv)
         ctrl = self._np.zeros(self.mj_model.nu)
 
-        site_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
+        bsite_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
+        fsite_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "ffoot_tip")
         probe = self._data_init_fn(
             model        = model,
             qpos         = qpos,
@@ -59,7 +68,9 @@ class MOCodesignCheetah(MOCodesignBase):
             xfrc_applied = self._np.zeros((model.nbody, 6)),
         )
         ground_margin = 0.02
-        tip_z = probe.site_xpos[site_id][2]
+        btip_z = probe.site_xpos[bsite_id][2]
+        ftip_z = probe.site_xpos[fsite_id][2]
+        tip_z = self._np.min(self._np.asarray([btip_z, ftip_z]))
         qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
         
         data = self._data_init_fn(
@@ -161,22 +172,52 @@ class MOCodesignCheetah(MOCodesignBase):
     @classmethod
     def default_spec(cls) -> mj.MjSpec:
         return super().default_spec(xml_path=INTERFACE_PATH / "xmls" / "cheetah.xml")
-    
+
     @property
     def design_limits(self):
-        return self._np.array([[0.5], [2.0]])
+        """``[low, high]``, one entry per ``GEOM_BODY_PAIRS`` link scale."""
+        return self._np.array([
+            self.params.codesign.low,
+            self.params.codesign.high,
+        ])
+    def default_design(self):
+        return self.params.codesign.default_design
+
     
     @classmethod
     def generate_model(cls, d):
-        shin_pos = jnp.array([0.2, 0, -0.26])
-        new_shin_pos = shin_pos*d
-        midpoint = new_shin_pos/2
-
-        spec = MOCodesignCheetah.default_spec()
-
-        # load spec from file
-        spec.body("bshin").pos = new_shin_pos
-        thigh_geom = spec.geom("bthigh")
-        thigh_geom.pos = midpoint  # Change to desired position (x, y, z)
-        thigh_geom.size[1] = jnp.linalg.norm(new_shin_pos) / 2
+        spec = cls.default_spec()
+        
+        for pair, d_dim in zip(cls.GEOM_BODY_PAIRS, d, strict=True):
+            parent_geom, child_body = pair
+            spec = cls.change_link_length(
+                spec,
+                parent_geom_name = parent_geom,
+                child_body_name  = child_body,
+                scale_factor     = d_dim
+            )
+        
         return spec.compile()
+    
+
+class MOCodesignCheetah1D(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('bthigh', 'bshin'),
+    ]
+
+class MOCodesignCheetahBackLegs(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('bthigh', 'bshin'),
+        ('bshin', 'bfoot'),
+        ('bfoot', 'btoe')
+    ]
+
+class MOCodesignCheetahFrontLegs(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('fthigh', 'fshin'),
+        ('fshin', 'ffoot'),
+        ('ffoot', 'ftoe'),
+    ]

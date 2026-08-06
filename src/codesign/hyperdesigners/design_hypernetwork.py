@@ -51,6 +51,7 @@ def train_design_hypernetwork(
     design_low: float = 0.5,
     design_high: float = 2.0,
     design_dim: int = 1,
+    num_designs: int = 8,
     reward_objective_weights: tuple | None = None,
     network_factory: Callable = net_lib.make_design_hypernet_networks,
     num_evals: int = 10,
@@ -67,6 +68,12 @@ def train_design_hypernetwork(
 ):
     assert (batch_size * num_minibatches) % num_envs == 0, (
         "batch_size * num_minibatches must be divisible by num_envs"
+    )
+    assert num_envs % num_designs == 0, (
+        "num_envs must be divisible by num_designs"
+    )
+    assert num_eval_envs % num_designs == 0, (
+        "num_eval_envs must be divisible by num_designs"
     )
     num_scans = batch_size * num_minibatches // num_envs
     env_step_per_training_step = batch_size * unroll_length * num_minibatches
@@ -86,28 +93,26 @@ def train_design_hypernetwork(
     )
 
     def sample_designs_and_model(rng, n):
+        """Sample ``num_designs`` designs and tile them across ``n`` envs.
+
+        Returns ``(designs_np, batched_model, designs_input)``, each with a leading env
+        axis of ``n``; one model is compiled per distinct design and then repeated.
+        """
+        reps = n // num_designs
         designs_np = model_lib.sample_designs(
-            rng, n, design_low, design_high, design_dim
+            rng, num_designs, design_low, design_high, design_dim
         )
-        batched_model = model_lib.build_batched_model(environment, designs_np)
+        batched_model = jax.tree_util.tree_map(
+            lambda x: jnp.repeat(x, reps, axis=0),
+            model_lib.build_batched_model(environment, designs_np),
+        )
+        designs_np = np.repeat(designs_np, reps, axis=0)
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_np), design_low, design_high
         )
         return designs_np, batched_model, designs_input
-
-    # Observation structure and objective count come straight from the env -- no throwaway
-    # model build or reset. ``observation_size`` is inferred by the env from a nominal model
-    # (design-independent obs dims); ``num_objectives`` is the env's reward-vector length.
+    
     obs_size = environment.observation_size
-
-    # CodesignCheetah emits a multi-objective reward vector; collapse it to the single scalar
-    # reward this algorithm optimizes via a fixed objective-weight vector (default ones).
-    num_objectives = len(environment.params.reward.optimization.objectives)
-    if reward_objective_weights is None:
-        reward_weights = jnp.ones(num_objectives)
-    else:
-        reward_weights = jnp.asarray(reward_objective_weights, dtype=jnp.float32)
-
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
     )
@@ -251,10 +256,12 @@ def train_design_hypernetwork(
         (_, _, _, ret), _ = jax.lax.scan(body, init, (), length=episode_length)
         return ret
 
+    # Held fixed across evals, so returns are comparable epoch to epoch.
+    _, eval_model, eval_designs = sample_designs_and_model(
+        np.random.default_rng(seed + 1000), num_eval_envs
+    )
+
     def evaluate(training_state, key):
-        _, eval_model, eval_designs = sample_designs_and_model(
-            np.random.default_rng(int(key[0])), num_eval_envs
-        )
         eval_rngs = jax.random.split(key, num_eval_envs)
         ret = eval_unroll(
             training_state.normalizer_params,

@@ -276,6 +276,7 @@ def plot_cum_hv_progress(
                 'Cumulative Hypervolume' : hv,
                 'Average Spacing'        : float(sps.mean()),
                 'Spacing Standard Dev.'  : float(sps.std()),
+                **scalar_metrics(metrics),
             },
             step=num_steps,
         )

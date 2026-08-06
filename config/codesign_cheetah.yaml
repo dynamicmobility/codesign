@@ -2,7 +2,7 @@ name: cot-d10-dense
 save_dir: results/MOCheetah-all3-cot
 description: ""
 algorithm: "morlax"
-env: "CodesignCheetah"
+env: "MOCodesignCheetah1D"
 backend: np # jnp or np. Always uses jnp for training
 mo2so:
   enabled: false

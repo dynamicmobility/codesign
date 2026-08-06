@@ -58,7 +58,7 @@ def load_design_hypernetwork(
         _, network_factory = setup_design_hypernetwork(config)
     params_config, params = _load_checkpoint(config, path, quiet)
 
-    design_dim = int(config["learning_params"]["design_params"]["design_dim"])
+    design_dim = len(config["env_config"]["codesign"]["low"])
     network_factory = functools.partial(
         network_factory,
         design_dim=design_dim,
@@ -81,7 +81,7 @@ def load_mo_design_hypernetwork(
         _, network_factory = setup_mo_design_hypernetwork(config)
     params_config, params = _load_checkpoint(config, path, quiet)
 
-    design_dim = int(config["learning_params"]["design_params"]["design_dim"])
+    design_dim = len(config["env_config"]["codesign"]["low"])
     num_objectives = len(
         config["env_config"]["reward"]["optimization"]["objectives"]
     )

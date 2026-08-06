@@ -45,7 +45,13 @@ class CodesignBase(SwappableBase):
             filename=xml_path.as_posix(),
             assets=common.get_assets()
         )
-        
+
+    @property
+    @abstractmethod
+    def default_design(self):
+        """Returns a _np array of the default design parameters."""
+        return self.params.design_params.default_design
+
     @property
     def observation_size(self):
         """Observation structure, inferred from the env's nominal compiled model.
@@ -59,12 +65,32 @@ class CodesignBase(SwappableBase):
         return obs.shape[-1]
     
     @property
-    @abstractmethod
+    def design_dim(self):
+        return self.params.design_params.design_dim
+
+    @property
     def design_limits(self):
-        """Returns a _np array [low, high], where low/high are the same shape as
-        the design parameter d."""
-        raise NotImplementedError()
-    
+        lows = self.params.design_params.design_low
+        highs = self.params.design_params.design_high
+        return self._np.vstack([lows, highs]).T
+
+
+    @classmethod
+    def change_link_length(
+        cls,
+        spec: mj.MjSpec,
+        parent_geom_name: str,
+        child_body_name: str | None, 
+        scale_factor
+    ):
+        """Parent geom must be a capsule element"""
+        # spec.body(parent_body_name).pos     *= scale_factor
+        spec.geom(parent_geom_name).pos     *= scale_factor
+        spec.geom(parent_geom_name).size[1] *= scale_factor
+        
+        if child_body_name is not None:
+            spec.body(child_body_name).pos      *= scale_factor
+        return spec
     
 class MOCodesignBase(CodesignBase):
     

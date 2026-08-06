@@ -1,26 +1,17 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: sweep-j24wm6rn-best-again-test
-save_dir: results/mo-design-hypernetwork-cheetah
+name: test-design-hypernetwork-1D
+save_dir: results/Aug3
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
-algorithm: "mo_design_hypernetwork"
-env: "CodesignCheetah"
+algorithm: design_hypernetwork
+env: "MOCodesignCheetah1D"
 backend: jnp # always jnp for training
 
 env_config:
   ctrl_dt: 0.01
   sim_dt: 0.01
   action_scale: 1.0
-  history_length: 5
-  ideal_base_height: 0.5
-  ideal_base_vel: 0.5
-  min_base_height: 0.3
-  add_random_joint_state: False
-  add_random_pitch: False
-  codesign:
-    enabled: true
-    strategy: random # design sampling strategy per training epoch
   reward:
     weights:
       run:        1.0
@@ -28,18 +19,18 @@ env_config:
       energy:     0.00003
       alive:      1.0
       done:       0
-    sigmas:
-      height:     0.01
-      speed:      0.01
-      energy:     0.1
-      imitation:  0.03
     optimization:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
+      default_scalarization: [1.0, 1.0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
+  codesign:
+    default_design: [1.0]
+    low:  [0.5]
+    high: [2.0]
 
 learning_params:
   ppo_params:
@@ -68,14 +59,7 @@ learning_params:
     num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-  design_params:
-    num_designs: 8 # designs sampled per resample
+  design_sampling:
+    num_designs: 8 
     resamples_per_epoch: 1
-    design_low: 0.5
-    design_high: 2.0
-    design_dim: 1
-  tradeoff_params:
-    num_tradeoffs: 8
-    alpha: 1.0
-    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
-    warmup_frac: 0.0 # fraction of epochs training only the uniform tradeoff
+    sampling: random

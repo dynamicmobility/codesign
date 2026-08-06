@@ -11,33 +11,41 @@ from mujoco import mjx
 
 import minimal_mjx as mm
 import codesign
-from codesign.envs.CodesignCheetah import CodesignCheetah
-from codesign.eval import rollout_parallel
-from codesign.utils.model import build_batched_model
+from codesign.eval import rollout_so_parallel
+from codesign.utils.model import build_batched_model, uniform_design_sweep
 
 N = 256          # number of cheetah variants
 T = 50           # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
 FREQ = 1.5       # action frequency [Hz]
-D_MIN = 0.5      # min back-leg length scale
-D_MAX = 2.0      # max back-leg length scale
 OUT_DIR = Path('scripts/outputs')
 
 
 def main(config: str, n: int, steps: int, policy_desc: str) -> None:
     train_config = mm.utils.read_config(config)
-    env, env_params = codesign.envs.EnvLoader.load_env(train_config)
+    env, env_params = codesign.envs.create.load_env(train_config)
 
-    # 1. sample leg-length scales and build/stack the batched model
-    ds = np.linspace(D_MIN, D_MAX, n)
-    batched_model = build_batched_model(env, ds.reshape(n, 1))
+    # 1. Sample uniformly over environment's design range
+    ds = uniform_design_sweep(env_params, N)  # (N, design_dim)
+    assert ds.shape == (N, env.design_dim)
+    batched_model = build_batched_model(env, ds)
 
     # 2. make a dummy policy
-    policy = mm.make_open_loop_policy(policy_desc, env.action_size, amp=AMP, freq=FREQ)
+    if(train_config["env"] == "RHex"):
+        policy = mm.make_open_loop_policy("const", env.action_size, value=-1.0)
+    # elif(train_config["env"] == "TwoAxis"):
+    #     # TODO: This may not work over the batched obs
+    #     def pd(obs, key, t):
+    #         K = np.array([[-10, 0, -10, 0], [0, -10, 0, -10]])
+    #         frc = K @ (obs - np.array([2.0, 2.0, 0.0, 0.0]))
+    #         return frc, {}
+    #     policy = pd
+    else:
+        policy = mm.make_open_loop_policy(policy_desc, env.action_size, amp=AMP, freq=FREQ)
 
     # 3. parallel rollout, recording base [x, z] each step (no termination masking)
     record_xz = lambda prev, act, nst: nst.data.qpos[:, jnp.array([0, 1])]
-    traj = rollout_parallel(
+    traj = rollout_so_parallel(
         env, batched_model, policy, n, steps,
         record_fn=record_xz, mask_after_done=False,
     )  # (T, N, 2)

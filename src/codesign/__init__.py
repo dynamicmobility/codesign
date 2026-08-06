@@ -1,27 +1,21 @@
 """``codesign`` — design-conditioned (multi-objective) hypernetwork RL for robots.
-
-Subpackages remain importable as ``codesign.envs``, ``codesign.eval``,
-``codesign.hyperdesigners``, ``codesign.learning`` and ``codesign.utils``. For
-convenience each subpackage's public API is also re-exported at the top level, so e.g.
-``codesign.train_mo_design_hypernetwork`` and ``codesign.plot_design_paretos`` work
-directly.
-
-Re-exports are written out explicitly (rather than looped) so static tooling
-(Pylance/Pyright, IDE autocomplete) can see them. Keep this file in sync with the
-subpackage ``__all__`` lists; a name exported by two subpackages would show up here as a
-shadowed re-import.
 """
 
-from . import envs, eval, hyperdesigners, learning, utils
+from . import config, envs, eval, hyperdesigners, learning, utils
 
 # envs
 from .envs import (
     CodesignBase,
+    MOCodesignBase,
     CodesignMO2SO,
-    CodesignCheetah,
     RHex,
     Codesign2SingleDesign,
-    MOCodesignCheetah
+    MOCodesignCheetah,
+    MOCodesignCheetah1D,
+    MOCodesignCheetahBackLegs,
+    MOCodesignCheetahFrontLegs,
+    cheetah,
+    load_env
 )
 
 # eval
@@ -32,6 +26,9 @@ from .eval import (
     rollout_single_video,
     rollout_design_hypernetwork_video,
     rollout_mo_design_hypernetwork_video,
+    save_policy_rollout_video,
+    default_video_design,
+    extreme_tradeoffs_with_labels,
 )
 
 # hyperdesigners
@@ -66,6 +63,8 @@ from .utils import (
     stack_models,
     build_batched_model,
     sample_designs,
+    maximin_designs,
+    min_design_gap,
     normalize_design,
     total_mass,
     design_colors,
@@ -80,6 +79,7 @@ from .utils import (
 
 __all__ = [
     # subpackages
+    "config",
     "envs",
     "eval",
     "hyperdesigners",
@@ -87,11 +87,16 @@ __all__ = [
     "utils",
     # envs
     "CodesignBase",
+    "MOCodesignBase",
     "CodesignMO2SO",
-    "CodesignCheetah",
+    "cheetah",
     "RHex",
     "Codesign2SingleDesign",
     "MOCodesignCheetah",
+    "MOCodesignCheetah1D",
+    "MOCodesignCheetahBackLegs",
+    "MOCodesignCheetahFrontLegs",
+    "load_env",
     # eval
     "make_open_loop_policy",
     "from_inference_fn",
@@ -101,6 +106,9 @@ __all__ = [
     "rollout_single_video",
     "rollout_design_hypernetwork_video",
     "rollout_mo_design_hypernetwork_video",
+    "save_policy_rollout_video",
+    "default_video_design",
+    "extreme_tradeoffs_with_labels",
     # hyperdesigners
     "train_design_hypernetwork",
     "train_mo_design_hypernetwork",
@@ -126,6 +134,8 @@ __all__ = [
     "stack_models",
     "build_batched_model",
     "sample_designs",
+    "maximin_designs",
+    "min_design_gap",
     "normalize_design",
     "total_mass",
     "design_colors",
