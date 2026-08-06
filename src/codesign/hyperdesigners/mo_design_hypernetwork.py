@@ -159,7 +159,6 @@ def train_mo_design_hypernetwork(
         tradeoffs_unique = sample_tradeoffs(
             w_rng, it, n_tradeoffs, num_objectives,
             sampling=sampling, alpha=alpha,
-            num_warmup_ref=num_evals_after_init,
         )
         grid = DesignTradeoffSampleGrid(
             designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=per_cell
