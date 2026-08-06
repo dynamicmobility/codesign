@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault("MUJOCO_GL", "egl")
+
 import minimal_mjx as mm
 import wandb
 import scripts.train as train
@@ -5,6 +8,7 @@ import argparse
 import math
 from pathlib import Path
 import os
+import codesign
 
 class UniqueSet(set):
     def add(self, element):
@@ -60,18 +64,19 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
             
             train_config['save_dir'] = (Path(train_config['save_dir']) / str(run.id)).as_posix()
             if PACE:                
-                save_path = Path(train_config['save_dir'])
-                scratch_path = Path('scratch/logs/codesign')
+                save_rel_path = Path(train_config['save_dir'])
+                scratch_rel_path = Path('scratch/logs/codesign')
+                home_path = Path.home()
                 
-                save_root = scratch_path / save_path
-                print(save_root)
-                if not os.path.exists(save_root):
-                    os.makedirs(save_root)
-                    print(f"Directory '{save_root}' created.")
+                save_path = home_path / scratch_rel_path / save_rel_path
+                print(save_path)
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                    print(f"Directory '{save_path}' created.")
                 else:
-                    print(f"Directory '{save_root}' already exists.")
+                    print(f"Directory '{save_path}' already exists.")
                 
-                train_config['save_dir'] = save_root.as_posix()
+                train_config['save_dir'] = save_path.as_posix()
             
             # derive hyperparameters that have constraints. Only batch_size is written
             derived = derive_batching(ppo_params, sweep_parameters)
@@ -95,8 +100,8 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
             run.config.update(mm.flatten_config(train_config), allow_val_change=True)
 
             # Codesign Env
-            env, _        = train.load_env(train_config)
-            eval_env, _   = train.load_env(train_config)
+            env, _        = codesign.load_env(train_config)
+            eval_env, _   = codesign.load_env(train_config)
             
             env           = train.wrap_env(train_config, env)
             eval_env      = train.wrap_env(train_config, eval_env)
@@ -104,7 +109,7 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
             setup_fn      = train.get_handle_params(train_config)
 
             # Run via minimal-mjx's trainer with our handle_params
-            return mm.learning.training.train(
+            ret = mm.learning.training.train(
                 config          = train_config,
                 env             = env,
                 eval_env        = eval_env,
@@ -112,6 +117,11 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
                 handle_params   = setup_fn,
                 progress_fn     = train.get_progress_fn(train_config, env),
             )
+            train.log_rollout_videos(train_config, run=run)
+            # try:
+            #     train.log_rollout_videos(train_config, run=run)
+            # except Exception as e:
+            #     print(f"Failed to log rollout video: {e!r}")
     
     sweep_config = wandb_sweep_config.to_dict()
     sweep_id = wandb.sweep(
