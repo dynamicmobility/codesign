@@ -19,6 +19,7 @@ from codesign.hyperdesigners.networks import (
     make_design_inference_fn,
     make_mo_design_hypernet_networks,
     make_mo_design_inference_fn,
+    make_value_fn
 )
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
@@ -42,4 +43,5 @@ __all__ = [
     "compute_mo_design_hypernet_loss",
     "DesignTransition",
     "MODesignTransition",
+    "make_value_fn"
 ]

@@ -116,8 +116,9 @@ def main(
     reward_plotter.plot(title=title)
     plt.savefig(out.with_suffix(".pdf"))
     print(f"rendered plots -> {out.with_suffix(".pdf")}")
-
-    print(f"Total value: {np.sum(reward_plotter.rewards)}")
+    discount = config.learning_params.ppo_params.discounting
+    print(f"Total value: {np.sum(reward_plotter.rewards )}")
+    print(f"Discounted value: {np.sum(reward_plotter.rewards * np.pow(discount, np.arange(len(reward_plotter.rewards))))}")
 
 
 if __name__ == "__main__":

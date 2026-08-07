@@ -249,7 +249,7 @@ def make_design_inference_fn(networks_: DesignHypernetNetworks):
     """
 
     def design_inference_fn(
-        params: types.Params, design: jax.Array, deterministic: bool = False
+        params: types.Params, design: jax.Array, deterministic: bool = True
     ) -> types.Policy:
         normalizer_params, hypernet_params = params
         policy_network = networks_.policy_network
@@ -284,3 +284,27 @@ def make_design_inference_fn(networks_: DesignHypernetNetworks):
         return policy
 
     return design_inference_fn
+
+def make_value_fn(networks_: DesignHypernetNetworks):
+    # Takes in the params and design and outputs a value function (obs -> value)
+    def design_inference_fn(
+        params: types.Params, design: jax.Array):
+        normalizer_params, hypernet_params = params
+        value_network = networks_.value_network
+
+        # Value params from the hypernetwork (ignore policy)
+        _, value_params = networks_.hypernetwork.apply(hypernet_params, design)
+
+        if len(design.shape) == 1:
+            value_apply = value_network.apply
+        else:
+            value_apply = jax.vmap(value_network.apply, in_axes=(None, 0, 0)) 
+        # Function that maps observation to value
+        def value( observations: types.Observation):
+            value = value_apply(normalizer_params, value_params, observations)
+            return value
+
+        return value
+
+    return design_inference_fn
+        
