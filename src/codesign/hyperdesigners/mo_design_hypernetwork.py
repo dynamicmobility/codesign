@@ -74,7 +74,9 @@ def train_mo_design_hypernetwork(
     episode_length: int,
     num_envs: int = 1024,
     num_designs: int = 8,
+    num_eval_designs: int = 8,
     num_tradeoffs: int = 8,
+    num_eval_tradeoffs: int = 8,
     unroll_length: int = 20,
     batch_size: int = 64,
     num_minibatches: int = 2,
@@ -119,8 +121,11 @@ def train_mo_design_hypernetwork(
         "batch_size * num_minibatches must be divisible by num_envs"
     )
     assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
+    assert num_eval_envs % (num_eval_tradeoffs * num_eval_designs) == 0, (
+        "Number of eval tradeoffs * eval designs must be a factor of num_eval_envs"
+    )
     envs_per_cell = num_envs // num_cells
-    eval_envs_per_cell = num_eval_envs // num_cells
+    eval_envs_per_cell = num_eval_envs // (num_eval_designs * num_eval_tradeoffs)
     num_scans = batch_size * num_minibatches // num_envs
     env_step_per_training_step = batch_size * unroll_length * num_minibatches
     num_evals_after_init = max(num_evals - 1, 1)
@@ -343,7 +348,7 @@ def train_mo_design_hypernetwork(
         return ret
 
     eval_grid_bundle = build_grid(
-        num_designs, num_tradeoffs, eval_envs_per_cell,
+        num_eval_designs, num_eval_tradeoffs, eval_envs_per_cell,
         np.random.default_rng(seed + 1000),
         np.random.default_rng(seed + 1001),
         num_evals_after_init,  # past warmup for eval

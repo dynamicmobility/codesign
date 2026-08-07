@@ -126,16 +126,14 @@ def plot_pareto_statistics(
 ):
     """Hypervolume and front spacing vs. env steps, one panel each.
 
-    ``hvs`` holds the per-eval hypervolume summed over designs -- it is *not* a running
-    total over evals, so a flat curve means the fronts stopped improving.
-    The spacing panel is overlaid with a band at ``mean(sps) +/- std(sps)`` over the
-    evals so far.
+    ``hvs`` and ``sps`` is per-eval hypervolume and spacing averaged over 
+    designs, respectively.    
     """
     fig, (hv_ax, sp_ax) = plt.subplots(
         2, 1, sharex=True, figsize=(6.5, 5.5), height_ratios=[1, 1]
     )
     panels = (
-        (hv_ax, hvs, "#2a78d6", "Hypervolume (sum over designs)"),
+        (hv_ax, hvs, "#2a78d6", "Hypervolume (averaged over designs)"),
         (sp_ax, sps, "#eb6834", "Front spacing"),
     )
     for ax, values, color, label in panels:
@@ -148,15 +146,6 @@ def plot_pareto_statistics(
         for side in ("left", "bottom"):
             ax.spines[side].set_color("#52514e")
         ax.tick_params(colors="#52514e")
-
-    mean_sp, std_sp = float(sps.mean()), float(sps.std())
-    sp_ax.axhspan(
-        mean_sp - std_sp, mean_sp + std_sp,
-        color="#eb6834", alpha=0.12, lw=0,
-        label=f"mean $\\pm$ 1 sd  ({mean_sp:.3g} $\\pm$ {std_sp:.3g})",
-    )
-    sp_ax.axhline(mean_sp, color="#eb6834", lw=1, ls="--", alpha=0.6)
-    sp_ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor="#52514e")
 
     last = f"HV {hvs[-1]:.3g}   spacing {sps[-1]:.3g}"
     hv_ax.set_title(f"Pareto front progress   ({last})", loc="left", fontsize=11)
@@ -236,7 +225,7 @@ def plot_mo_design_progress(
         run.log({"pareto_plot": wandb.Html(svg)}, step=num_steps)
         run.log(scalar_metrics(metrics), step=num_steps)
         
-def plot_cum_hv_progress(
+def plot_mean_hv_progress(
     num_steps: int,
     metrics: dict,
     training_data: MODesignTrainingPlottingInfo,
@@ -257,7 +246,7 @@ def plot_cum_hv_progress(
         mop.get_pareto_statistics(mean_rewards[d])
         for d in range(mean_rewards.shape[0])
     ]
-    hv = float(np.sum([h for h, _ in per_design]))
+    hv = float(np.mean([h for h, _ in per_design]))
     sp = float(np.mean([s for _, s in per_design]))
     training_data.update(
         num_steps = num_steps,
@@ -273,7 +262,7 @@ def plot_cum_hv_progress(
     if run:
         run.log(
             {
-                'Cumulative Hypervolume' : hv,
+                'Mean Hypervolume' : hv,
                 'Average Spacing'        : float(sps.mean()),
                 'Spacing Standard Dev.'  : float(sps.std()),
                 **scalar_metrics(metrics),
