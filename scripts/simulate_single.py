@@ -53,6 +53,9 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str, 
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 
     reward_plotter.plot(title=f"{train_config['env']} d={design} reward")
+    discount = train_config.learning_params.ppo_params.discounting
+    print(f"Total value: {np.sum(reward_plotter.rewards )}")
+    print(f"Discounted value: {np.sum(reward_plotter.rewards * np.pow(discount, np.arange(len(reward_plotter.rewards))))}")
 
     if(train_config["env"] == "RHex"):
         env: RHex = env
@@ -88,6 +91,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--camera", type=str, default="track", help="render camera name")
     parser.add_argument("--config", type=str, default=CONFIG_PATH, help="environment config to use")
-    parser.add_argument("--backend", type=str, default=None, help="which numpy backend to use")
+    parser.add_argument("--backend", type=str, default='np', help="which numpy backend to use")
     args = parser.parse_args()
     main(args.config, args.design, args.steps, args.policy, args.camera, args.backend)

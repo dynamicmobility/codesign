@@ -18,6 +18,7 @@ import minimal_mjx as mm
 from codesign.hyperdesigners.networks import (
     make_design_inference_fn,
     make_mo_design_inference_fn,
+    make_value_fn
 )
 from codesign.hyperdesigners.factory import (
     setup_design_hypernetwork,
@@ -68,6 +69,27 @@ def load_design_hypernetwork(
     inference_fn = make_design_inference_fn(design_networks)
     return inference_fn, params
 
+def load_design_value_hypernetwork(
+    config,
+    network_factory=None,
+    path=None,
+    quiet=True,
+):
+    """Load the design-hypernetwork inference fn + saved params from a checkpoint.
+    """
+    if network_factory is None:
+        _, network_factory = setup_design_hypernetwork(config)
+    params_config, params = _load_checkpoint(config, path, quiet)
+
+    design_dim = len(config["env_config"]["codesign"]["low"])
+    network_factory = functools.partial(
+        network_factory,
+        design_dim=design_dim,
+        key=jax.random.PRNGKey(0),
+    )
+    design_networks = get_network(params_config, network_factory)
+    inference_fn = make_value_fn(design_networks)
+    return inference_fn, params
 
 def load_mo_design_hypernetwork(
     config,

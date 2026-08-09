@@ -156,6 +156,24 @@ def normalize_design(
         high = np.asarray(high)
     return (designs - low) / (high - low)
 
+def unnormalize_design(
+    designs: jnp.ndarray, 
+    low: float | np.ndarray = None, 
+    high: float | np.ndarray = None,
+    config: dict = None
+) -> jnp.ndarray:
+    """Unnormalize designs from ``[0, 1]`` to ``[low, high]`` using either explicit 
+    ``low``/``high`` or a config dict. Defaults to config dict when provided."""
+    assert jnp.any((designs > 1) | (designs < 0)) == False
+    if config is not None:
+        codesign = config["env_config"]["codesign"]
+        low = np.asarray(codesign["low"])
+        high = np.asarray(codesign["high"])
+    else:
+        low = np.asarray(low)
+        high = np.asarray(high)
+    return low + designs * (high - low)
+
 def observation_spec(observation_size):
     """Build a ``running_statistics`` spec from an env ``observation_size``.
     """
