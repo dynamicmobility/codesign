@@ -161,7 +161,6 @@ class MOCodesignCheetah(MOCodesignBase):
             info['height'] < -0.35
         )
         return upside_down | too_low
-        # return self._np.array(0)
 
     def _get_obs(self, data, info):
         return self.mo_backend._get_obs(data, info)
