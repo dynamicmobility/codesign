@@ -66,7 +66,10 @@ def rollout_fun(designs_normalized: torch.Tensor):
         mask_after_done=True,
         seed=0,
     )
-    ret = torch.from_numpy(np.atleast_2d(rewards.sum(axis=0)).T.astype(np.double).copy())
+
+    discount = config.learning_params.ppo_params.discounting
+    total_rewards_rollout = np.sum(rewards*np.pow(discount, np.arange(config.learning_params.ppo_params.episode_length))[:, np.newaxis], axis=0)
+    ret = torch.from_numpy(np.atleast_2d(total_rewards_rollout.sum(axis=0)).T.astype(np.double).copy())
     return ret
 
 def get_initial_points(dim: int, n_pts: int, seed: int = 0) -> torch.Tensor:

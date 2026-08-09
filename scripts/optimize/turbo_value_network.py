@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 CONFIG_PATH = "config/design_hypernetwork/cheetah6D.yaml"
 config     = mm.utils.config.create_config_dict(mop.utils.read_config(CONFIG_PATH))
-env, env_params = codesign.load_env(config=config, backend="jnp")
+env, env_params = codesign.load_env(config=config, backend="np")
 
 _, reset = mm.get_step_reset(env)
 
@@ -40,7 +40,7 @@ upper_bounds = np.array([env_params.codesign.high])
 
 batch_size=4
 dim = 6
-n_init = 2 * dim
+n_init = 16
 max_cholesky_size = float("inf")  # Always use Cholesky
 
 # value_inference_fn is the hypernetwork
