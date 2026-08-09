@@ -1,26 +1,30 @@
-name: trying-bayesian-on-pace
+name: cheetah-6D-sweep-with-hypersize
 method: bayes
 metric:
-  name: eval/episode_reward
+  name: Cumulative Hypervolume.max # score each run by its best front, not its last
   goal: maximize
 parameters:
   learning_rate:
-    values: [5e-3, 1e-3, 5e-4, 1e-4]
+    values: [5.0e-4, 1.0e-4, 5.0e-5, 1.0e-5] # YAML floats need a '.' and a signed exponent
   discounting:
-    values: [0.97, 0.98, 0.99]
+    values: [0.98, 0.99, 0.995]
   num_envs:
-    values: [1024, 2048, 4096]
+    values: [8192]
   num_minibatches:
-    values: [8, 16, 32]
+    values: [16, 32]
   rollouts_per_step:
-    values: [1]
+    values: [1, 2, 4]
   clipping_epsilon:
-    values: [0.1, 0.2, 0.3]
+    values: [0.1, 0.15, 0.2]
   unroll_length:
-    values: [20, 25, 30]
+    values: [25, 30, 35, 40]
   resamples_per_epoch:
-    values: [1, 4, 8]
+    values: [1, 4, 8, 16]
   num_tradeoffs:
-    values: [8]
+    values: [8, 16]
   num_designs:
-    values: [8]
+    values: [16, 32, 64]
+  num_features:
+    values: [32, 64, 128]
+  hypersize:
+    values: [[256, 256], [512, 512], [1024, 1024]]

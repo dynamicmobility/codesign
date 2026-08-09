@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: sweep-j24wm6rn-best-again-test
-save_dir: results/mo-design-hypernetwork-cheetah
+name: test
+save_dir: results/Aug7
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
 env: "MOCodesignCheetah"
@@ -34,7 +34,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 500000000
+    num_timesteps: 3000000000
     episode_length: 500
     num_envs: 4096
     unroll_length: 20
@@ -50,7 +50,7 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 15
+    num_evals: 30
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
@@ -60,10 +60,12 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
-    num_designs: 8 
-    resamples_per_epoch: 1
+    num_designs: 32
+    num_eval_designs: 8
+    resamples_per_epoch: 4
     sampling: random
   tradeoff_sampling:
     num_tradeoffs: 8
+    num_eval_tradeoffs: 8
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg

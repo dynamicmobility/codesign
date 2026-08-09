@@ -35,7 +35,7 @@ def get_progress_fn(config, env: codesign.CodesignBase):
             labels     = env.objectives,
         )
         # return functools.partial(plot_mo_design_progress, training_data=training_data)
-        return functools.partial(codesign.plot_cum_hv_progress, training_data=training_data)
+        return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
     elif config.algorithm == 'design_hypernetwork' or config.algorithm == 'ppo':
         return None
     else:
