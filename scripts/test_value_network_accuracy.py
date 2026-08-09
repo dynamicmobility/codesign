@@ -61,7 +61,6 @@ rewards_rollout = rollout_so_parallel(
 )
 
 discount = config.learning_params.ppo_params.discounting
-# I am unsure if the discounting is working correctly
 total_rewards_rollout = np.sum(rewards_rollout*np.pow(discount, np.arange(config.learning_params.ppo_params.episode_length))[:, np.newaxis], axis=0)
 
 plt.title("Predicted vs Actual total rewards")
