@@ -138,7 +138,7 @@ def train_mo_design_predictor(
     design_predictor_inference_fn = net_lib.make_design_predictor_inference_fn(design_networks)
 
     optimizer = optax.adam(learning_rate)
-    # TODO: Add second optimizer here for the design predictor
+    
     if max_grad_norm is not None:
         optimizer = optax.chain(
             optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
@@ -172,7 +172,7 @@ def train_mo_design_predictor(
     # TODO: Does build_grid need to take in the params of the predictor? Probably yeah
     model_treedef = None
     def build_grid(
-        n_designs, n_tradeoffs, per_cell, d_rng, w_rng, it, num_objectives
+        n_tradeoffs, per_cell, d_rng, w_rng, it, num_objectives
     ):
         """Sample a design x tradeoff grid and build the tiled per-env model.
 
@@ -188,11 +188,12 @@ def train_mo_design_predictor(
         )
 
         # Implements the design predictor network 
-        # TODO: n_designs should come into this somehow
+        # TODO: tile tradeoffs_unique per_cell number of times so that 
+        # each tradeoff is evaluated per_cell number of times and results in per_cell number of designs per unique tradeoff
         designs_unique, _ = design_predictor_inference_fn(design_predictor_state.params, tradeoffs_unique, deterministic=False, key_sample=d_rng)
 
         grid = DesignTradeoffSampleGrid(
-            designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=per_cell
+            designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=1
         )
 
         batched_model = grid.build_models(environment, tiled=True)
