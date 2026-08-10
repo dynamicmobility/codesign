@@ -24,6 +24,15 @@ class DesignHypernetNetworks:
     value_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
 
+@flax.struct.dataclass
+class DesignPredictorHypernetNetworks:
+    hypernetwork: FeedForwardHypernetwork
+    policy_network: networks.FeedForwardNetwork
+    value_network: networks.FeedForwardNetwork
+    parametric_action_distribution: distribution.ParametricDistribution
+    design_predictor_network: networks.FeedForwardNetwork
+    parametric_design_distribution: distribution.ParametricDistribution
+
 
 def make_design_hypernetwork(
     design_dim: int,
@@ -185,8 +194,132 @@ def make_mo_design_hypernet_networks(
         w_variance=w_variance,
     )
 
+def make_mo_design_predictor_hypernet_networks(
+    observation_size: types.ObservationSize,
+    action_size: int,
+    design_dim: int,
+    num_objectives: int,
+    key: jax.Array,
+    hypersize: tuple = (128, 128),
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    activation: networks.ActivationFn = linen.swish,
+    policy_obs_key: str = "state",
+    value_obs_key: str = "state",
+    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    noise_std_type: Literal["scalar", "log"] = "scalar",
+    init_noise_std: float = 1.0,
+    state_dependent_std: bool = False,
+    num_features: int = 8,
+    w_variance: float = 0.0,
+    # Design Hypernetwork
+    design_distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    design_hidden_layer_sizes: Sequence[int] = (16,) * 2,
+    design_noise_std_type: Literal["scalar", "log"] = "scalar",
+    design_init_noise_std: float = 1.0,
 
-def make_mo_design_inference_fn(networks_: DesignHypernetNetworks):
+) -> DesignPredictorHypernetNetworks:
+    """Build a hypernetwork conditioned on ``[design, tradeoff]``: ``H(d, w)`` alongside a design predictor.
+    The hypernetwork/value/action are the same as make_design_hypernet_networks, but the design predictor
+    network is also included.
+
+    The design predictor network is a feedforward network which outputs a parametric distribution
+
+    """
+    design_hypernet = make_mo_design_hypernet_networks(
+        observation_size=observation_size,
+        action_size=action_size,
+        design_dim=design_dim,
+        num_objectives=num_objectives,
+        key=key,
+        hypersize=hypersize,
+        preprocess_observations_fn=preprocess_observations_fn,
+        policy_hidden_layer_sizes=policy_hidden_layer_sizes,
+        value_hidden_layer_sizes=value_hidden_layer_sizes,
+        activation=activation,
+        policy_obs_key=policy_obs_key,
+        value_obs_key=value_obs_key,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+        num_features=num_features,
+        w_variance=w_variance,
+    )
+
+    if design_distribution_type == "normal":
+        parametric_design_distribution = distribution.NormalDistribution(
+            event_size=design_dim
+        )
+    elif design_distribution_type == "tanh_normal":
+        parametric_design_distribution = distribution.NormalTanhDistribution(
+            event_size=design_dim
+        )
+    else:
+        raise ValueError(
+            f'Unsupported distribution type: {design_distribution_type}. Must be one'
+            ' of "normal" or "tanh_normal".'
+        )
+
+    design_predictor_network = networks.make_policy_network(
+        param_size=parametric_design_distribution.param_size,
+        obs_size=(num_objectives,), # TODO: Not sure if this is correct
+        # preprocess_observations_fn=preprocess_observations_fn, # No preprocessing needed since the observation should always be normalized from 0-1
+        hidden_layer_sizes=design_hidden_layer_sizes,
+        activation=activation,
+        # obs_key=policy_obs_key, # Observation is a vector not a dict (there's no state/privileged state split)
+        distribution_type=design_distribution_type,
+        noise_std_type=design_noise_std_type,
+        init_noise_std=design_init_noise_std,
+        state_dependent_std=state_dependent_std,
+    )
+    return DesignPredictorHypernetNetworks(
+        hypernetwork = design_hypernet.hypernetwork,
+        policy_network = design_hypernet.policy_network,
+        value_network = design_hypernet.value_network,
+        parametric_action_distribution = design_hypernet.parametric_action_distribution,
+        design_predictor_network = design_predictor_network,
+        parametric_design_distribution = parametric_design_distribution
+    )
+
+
+def make_design_predictor_inference_fn(networks_: DesignPredictorHypernetNetworks):
+
+    def design_predictor_inference_fn(
+            params: types.Params,
+            tradeoffs: jax.Array,
+            deterministic: bool = False,
+            key_sample: PRNGKey = None,
+    ) -> types.Policy:
+        if len(tradeoffs.shape) == 1:
+            policy_apply = design_predictor_network.apply
+        else:
+            policy_apply = jax.vmap(design_predictor_network.apply, in_axes=(None, None, 0))
+
+        normalizer_params, network_params = params
+        design_predictor_network = networks_.design_predictor_network
+        parametric_design_distribution = networks_.parametric_design_distribution 
+        logits = policy_apply(normalizer_params, network_params, tradeoffs)
+        if deterministic:
+            return parametric_design_distribution.mode(logits), {}
+        raw_actions = parametric_design_distribution.sample_no_postprocessing(
+            logits, key_sample
+        )
+        log_prob = parametric_design_distribution.log_prob(logits, raw_actions)
+        postprocessed_actions = parametric_design_distribution.postprocess(
+            raw_actions
+        )
+        return postprocessed_actions, {
+            "log_prob": log_prob,
+            "raw_action": raw_actions,
+        }
+
+    return design_predictor_inference_fn
+
+
+
+def make_mo_design_inference_fn(networks_: DesignHypernetNetworks | DesignPredictorHypernetNetworks):
     """Inference-fn factory keyed on ``(design, tradeoff)``.
 
     Returns ``inference_fn(params, designs, tradeoffs, deterministic=False) ->

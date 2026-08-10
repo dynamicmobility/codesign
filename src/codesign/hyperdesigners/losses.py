@@ -226,3 +226,10 @@ def compute_mo_design_hypernet_loss(
         "v_loss": v_loss,
         "entropy_loss": entropy_loss,
     }
+
+
+def compute_grpo_loss(tradeoff, designs, values):
+    # Run design predictor k times for each design
+    # each group is size k
+    
+    return 0

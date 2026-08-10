@@ -1,4 +1,4 @@
-"""``mo_design_hypernetwork`` training algo.
+"""``mo_design_hypernetwork`` training algo using design predictor to guide designs
 """
 
 import functools
@@ -33,15 +33,19 @@ class TrainingState:
     params: DesignHypernetParams
     normalizer_params: running_statistics.RunningStatisticsState
 
+@flax.struct.dataclass
+class DesignPredictorTrainingState:
+    optimizer_state: optax.OptState
+    params: DesignHypernetParams
+    normalizer_params: running_statistics.RunningStatisticsState
 
 
-
-def train_mo_design_hypernetwork(
+def train_mo_design_predictor(
     environment,
     num_timesteps: int,
     episode_length: int,
     num_envs: int = 1024,
-    num_designs: int = 8,
+    num_designs: int = 8, # Number of evaluations of the design predictor
     num_eval_designs: int = 8,
     num_tradeoffs: int = 8,
     num_eval_tradeoffs: int = 8,
@@ -116,6 +120,56 @@ def train_mo_design_hypernetwork(
         lambda rngs, model: acting.reset(environment, rngs, model)
     )
 
+    obs_size = environment.observation_size
+    num_objectives = len(environment.params.reward.optimization.objectives)
+
+    normalize = (
+        running_statistics.normalize if normalize_observations else (lambda x, y: x)
+    )
+    design_networks = network_factory(
+        observation_size=obs_size,
+        action_size=environment.action_size,
+        design_dim=design_dim,
+        num_objectives=num_objectives,
+        key=key_net,
+        preprocess_observations_fn=normalize,
+    )
+    inference_fn = net_lib.make_mo_design_inference_fn(design_networks)
+    design_predictor_inference_fn = net_lib.make_design_predictor_inference_fn(design_networks)
+
+    optimizer = optax.adam(learning_rate)
+    # TODO: Add second optimizer here for the design predictor
+    if max_grad_norm is not None:
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
+        )
+
+    design_optimizer = optax.adam(learning_rate)
+    if max_grad_norm is not None:
+        design_optimizer = optax.chain(
+            optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
+        )
+
+    # TODO: Implement GRPO loss function
+    design_gradient_update_fn = gradients.gradient_update_fn(
+        grpo_loss_fn, design_optimizer, pmap_axis_name=None, has_aux=True
+    )
+
+    # Initialize design predictor training state.
+    # TODO: Change this
+    init_params = DesignHypernetParams(
+        hypernetwork=design_networks.hypernetwork.init(key_net)
+    )
+    design_predictor_normalizer_params = running_statistics.init_state(
+        model_lib.observation_spec((design_dim,))
+    )
+    design_predictor_state = TrainingState(
+            optimizer_state=design_optimizer.init(init_params),
+            params=init_params,
+            normalizer_params=design_predictor_normalizer_params,
+        )
+
+    # TODO: Does build_grid need to take in the params of the predictor? Probably yeah
     model_treedef = None
     def build_grid(
         n_designs, n_tradeoffs, per_cell, d_rng, w_rng, it, num_objectives
@@ -126,13 +180,17 @@ def train_mo_design_hypernetwork(
         three have a leading env axis of ``grid.num_envs`` in the grid's flat env ordering.
         """
         nonlocal model_treedef
-        designs_unique = model_lib.sample_designs(
-            d_rng, n_designs, design_low, design_high, design_dim
-        )
+
+        
         tradeoffs_unique = sample_tradeoffs(
             w_rng, it, n_tradeoffs, num_objectives,
             sampling=sampling, alpha=alpha,
         )
+
+        # Implements the design predictor network 
+        # TODO: n_designs should come into this somehow
+        designs_unique, _ = design_predictor_inference_fn(design_predictor_state.params, tradeoffs_unique, deterministic=False, key_sample=d_rng)
+
         grid = DesignTradeoffSampleGrid(
             designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=per_cell
         )
@@ -149,27 +207,6 @@ def train_mo_design_hypernetwork(
         )
         return grid, batched_model, designs_input, jnp.asarray(tradeoffs_full)
     
-    obs_size = environment.observation_size
-    num_objectives = len(environment.params.reward.optimization.objectives)
-
-    normalize = (
-        running_statistics.normalize if normalize_observations else (lambda x, y: x)
-    )
-    design_networks = network_factory(
-        observation_size=obs_size,
-        action_size=environment.action_size,
-        design_dim=design_dim,
-        num_objectives=num_objectives,
-        key=key_net,
-        preprocess_observations_fn=normalize,
-    )
-    inference_fn = net_lib.make_mo_design_inference_fn(design_networks)
-
-    optimizer = optax.adam(learning_rate)
-    if max_grad_norm is not None:
-        optimizer = optax.chain(
-            optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
-        )
 
     loss_fn = functools.partial(
         compute_mo_design_hypernet_loss,

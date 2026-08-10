@@ -3,6 +3,7 @@
 from codesign.utils.grid import (
     DesignTradeoffSampleGrid,
     DesignTradeoffRolloutGrid,
+    sample_tradeoffs
 )
 from codesign.utils.model import (
     uniform_design_sweep,
@@ -32,6 +33,7 @@ __all__ = [
     "stack_models",
     "build_batched_model",
     "sample_designs",
+    "sample_tradeoffs",
     "maximin_designs",
     "min_design_gap",
     "normalize_design",
