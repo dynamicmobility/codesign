@@ -177,12 +177,11 @@ def rollout_mo_design_hypernetwork(
     )
 
 
-# TODO: Why are we mixing n_ and num_
 def rollout_design_hypernetwork(
     env: CodesignBase | MOCodesignBase,
     config,
     num_envs: int,
-    n_steps: int,
+    num_steps: int,
     *,
     checkpoint_path: str | None = None,
     seed: int = 0,
@@ -250,9 +249,9 @@ def rollout_design_hypernetwork(
         batched_model,
         policy,
         num_envs * trials_per_env,
-        n_steps,
+        num_steps,
         mask_after_done=True,
         seed=seed,
     )
-    rewards = rewards.reshape(n_steps, num_envs, trials_per_env).transpose(2, 0, 1)
+    rewards = rewards.reshape(num_steps, num_envs, trials_per_env).transpose(2, 0, 1)
     return designs, rewards

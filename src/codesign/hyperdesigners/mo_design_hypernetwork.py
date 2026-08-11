@@ -18,6 +18,7 @@ from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
 from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid
+from codesign.utils import sample_tradeoffs
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_mo_design_hypernet_loss,
@@ -33,39 +34,6 @@ class TrainingState:
     normalizer_params: running_statistics.RunningStatisticsState
 
 
-def sample_tradeoffs(
-    rng: np.random.Generator,
-    it: int,
-    num_tradeoffs: int,
-    num_objectives: int,
-    sampling: str = "dense",
-    alpha: float = 1.0,
-) -> np.ndarray:
-    """Sample ``num_tradeoffs`` simplex tradeoffs (host-side numpy), MORLAX-style.
-
-    ``num_tradeoffs`` is the sole driver of how many distinct tradeoffs are produced.
-    Ports the sampling styles of ``morlax.sample_preferences``:
-      * ``dense`` — ``num_tradeoffs`` Dirichlet(alpha) draws;
-      * ``sparse-heavytail`` — ``num_tradeoffs - num_objectives`` Dirichlet draws plus the
-        ``num_objectives`` axis-aligned (one-hot) extreme tradeoffs (e.g. ``num_tradeoffs=8``,
-        ``num_objectives=3`` -> 5 simplex draws + 3 one-hot corners);
-      * ``single-avg`` — every tradeoff is the uniform ``1/M``.
-    During warmup (``it < round(warmup_frac * num_warmup_ref)``) all tradeoffs are uniform.
-    Returns an array of shape ``(num_tradeoffs, num_objectives)``.
-    """
-
-    if sampling == "dense":
-        w = rng.dirichlet(np.ones(num_objectives) * alpha, size=num_tradeoffs)
-    elif sampling == "sparse-heavytail":
-        n_dir = max(num_tradeoffs - num_objectives, 0)
-        dir_w = rng.dirichlet(np.ones(num_objectives) * alpha, size=n_dir)
-        w = np.concatenate([dir_w, np.eye(num_objectives)], axis=0)
-        w = w[:num_tradeoffs]
-    elif sampling == "single-avg":
-        w = np.full((num_tradeoffs, num_objectives), 1.0 / num_objectives)
-    else:
-        raise ValueError(f"Sampling type {sampling} not implemented")
-    return w.astype(np.float32)
 
 
 def train_mo_design_hypernetwork(

@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, NamedTuple
 
 import flax
 import jax
@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from brax.training import types
 from brax.training.agents.ppo import losses as ppo_losses
 from brax.training.types import Params
+from brax.training.acme.types import NestedArray
 
 from codesign.hyperdesigners import networks
 from codesign.hyperdesigners.acting import DesignTransition, MODesignTransition
@@ -16,6 +17,14 @@ class DesignHypernetParams:
     """Trainable parameters: only the hypernetwork (target nets are not trained)."""
 
     hypernetwork: Params
+
+class DesignPredictorTransition(NamedTuple):
+    """One GRPO group per row: tradeoff ``w_t`` with ``G`` designs drawn from ``f(. | w_t)``."""
+
+    tradeoff        : NestedArray # (n_tradeoffs, num_objectives)
+    raw_design      : NestedArray # pre-tanh samples of f (n_tradeoffs, G, design_dim)
+    value           : NestedArray # discounted scalarized returns (n_tradeoffs, G)
+    design_log_prob : NestedArray # log f(raw_design | w) at sample time (n_tradeoffs, G)
 
 
 def compute_design_hypernet_loss(
@@ -225,4 +234,68 @@ def compute_mo_design_hypernet_loss(
         "policy_loss": policy_loss,
         "v_loss": v_loss,
         "entropy_loss": entropy_loss,
+    }
+
+
+def compute_grpo_loss(
+    design_predictor_params: types.Params,
+    data: DesignPredictorTransition,
+    rng: jnp.ndarray,
+    design_networks: networks.DesignPredictorHypernetNetworks,
+    entropy_cost: float = 1e-4,
+    clipping_epsilon: float = 0.3,
+) -> Tuple[jnp.ndarray, types.Metrics]:
+    """Computes the clipped GRPO loss for the design predictor ``f(d | w)``.
+
+    Args:
+        design_predictor_params: trainable design-predictor params. Must stay first so
+            ``gradients.gradient_update_fn`` differentiates w.r.t. it.
+        data: ``DesignPredictorTransition`` with a leading group axis.
+        rng: PRNG key (for the entropy estimate).
+        design_networks: the design predictor hypernetwork bundle.
+    """
+    parametric_design_distribution = design_networks.parametric_design_distribution
+
+    # One logit row per tradeoff; no preprocessing, so the processor params are unused.
+    logits = design_networks.design_predictor_network.apply(
+        None, design_predictor_params, data.tradeoff
+    )
+
+    # Every design in a group was drawn from the same tradeoff, so it shares its logits.
+    group_logits = jnp.repeat(
+        logits[:, None], data.raw_design.shape[1], axis=1
+    )
+    # log_prob expects the pre-tanh sample: it subtracts the tanh jacobian itself.
+    target_design_log_prob = parametric_design_distribution.log_prob(
+        group_logits, data.raw_design
+    )
+    # Policy ratio rho between the updated and the sampling-time distribution.
+    rho_s = jnp.exp(target_design_log_prob - data.design_log_prob)
+
+    # Group-relative advantage: standardize within each tradeoff's own group. A group
+    # whose designs all scored the same carries no ranking information; its std is
+    # float-rounding noise, which the division would blow up into a +-1 advantage.
+    r_mean = jnp.mean(data.value, axis=1, keepdims=True)
+    r_std = jnp.std(data.value, axis=1, keepdims=True)
+    degenerate = r_std <= 1e-6 * jnp.abs(r_mean)  # 1e-6 ~ 10x float32 eps
+    advantages = jnp.where(
+        degenerate, 0.0, (data.value - r_mean) / (r_std + 1e-8)
+    )
+
+    surrogate_loss1 = rho_s * advantages
+    surrogate_loss2 = (
+        jnp.clip(rho_s, 1 - clipping_epsilon, 1 + clipping_epsilon) * advantages
+    )
+    policy_loss = -jnp.mean(jnp.minimum(surrogate_loss1, surrogate_loss2))
+
+    # Entropy bonus, on the unrepeated logits (the repeats are identical).
+    entropy = jnp.mean(parametric_design_distribution.entropy(logits, rng))
+    entropy_loss = entropy_cost * -entropy
+
+    total_loss = policy_loss + entropy_loss
+    return total_loss, {
+        "total_loss": total_loss,
+        "policy_loss": policy_loss,
+        "entropy_loss": entropy_loss,
+        "design_entropy": entropy,
     }

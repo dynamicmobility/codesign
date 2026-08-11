@@ -21,6 +21,8 @@ def get_handle_params(config):
             return codesign.hyperdesigners.setup_design_hypernetwork
         case 'mo_design_hypernetwork':
             return codesign.hyperdesigners.setup_mo_design_hypernetwork
+        case 'mo_design_predictor_hypernetwork':
+            return codesign.hyperdesigners.setup_mo_design_predictor_hypernetwork
         case 'ppo':
             return None
 
@@ -29,7 +31,7 @@ def get_progress_fn(config, env: codesign.CodesignBase):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     
-    if config.algorithm == 'mo_design_hypernetwork':
+    if config.algorithm in ('mo_design_hypernetwork', 'mo_design_predictor_hypernetwork'):
         training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = env.objectives,
@@ -58,7 +60,7 @@ def wrap_env(config, env):
                 env       = env,
                 weighting = config.env_config.reward.optimization.default_scalarization
             )
-        case 'mo_design_hypernetwork':
+        case 'mo_design_hypernetwork' | 'mo_design_predictor_hypernetwork':
             pass
         case e:
             raise Exception(f'Unknown algorithm {e}')
@@ -80,7 +82,9 @@ def log_rollout_videos(
     # Rendering needs a host-side (mujoco, not mjx) env; reused across designs.
     env, _ = codesign.load_env(config, backend='np')
 
-    if config['algorithm'] == 'ppo' or num_designs < 2:
+    # The design predictor chooses its own design, so sweeping designs would just repeat.
+    predicts_design = config['algorithm'] == 'mo_design_predictor_hypernetwork'
+    if config['algorithm'] == 'ppo' or predicts_design or num_designs < 2:
         designs = [codesign.default_video_design(config)]
     else:
         design_params = config['env_config']['codesign']
@@ -91,8 +95,8 @@ def log_rollout_videos(
             dim  = len(design_params['low']),
         ))
 
-    # Only the MO hypernetwork takes a tradeoff; (None, None) is one unconditioned pass.
-    if config['algorithm'] == 'mo_design_hypernetwork':
+    # Only the MO hypernetworks take a tradeoff; (None, None) is one unconditioned pass.
+    if config['algorithm'] in ('mo_design_hypernetwork', 'mo_design_predictor_hypernetwork'):
         tradeoffs = codesign.extreme_tradeoffs_with_labels(config)
     else:
         tradeoffs = [(None, None)]
@@ -101,8 +105,12 @@ def log_rollout_videos(
         for design in designs:
             d = float(np.asarray(design).reshape(-1)[0])
             # The designs repeat at every corner, so the tradeoff has to be in both names.
-            stem    = f'rollout_d{d:.3f}' if label is None else f'rollout_w-{label}_d{d:.3f}'
-            log_key = f'rollout/d={d:.3f}' if label is None else f'rollout/{label}/d={d:.3f}'
+            if predicts_design:
+                stem, log_key = f'rollout_w-{label}', f'rollout/{label}'
+            elif label is None:
+                stem, log_key = f'rollout_d{d:.3f}', f'rollout/d={d:.3f}'
+            else:
+                stem, log_key = f'rollout_w-{label}_d{d:.3f}', f'rollout/{label}/d={d:.3f}'
             codesign.save_policy_rollout_video(
                 config,
                 video_dir / f'{stem}.mp4',

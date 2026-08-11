@@ -16,8 +16,9 @@ from minimal_mjx.eval import policy as policy_lib
 from codesign.learning.inference import (
     load_design_hypernetwork,
     load_mo_design_hypernetwork,
+    load_mo_design_predictor_hypernetwork,
 )
-from codesign.utils.model import normalize_design
+from codesign.utils.model import normalize_design, unnormalize_design
 from codesign.utils.plotting import objective_labels
 
 # from minimal_mjx.learning.inference import get_step_reset, load_policy
@@ -177,6 +178,74 @@ def rollout_mo_design_hypernetwork_video(
     )
 
 
+def _simplex(tradeoff, num_objectives):
+    """CLI tradeoff values -> a ``(num_objectives,)`` array summing to one."""
+    if tradeoff is None:
+        return np.full((num_objectives,), 1.0 / num_objectives, np.float32)
+    w = np.asarray(tradeoff, np.float32).reshape(-1)
+    return w / np.sum(w)
+
+
+def rollout_mo_design_predictor_hypernetwork_video(
+    env,
+    config,
+    tradeoff,
+    n_steps: int,
+    *,
+    design_tradeoff=None,
+    eval_design=None,
+    sample_design: bool = False,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    camera: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    gen_video: bool = True,
+):
+    """Render ``H(d, w)`` on a design the predictor picks: ``d ~ f(. | w')``.
+
+    ``design_tradeoff`` is the ``w'`` fed to the predictor and defaults to ``tradeoff``,
+    the ``w`` conditioning the policy. Decoupling them tests the predictor's alignment
+    (sweep ``w'`` on a fixed ``w``) and its specificity (sweep ``w`` on a fixed ``w'``).
+
+    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter, design)`` where
+    ``design`` is the predicted design in physical units.
+    """
+    num_objectives = len(config["env_config"]["reward"]["optimization"]["objectives"])
+    tradeoff_input = jnp.asarray(_simplex(tradeoff, num_objectives))
+    design_tradeoff_input = jnp.asarray(
+        _simplex(tradeoff if design_tradeoff is None else design_tradeoff, num_objectives)
+    )
+
+    inference_fn, design_predictor_inference_fn, params = (
+        load_mo_design_predictor_hypernetwork(config, path=checkpoint_path)
+    )
+    # The predictor emits designs already normalized to [0, 1] (1-D input -> unbatched).
+    design_input, _ = design_predictor_inference_fn(
+        params[2],
+        design_tradeoff_input,
+        deterministic=not sample_design,
+        key_sample=jax.random.PRNGKey(seed),
+    )
+    design = np.asarray(unnormalize_design(design_input, config=config)).reshape(-1)
+    if eval_design is None:
+        eval_design = design
+
+    base_policy = inference_fn(
+        params, design_input, tradeoff_input, deterministic=deterministic
+    )
+    policy = mm.from_inference_fn(base_policy)
+
+    return (
+        *rollout_single_video(
+            env, eval_design, policy, n_steps,
+            seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+        ),
+        design,
+    )
+
+
 def default_video_design(config):
     """Design to roll out when the caller doesn't name one.
     """
@@ -266,6 +335,19 @@ def save_policy_rollout_video(
             n_steps=n_steps, checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
         )
+
+    elif algorithm == "mo_design_predictor_hypernetwork":
+        # The design comes from f(. | w), so the caller's `design` is ignored.
+        num_objectives = len(
+            config["env_config"]["reward"]["optimization"]["objectives"]
+        )
+        tradeoff = _simplex(tradeoff, num_objectives)
+        frames, traj, _, _, _, design = rollout_mo_design_predictor_hypernetwork_video(
+            env, config, tradeoff=tradeoff, n_steps=n_steps,
+            checkpoint_path=checkpoint_path, seed=seed,
+            camera=camera, width=width, height=height,
+        )
+        caption = f"{config['env']} d={np.round(design, 3)} w={np.round(tradeoff, 3)}"
 
     elif algorithm == "design_hypernetwork":
         frames, traj, _, _, _ = rollout_design_hypernetwork_video(
