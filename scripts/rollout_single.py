@@ -1,8 +1,6 @@
 """Rolls outs codesign hypernetworks given a config yaml.
 """
 import os
-
-from codesign.envs.codesign_base import CodesignMO2SO
 os.environ["MUJOCO_GL"] = "egl"
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 
@@ -18,8 +16,10 @@ import codesign
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 OUT_DIR = Path("scripts/outputs")
 
+MO_ALGORITHMS = ("mo_design_hypernetwork", "mo_design_predictor_hypernetwork")
 
-def resolve_design(values: list[float] | None, config) -> np.ndarray:
+
+def resolve_single_design(values: list[float] | None, config) -> np.ndarray:
     """CLI design values -> a ``(design_dim,)`` array.
 
     ``None`` falls back to the config's default design; a single value is broadcast
@@ -37,6 +37,82 @@ def resolve_design(values: list[float] | None, config) -> np.ndarray:
     return design
 
 
+def resolve_design_args(
+    design: list[float] | None, eval_design: list[float] | None, config
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """CLI designs -> the hypernetwork's design and the design the model is built from.
+
+    The design predictor supplies its own design, so nothing is defaulted for it: only an
+    explicit CLI value overrides the model's design, and ``--eval_design`` wins over
+    ``--design``.
+    """
+    if config["algorithm"] == "mo_design_predictor_hypernetwork":
+        override = eval_design if eval_design is not None else design
+        return None, (None if override is None else resolve_single_design(override, config))
+
+    design = resolve_single_design(design, config)
+    if eval_design is None:
+        return design, design
+    return design, resolve_single_design(eval_design, config)
+
+
+def normalize_objectives(values: list[float], objectives: list[str], label: str) -> np.ndarray:
+    """Weights normalized onto the simplex, printed per objective."""
+    raw = np.asarray(values, np.float32).reshape(-1)
+    if raw.size != len(objectives):
+        raise ValueError(f"{label} has {raw.size} entries; env has {len(objectives)} objectives")
+
+    w = raw / np.sum(raw)
+    print(f"objective scalarization {label} (raw -> normalized):")
+    for obj, r, norm in zip(objectives, raw, w):
+        print(f"  {obj}: {r:g} -> {norm:.3f}")
+    return w
+
+
+def resolve_tradeoffs_args(
+    tradeoff: list[float] | None, design_tradeoff: list[float] | None, config
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """CLI tradeoffs -> the policy's ``w`` and the design predictor's ``w'``.
+
+    Only the MO hypernetworks condition on a tradeoff, so both are dropped elsewhere.
+    ``w`` defaults to uniform; ``w'`` stays ``None`` so it falls back to ``w`` downstream.
+    """
+    if config["algorithm"] not in MO_ALGORITHMS:
+        if tradeoff is not None or design_tradeoff is not None:
+            print(f"note: {config['algorithm']} is single-objective; tradeoffs are ignored.")
+        return None, None
+
+    opt        = config["env_config"]["reward"]["optimization"]
+    objectives = codesign.utils.plotting.objective_labels(opt["objectives"])
+    if tradeoff is None:
+        tradeoff = [1.0 / len(objectives)] * len(objectives)
+
+    tradeoff = normalize_objectives(tradeoff, objectives, "w")
+    if design_tradeoff is not None:
+        design_tradeoff = normalize_objectives(design_tradeoff, objectives, "w'")
+    return tradeoff, design_tradeoff
+
+
+def save_reward_plot(rollout: codesign.RolloutVideo) -> Path:
+    """Write the rollout's per-objective reward traces next to its video."""
+    out = rollout.path.with_suffix(".pdf")
+    rollout.reward_plotter.plot(title=f"{rollout.caption} reward")
+    plt.savefig(out)
+    return out
+
+
+def report_value(rollout: codesign.RolloutVideo, config) -> None:
+    """Print the rollout's undiscounted and discounted return, per objective."""
+    discount = config.learning_params.ppo_params.discounting
+    rewards  = np.asarray(rollout.reward_plotter.rewards)
+    # MO envs carry a trailing objective axis, so broadcast the discount along time only.
+    discounts = np.pow(discount, np.arange(len(rewards))).reshape(
+        -1, *([1] * (rewards.ndim - 1))
+    )
+    print(f"Total value: {np.sum(rewards, axis=0)}")
+    print(f"Discounted value: {np.sum(rewards * discounts, axis=0)}")
+
+
 def main(
     config_path: str,
     checkpoint_path: str | None,
@@ -49,117 +125,29 @@ def main(
     camera: str
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-    env, env_params = codesign.load_env(config, backend = 'np')
+    env, _ = codesign.load_env(config, backend = 'np')  # renderable (mujoco) env
 
-    # Keep the raw CLI values: the design predictor needs to tell "not given" (use its
-    # own prediction) from "defaulted to the config's design".
-    cli_design, cli_eval_design = design, eval_design
-    design      = resolve_design(design, config)                                  # (design_dim,)
-    eval_design = design if eval_design is None else resolve_design(eval_design, config)
-    algorithm = config["algorithm"]
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    design, eval_design       = resolve_design_args(design, eval_design, config)
+    tradeoff, design_tradeoff = resolve_tradeoffs_args(tradeoff, design_tradeoff, config)
 
-    if algorithm == "mo_design_hypernetwork":
-        opt         = config["env_config"]["reward"]["optimization"]
-        objectives  = codesign.utils.plotting.objective_labels(opt["objectives"])
-        num_obj     = len(objectives)
-
-        if tradeoff is None:
-            tradeoff = [1.0 / num_obj] * num_obj
-        norm = [w / sum(tradeoff) for w in tradeoff]
-
-        print("objective scalarization (raw -> normalized):")
-        for obj, raw, w in zip(objectives, tradeoff, norm):
-            print(f"  {obj}: {raw:g} -> {w:.3f}")
-
-        # Rollout
-        frames, traj, reward_plotter, _, _ = codesign.rollout_mo_design_hypernetwork_video(
-            env, config, design=design, eval_design=eval_design, tradeoff=tradeoff, n_steps=steps,
-            checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
-        )
-        out = OUT_DIR / f"mo_design_hypernetwork.mp4"
-        title = f"{config['env']} d={np.round(design, 3)} w={np.round(tradeoff, 3)} reward"
-
-    elif algorithm == "mo_design_predictor_hypernetwork":
-        opt         = config["env_config"]["reward"]["optimization"]
-        objectives  = codesign.utils.plotting.objective_labels(opt["objectives"])
-        num_obj     = len(objectives)
-
-        if tradeoff is None:
-            tradeoff = [1.0 / num_obj] * num_obj
-        # The predictor's tradeoff may differ from the policy's, to test specificity.
-        w_design = tradeoff if design_tradeoff is None else design_tradeoff
-
-        # The predictor supplies the design, so the model is built from its prediction
-        # unless the CLI names one to override it (--eval_design wins over --design).
-        override = cli_eval_design if cli_eval_design is not None else cli_design
-        override = None if override is None else resolve_design(override, config)
-
-        # Rollout
-        frames, traj, reward_plotter, _, _, design = (
-            codesign.rollout_mo_design_predictor_hypernetwork_video(
-                env, config, tradeoff=tradeoff, design_tradeoff=w_design,
-                eval_design=override, sample_design=sample_design, n_steps=steps,
-                checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
-            )
-        )
-        eval_design = design if override is None else override
-        print(f"predicted design f(. | w'={np.round(w_design, 3)}) = {np.round(design, 3)}")
-        out = OUT_DIR / f"mo_design_predictor_hypernetwork.mp4"
-        title = (
-            f"{config['env']} d={np.round(design, 3)} "
-            f"w={np.round(tradeoff, 3)} w'={np.round(w_design, 3)} reward"
-        )
-
-    elif algorithm == "design_hypernetwork":
-        if tradeoff is not None:
-            print("note: H(d) is single-objective; --tradeoff is ignored.")
-
-        # Rollout
-        frames, traj, reward_plotter, _, _ = codesign.rollout_design_hypernetwork_video(
-            env, config, design=design, eval_design=eval_design, n_steps=steps,
-            checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
-        )
-        out = OUT_DIR / f"design_hypernetwork.mp4"
-        title = f"{config['env']} d={np.round(design, 3)} reward"
-
-    elif algorithm == "ppo":
-        # Fixed-design policy: the design only picks the model the rollout is run on.
-        base_policy = mm.load_policy(config, deterministic=True, checkpoint_path=checkpoint_path)
-        policy      = mm.from_inference_fn(base_policy)
-        so_env      = (
-            env if isinstance(env, CodesignMO2SO)
-            else CodesignMO2SO(env, config["env_config"]["reward"]["optimization"]["default_scalarization"])
-        )
-        # Rollout
-        frames, traj, reward_plotter, _, _ = codesign.rollout_single_video(
-            so_env, eval_design, policy, steps,
-            camera=camera, width=640, height=480,
-        )
-        out = OUT_DIR / f"ppo.mp4"
-        title = f"{config['env']} d={np.round(eval_design, 3)} reward"
-
-
-    else:
-        raise ValueError(
-            f"unsupported algorithm {algorithm!r}; expected 'ppo', 'design_hypernetwork', "
-            "'mo_design_hypernetwork' or 'mo_design_predictor_hypernetwork'."
-        )
-
-    mm.utils.plotting.save_video(frames, env.dt, out)
-    print(f"rendered {len(traj)} steps for design d={np.round(design, 3)} (eval d={np.round(eval_design, 3)}).")
-
-    reward_plotter.plot(title=title)
-    plt.savefig(out.with_suffix(".pdf"))
-    print(f"rendered plots -> {out.with_suffix(".pdf")}")
-    discount = config.learning_params.ppo_params.discounting
-    rewards  = np.asarray(reward_plotter.rewards)
-    # MO envs carry a trailing objective axis, so broadcast the discount along time only.
-    discounts = np.pow(discount, np.arange(len(rewards))).reshape(
-        -1, *([1] * (rewards.ndim - 1))
+    rollout = codesign.save_policy_rollout_video(
+        config,
+        OUT_DIR / f"{config['algorithm']}.mp4",
+        env             = env,
+        design          = design,
+        eval_design     = eval_design,
+        tradeoff        = tradeoff,
+        design_tradeoff = design_tradeoff,
+        sample_design   = sample_design,
+        n_steps         = steps,
+        checkpoint_path = checkpoint_path,
+        camera          = camera,
+        width           = 640,
+        height          = 480,
     )
-    print(f"Total value: {np.sum(rewards, axis=0)}")
-    print(f"Discounted value: {np.sum(rewards * discounts, axis=0)}")
+    print(f"rendered video -> {rollout.path}")
+    print(f"rendered plots -> {save_reward_plot(rollout)}")
+    report_value(rollout, config)
 
 
 if __name__ == "__main__":

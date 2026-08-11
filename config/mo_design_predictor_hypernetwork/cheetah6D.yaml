@@ -1,0 +1,77 @@
+# Training config for the `mo_design_predictor_hypernetwork` algorithm on CodesignCheetah.
+#
+# f(d | w) = N(mu(w), sigma(w))  ->  H_\pi(d, w) = \pi(a | s)
+name: test6D
+save_dir: results/Aug11
+description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah6D, with a GRPO-trained design predictor."
+algorithm: "mo_design_predictor_hypernetwork"
+env: "MOCodesignCheetah"
+backend: jnp # always jnp for training
+
+env_config:
+  ctrl_dt: 0.01
+  sim_dt: 0.01
+  action_scale: 1.0
+  reward:
+    weights:
+      run:        1.0
+      height:     10.0
+      energy:     0.00003
+      alive:      1.0
+      done:       0
+    optimization:
+      objectives:        [['run'], ['energy'], ['height']]
+      shared_objectives: ['alive']
+      labels:            ['Running Speed', 'Height']
+      default_scalarization: [1.0, 1.0, 1.0]
+  termination:
+    enabled: true
+    base_height: 0.2
+  codesign:
+    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    low:  [0.8, 0.8, 0.8, 0.8, 0.8, 0.8]
+    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+
+learning_params:
+  ppo_params:
+    num_timesteps: 1500000000
+    episode_length: 500
+    num_envs: 4096
+    unroll_length: 20
+    batch_size: 128
+    num_minibatches: 32
+    num_updates_per_batch: 4
+    learning_rate: 0.0001
+    entropy_cost: 0.01
+    discounting: 0.99
+    reward_scaling: 1.0
+    clipping_epsilon: 0.3
+    gae_lambda: 0.95
+    max_grad_norm: 1.0
+    normalize_advantage: true
+    normalize_observations: true
+    num_evals: 45
+    num_eval_envs: 256
+    deterministic_eval: true
+    seed: 0
+  network_params:
+    hypersize: [256, 256]
+    num_features: 32
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
+  design_sampling:
+    # GRPO group size: designs drawn from f(d | w) per tradeoff. num_envs must be
+    # divisible by num_tradeoffs * num_designs.
+    num_designs: 16
+    # The predictor takes one GRPO batch per resample, so this is also its update count
+    # per epoch. Each resample rebuilds num_tradeoffs * num_designs mujoco models.
+    resamples_per_epoch: 20
+  tradeoff_sampling:
+    num_tradeoffs: 8
+    alpha: 1.0
+    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
+  design_predictor:
+    hidden_layer_sizes: [16, 16]
+    learning_rate: 0.001
+    entropy_cost: 0.001
+    num_updates_per_batch: 4
