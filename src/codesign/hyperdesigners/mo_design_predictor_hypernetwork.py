@@ -3,7 +3,7 @@
 
 import functools
 import time
-from typing import Callable, NamedTuple
+from typing import Callable
 
 import flax
 import jax
@@ -12,17 +12,18 @@ import numpy as np
 import optax
 from brax.training import gradients
 from brax.training.acme import running_statistics
-from mujoco import mjx
+from brax.training.types import Params
 
 from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
-from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid
+from codesign.utils.grid import DesignPredictorSampleGrid, DesignTradeoffRolloutGrid
 from codesign.utils import sample_tradeoffs
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
+    DesignPredictorTransition,
     compute_mo_design_hypernet_loss,
-    compute_grpo_loss
+    compute_grpo_loss,
 )
 
 
@@ -32,11 +33,13 @@ class TrainingState:
     params: DesignHypernetParams
     normalizer_params: running_statistics.RunningStatisticsState
 
+
 @flax.struct.dataclass
 class DesignPredictorTrainingState:
+    """The design predictor's input is a simplex tradeoff, so it needs no normalizer."""
+
     optimizer_state: optax.OptState
-    params: DesignHypernetParams
-    normalizer_params: running_statistics.RunningStatisticsState
+    params: Params
 
 
 def train_mo_design_predictor(
@@ -44,7 +47,7 @@ def train_mo_design_predictor(
     num_timesteps: int,
     episode_length: int,
     num_envs: int = 1024,
-    num_designs: int = 8, # Number of evaluations of the design predictor
+    num_designs: int = 8,  # GRPO group size: designs drawn per tradeoff
     num_eval_designs: int = 8,
     num_tradeoffs: int = 8,
     num_eval_tradeoffs: int = 8,
@@ -65,11 +68,15 @@ def train_mo_design_predictor(
     design_high: float = 2.0,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
+    # design predictor
+    design_learning_rate: float = 1e-3,
+    design_entropy_cost: float = 1e-3,
+    num_design_updates_per_batch: int = 4,
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
     warmup_frac: float = 0.0,
-    network_factory: Callable = net_lib.make_mo_design_hypernet_networks,
+    network_factory: Callable = net_lib.make_mo_design_predictor_hypernet_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
@@ -81,20 +88,18 @@ def train_mo_design_predictor(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    num_cells = num_designs * num_tradeoffs
+    group_size = num_designs  # GRPO group size G
+    num_cells = num_tradeoffs * group_size
     assert num_envs % num_cells == 0, (
-        "num_envs must be divisible by num_designs * num_tradeoffs"
+        "num_envs must be divisible by num_tradeoffs * num_designs"
     )
-    assert num_eval_envs % num_cells == 0, (
-        "num_eval_envs must be divisible by num_designs * num_tradeoffs"
+    assert num_eval_envs % (num_eval_tradeoffs * num_eval_designs) == 0, (
+        "num_eval_envs must be divisible by num_eval_tradeoffs * num_eval_designs"
     )
     assert (batch_size * num_minibatches) % num_envs == 0, (
         "batch_size * num_minibatches must be divisible by num_envs"
     )
     assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
-    assert num_eval_envs % (num_eval_tradeoffs * num_eval_designs) == 0, (
-        "Number of eval tradeoffs * eval designs must be a factor of num_eval_envs"
-    )
     envs_per_cell = num_envs // num_cells
     eval_envs_per_cell = num_eval_envs // (num_eval_designs * num_eval_tradeoffs)
     num_scans = batch_size * num_minibatches // num_envs
@@ -109,10 +114,10 @@ def train_mo_design_predictor(
     num_training_steps_per_epoch = num_training_steps_per_chunk * resamples_per_epoch
 
     key = jax.random.PRNGKey(seed)
-    key, key_net = jax.random.split(key)
+    key, key_net, key_design_net = jax.random.split(key, 3)
     key_env = jax.random.fold_in(key, 1)
     key_eval = jax.random.fold_in(key, 2)
-    design_rng = np.random.default_rng(seed)
+    key_design = jax.random.fold_in(key, 3)
     tradeoff_rng = np.random.default_rng(seed + 1)
 
     jit_reset = jax.jit(
@@ -134,76 +139,61 @@ def train_mo_design_predictor(
         preprocess_observations_fn=normalize,
     )
     inference_fn = net_lib.make_mo_design_inference_fn(design_networks)
-    design_predictor_inference_fn = net_lib.make_design_predictor_inference_fn(design_networks)
+    design_predictor_inference_fn = net_lib.make_design_predictor_inference_fn(
+        design_networks
+    )
 
     optimizer = optax.adam(learning_rate)
-    
     if max_grad_norm is not None:
         optimizer = optax.chain(
             optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
         )
 
-    design_optimizer = optax.adam(learning_rate)
+    design_optimizer = optax.adam(design_learning_rate)
     if max_grad_norm is not None:
         design_optimizer = optax.chain(
-            optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
-        )
-
-    grpo_loss_fn = functools.partial(
-        compute_grpo_loss,
-        design_networks       = design_networks,
-        entropy_cost          = entropy_cost,
-        clipping_epsilon      = clipping_epsilon,
-        normalize_advantage   = normalize_advantage,
-        )
-
-    design_gradient_update_fn = gradients.gradient_update_fn(
-        grpo_loss_fn, design_optimizer, pmap_axis_name=None, has_aux=True
-    )
-
-    # Initialize design predictor training state.
-    # TODO: Change this
-    init_params = DesignHypernetParams(
-        hypernetwork=design_networks.hypernetwork.init(key_net)
-    )
-    design_predictor_state = TrainingState(
-            optimizer_state=design_optimizer.init(init_params),
-            params=init_params,
-            normalizer_params=None,
+            optax.clip_by_global_norm(max_grad_norm), optax.adam(design_learning_rate)
         )
 
     model_treedef = None
     def build_grid(
-        n_tradeoffs, designs_per_group, d_rng, w_rng, it, num_objectives
+        n_tradeoffs, n_designs, per_cell, w_rng, key_sample, it, design_params,
+        tradeoffs=None,
     ):
-        """Sample a design x tradeoff grid and build the tiled per-env model.
+        """Sample a tradeoff-paired design grid from ``f(d | w)`` and build its models.
 
-        Returns ``(grid, batched_model, designs_input, tradeoffs_full)`` where the last
-        three have a leading env axis of ``grid.num_envs`` in the grid's flat env ordering.
+        Each of ``n_tradeoffs`` tradeoffs gets ``n_designs`` designs drawn from
+        ``f(. | w)`` -- one GRPO group per tradeoff. Pass ``tradeoffs`` to reuse a fixed
+        set instead of drawing new ones.
+
+        Returns ``(grid, batched_model, designs_input, tradeoffs_full, raw, log_prob)``.
+        The middle three have a leading env axis of ``grid.num_envs`` in the grid's flat
+        env ordering; ``raw``/``log_prob`` keep the ``(n_tradeoffs, n_designs, ...)``
+        group axes the GRPO loss expects.
         """
         nonlocal model_treedef
 
-        
-        tradeoffs = sample_tradeoffs(
-            w_rng, it, n_tradeoffs, num_objectives,
-            sampling=sampling, alpha=alpha,
+        if tradeoffs is None:
+            tradeoffs = sample_tradeoffs(
+                w_rng, it, n_tradeoffs, num_objectives,
+                sampling=sampling, alpha=alpha,
+            )
+
+        # One predictor evaluation per (tradeoff, group member).
+        tradeoffs_tiled = jnp.repeat(jnp.asarray(tradeoffs), n_designs, axis=0)
+        designs_norm, extras = design_predictor_inference_fn(
+            design_params, tradeoffs_tiled, deterministic=False, key_sample=key_sample
+        )
+        # Designs come out normalized to [0, 1]; the model generator wants physical units.
+        designs = model_lib.unnormalize_design(
+            jnp.reshape(designs_norm, (n_tradeoffs, n_designs, design_dim)),
+            design_low, design_high,
+        )
+        grid = DesignPredictorSampleGrid(
+            designs=np.asarray(designs), tradeoffs=tradeoffs, per_cell=per_cell
         )
 
-        # Implements the design predictor network 
-        tradeoffs_tiled = jnp.repeat(tradeoffs, designs_per_group, axis=0)
-
-        designs_unique, _ = design_predictor_inference_fn(
-            design_predictor_state.params,
-            tradeoffs_tiled,
-            deterministic=False,
-            key_sample=d_rng,
-        )
-
-        grid = DesignTradeoffSampleGrid(
-            designs=designs_unique, tradeoffs=tradeoffs_tiled, per_cell=1
-        )
-
-        batched_model = grid.build_models(environment, tiled=True)
+        batched_model = grid.build_models(environment)
         leaves, treedef = jax.tree_util.tree_flatten(batched_model)
         if model_treedef is None:
             model_treedef = treedef
@@ -213,8 +203,14 @@ def train_mo_design_predictor(
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_full), design_low, design_high
         )
-        return grid, batched_model, designs_input, jnp.asarray(tradeoffs_full)
-    
+        raw = jnp.reshape(
+            extras["raw_action"], (n_tradeoffs, n_designs, design_dim)
+        )
+        log_prob = jnp.reshape(extras["log_prob"], (n_tradeoffs, n_designs))
+        return (
+            grid, batched_model, designs_input, jnp.asarray(tradeoffs_full),
+            raw, log_prob,
+        )
 
     loss_fn = functools.partial(
         compute_mo_design_hypernet_loss,
@@ -228,6 +224,16 @@ def train_mo_design_predictor(
     )
     gradient_update_fn = gradients.gradient_update_fn(
         loss_fn, optimizer, pmap_axis_name=None, has_aux=True
+    )
+
+    grpo_loss_fn = functools.partial(
+        compute_grpo_loss,
+        design_networks       = design_networks,
+        entropy_cost          = design_entropy_cost,
+        clipping_epsilon      = clipping_epsilon,
+    )
+    design_gradient_update_fn = gradients.gradient_update_fn(
+        grpo_loss_fn, design_optimizer, pmap_axis_name=None, has_aux=True
     )
 
     def minibatch_step(carry, data, normalizer_params):
@@ -283,7 +289,6 @@ def train_mo_design_predictor(
                 extra_fields=(),
             )
             return (nstate, nk), data
-
         # Compute dataset of rollouts
         (state, _), data = jax.lax.scan(
             scan_unroll, (state, key_unroll), (), length=num_scans
@@ -293,12 +298,10 @@ def train_mo_design_predictor(
         data = jax.tree_util.tree_map(
             lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
         )
-
         # normalize observations based on current state distribution
         normalizer_params = running_statistics.update(
             training_state.normalizer_params, data.observation
         )
-        
         # Take SGD steps to update policy params
         (opt_state, params, _), metrics = jax.lax.scan(
             functools.partial(
@@ -313,7 +316,7 @@ def train_mo_design_predictor(
             params=params,
             normalizer_params=normalizer_params,
         )
-        return (new_ts, state, new_key), (metrics, data)
+        return (new_ts, state, new_key), metrics
 
     @jax.jit
     def training_chunk(
@@ -327,32 +330,21 @@ def train_mo_design_predictor(
             tradeoffs=tradeoffs,
             first_state=first_state,
         )
-        (training_state, state, _), (metrics, data) = jax.lax.scan(
+        (training_state, state, _), metrics = jax.lax.scan(
             step, (training_state, state, key), (), length=num_training_steps_per_chunk
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
-
-        # Extract values from data and convert it into the design predictor transition format
-
-
-        # Take SGD steps to update design predictor params 
-        key_env, grad_key = jax.random.split(key_env)
-
-        design_gradient_update_fn(
-            design_networks,
-            design_predictor_params=design_predictor_state.params,
-            data=data,
-            rng = grad_key,
-        )
-
-
-
         return training_state, state, metrics
 
     @jax.jit
-    def eval_unroll(
+    def rollout_returns(
         normalizer_params, hypernet_params, designs, tradeoffs, batched_model, rngs, key
     ):
+        """Per-objective reward per env over one episode, zeroed after termination.
+
+        Returns ``[episode_length, num_envs, num_objectives]``. An env that terminates
+        early contributes zero from its termination step onward.
+        """
         state = acting.reset(environment, rngs, batched_model)
         policy = inference_fn(
             (normalizer_params, hypernet_params),
@@ -362,47 +354,79 @@ def train_mo_design_predictor(
         )
 
         def body(carry, _):
-            st, k, alive, ret = carry
+            st, k, alive = carry
             k, sub = jax.random.split(k)
             act, _ = policy(st.obs, sub)
             nst = jax.vmap(environment.step, in_axes=(0, 0, 0))(st, act, batched_model)
-            # Accumulate the per-objective reward vector while the episode is alive.
-            ret = ret + nst.reward * alive[:, None]
+            reward = nst.reward * alive[:, None]
             alive = alive * (1.0 - nst.done)
-            return (nst, k, alive, ret), None
+            return (nst, k, alive), reward
 
-        init = (
-            state,
-            key,
-            jnp.ones(num_eval_envs),
-            jnp.zeros((num_eval_envs, num_objectives)),
+        init = (state, key, jnp.ones(rngs.shape[0]))
+        _, rewards = jax.lax.scan(body, init, (), length=episode_length)
+        return rewards
+
+    discounts = discounting ** jnp.arange(episode_length)
+
+    def discounted_scalarized(rewards, tradeoffs):
+        """Per-env discounted, tradeoff-scalarized return: ``sum_t gamma^t (w . r_t)``."""
+        scalarized = jnp.sum(rewards * tradeoffs[None], axis=-1)  # [T, num_envs]
+        return jnp.sum(scalarized * discounts[:, None], axis=0)   # [num_envs]
+
+    def design_minibatch_step(carry, unused_t, data):
+        opt_state, params, key = carry
+        key, key_loss = jax.random.split(key)
+        (_, metrics), params, opt_state = design_gradient_update_fn(
+            params, data, key_loss, optimizer_state=opt_state
         )
-        (_, _, _, ret), _ = jax.lax.scan(body, init, (), length=episode_length)
-        return ret
+        return (opt_state, params, key), metrics
 
-    eval_grid_bundle = build_grid(
-        num_eval_designs, num_eval_tradeoffs, eval_envs_per_cell,
-        np.random.default_rng(seed + 1000),
-        np.random.default_rng(seed + 1001),
-        num_evals_after_init,  # past warmup for eval
-        num_objectives,
+    @jax.jit
+    def design_sgd(design_state, data, key):
+        """``num_design_updates_per_batch`` GRPO epochs over one batch of groups.
+
+        On the first epoch ``rho == 1`` and the clip is inert; from the second on it
+        constrains the step, which is why the group data is reused rather than taking a
+        single gradient step per resample.
+        """
+        (opt_state, params, _), metrics = jax.lax.scan(
+            functools.partial(design_minibatch_step, data=data),
+            (design_state.optimizer_state, design_state.params, key),
+            (),
+            length=num_design_updates_per_batch,
+        )
+        new_state = DesignPredictorTrainingState(
+            optimizer_state=opt_state, params=params
+        )
+        return new_state, jax.tree_util.tree_map(jnp.mean, metrics)
+
+    # Tradeoffs are pinned across epochs so hypervolume stays comparable; only the
+    # designs move, tracking the predictor.
+    eval_tradeoffs = sample_tradeoffs(
+        np.random.default_rng(seed + 1001), num_evals_after_init, num_eval_tradeoffs,
+        num_objectives, sampling=sampling, alpha=alpha,
     )
+    corner_tradeoffs = jnp.eye(num_objectives, dtype=jnp.float32)
 
-    def evaluate(training_state, key):
-        eval_grid, eval_model, eval_designs, eval_tradeoffs = eval_grid_bundle
-        eval_rngs = jax.random.split(key, num_eval_envs)
-        ret = eval_unroll(
+    def evaluate(training_state, design_params, key):
+        key, key_grid, key_rollout = jax.random.split(key, 3)
+        grid, model, designs, tradeoffs, _, _ = build_grid(
+            num_eval_tradeoffs, num_eval_designs, eval_envs_per_cell,
+            None, key_grid, num_evals_after_init, design_params,
+            tradeoffs=eval_tradeoffs,
+        )
+        eval_rngs = jax.random.split(key_rollout, num_eval_envs)
+        rewards = rollout_returns(
             training_state.normalizer_params,
             training_state.params.hypernetwork,
-            eval_designs,
-            eval_tradeoffs,
-            eval_model,
+            designs,
+            tradeoffs,
+            model,
             eval_rngs,
-            key,
+            key_rollout,
         )
-        ret = np.asarray(ret)  # [num_eval_envs, num_objectives]
-        tradeoffs = np.asarray(eval_tradeoffs)
-        scalarized = np.sum(tradeoffs * ret, axis=-1)
+        ret = np.asarray(jnp.sum(rewards, axis=0))  # [num_eval_envs, num_objectives]
+        scalarized = np.sum(np.asarray(tradeoffs) * ret, axis=-1)
         metrics = {
             "eval/episode_reward": float(np.mean(scalarized)),
             "eval/episode_reward_std": float(np.std(scalarized)),
@@ -410,9 +434,23 @@ def train_mo_design_predictor(
         for i in range(num_objectives):
             metrics[f"eval/episode_reward_obj{i}"] = float(np.mean(ret[:, i]))
 
-        # Design x tradeoff grid of per-objective returns, for Pareto plotting.
-        metrics["eval_grid"] = DesignTradeoffRolloutGrid.from_flat(
-            eval_grid, ret, objectives=environment.objectives
+        # The predictor's mode design at each simplex corner: does f separate the extremes?
+        corner_designs = model_lib.unnormalize_design(
+            design_predictor_inference_fn(
+                design_params, corner_tradeoffs, deterministic=True
+            )[0],
+            design_low, design_high,
+        )
+        for i in range(num_objectives):
+            for j in range(design_dim):
+                metrics[f"eval/design_mode_obj{i}_dim{j}"] = float(corner_designs[i, j])
+
+        # Predictor sample x tradeoff grid of per-objective returns, for Pareto plotting.
+        metrics["eval_grid"] = DesignTradeoffRolloutGrid(
+            designs    = np.asarray(grid.designs).swapaxes(0, 1),
+            tradeoffs  = np.asarray(grid.tradeoffs),
+            rewards    = grid.unflatten(ret),
+            objectives = environment.objectives,
         )
         return metrics
 
@@ -428,20 +466,32 @@ def train_mo_design_predictor(
         params=init_params,
         normalizer_params=normalizer_params,
     )
+    design_init_params = design_networks.design_predictor_network.init(key_design_net)
+    design_predictor_state = DesignPredictorTrainingState(
+        optimizer_state=design_optimizer.init(design_init_params),
+        params=design_init_params,
+    )
+
+    def checkpoint_params(training_state, design_predictor_state):
+        return (
+            training_state.normalizer_params,
+            training_state.params.hypernetwork,
+            design_predictor_state.params,
+        )
 
     if num_timesteps == 0:
         return (
             inference_fn,
-            (training_state.normalizer_params, training_state.params.hypernetwork),
+            checkpoint_params(training_state, design_predictor_state),
             {},
         )
 
     # Initial eval + checkpoint.
     metrics = {}
     if run_evals and num_evals > 1:
-        metrics = evaluate(training_state, key_eval)
+        metrics = evaluate(training_state, design_predictor_state.params, key_eval)
         progress_fn(0, metrics)
-    params = (training_state.normalizer_params, training_state.params.hypernetwork)
+    params = checkpoint_params(training_state, design_predictor_state)
     policy_params_fn(0, inference_fn, params)
 
     walltime = 0.0
@@ -449,11 +499,12 @@ def train_mo_design_predictor(
         t0 = time.time()
         chunk_metrics = []
         for _ in range(resamples_per_epoch):
-            # Redraw the grid, rebuild the per-env models, and restart the envs on them
-            # (the robot itself changed, so the carried state is stale).
-            _, batched_model, designs_input, tradeoffs = build_grid(
-                num_designs, num_tradeoffs, envs_per_cell,
-                design_rng, tradeoff_rng, it, num_objectives,
+            # Redraw the designs from the predictor, rebuild the per-env models, and
+            # restart the envs on them (the robot itself changed, so state is stale).
+            key_design, key_sample = jax.random.split(key_design)
+            grid, batched_model, designs_input, tradeoffs, raw, log_prob = build_grid(
+                num_tradeoffs, group_size, envs_per_cell,
+                tradeoff_rng, key_sample, it, design_predictor_state.params,
             )
             key_env, sub = jax.random.split(key_env)
             rngs = jax.random.split(sub, num_envs)
@@ -461,16 +512,42 @@ def train_mo_design_predictor(
             first_state = env_state
 
             key, chunk_key = jax.random.split(key)
-            # These are all for one design x tradeoff grid, so we can pull the data out
-            # and use this for the group training
             training_state, env_state, train_metrics = training_chunk(
                 training_state, env_state, chunk_key, batched_model,
                 designs_input, tradeoffs, first_state,
             )
-            chunk_metrics.append(train_metrics)
 
+            # GRPO value: one deterministic episode per env under the just-trained
+            # policy, so every design in a group is judged against the same H(d, w).
+            key_env, sub = jax.random.split(key_env)
+            values = discounted_scalarized(
+                rollout_returns(
+                    training_state.normalizer_params,
+                    training_state.params.hypernetwork,
+                    designs_input, tradeoffs, batched_model,
+                    jax.random.split(sub, num_envs), sub,
+                ),
+                tradeoffs,
+            )
+            # [num_envs] -> (n_tradeoffs, G, per_cell) -> average out the repetitions.
+            values = jnp.mean(grid.group_view(values), axis=2)
 
-
+            key_design, key_grad = jax.random.split(key_design)
+            design_predictor_state, design_metrics = design_sgd(
+                design_predictor_state,
+                DesignPredictorTransition(
+                    tradeoff        = jnp.asarray(grid.tradeoffs),
+                    raw_design      = raw,
+                    value           = values,
+                    design_log_prob = log_prob,
+                ),
+                key_grad,
+            )
+            chunk_metrics.append({
+                **train_metrics,
+                **{f"design_{k}": v for k, v in design_metrics.items()},
+                "design_value": jnp.mean(values),
+            })
 
         train_metrics = jax.tree_util.tree_map(
             lambda *xs: jnp.mean(jnp.stack(xs)), *chunk_metrics
@@ -492,9 +569,11 @@ def train_mo_design_predictor(
         }
         if run_evals:
             key_eval, eval_subkey = jax.random.split(key_eval)
-            metrics.update(evaluate(training_state, eval_subkey))
+            metrics.update(
+                evaluate(training_state, design_predictor_state.params, eval_subkey)
+            )
 
-        params = (training_state.normalizer_params, training_state.params.hypernetwork)
+        params = checkpoint_params(training_state, design_predictor_state)
         policy_params_fn(current_step, inference_fn, params)
         progress_fn(current_step, metrics)
 

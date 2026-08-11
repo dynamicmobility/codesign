@@ -262,13 +262,15 @@ def make_mo_design_predictor_hypernet_networks(
             ' of "normal" or "tanh_normal".'
         )
 
+    # The "observation" is the tradeoff, which already lies on the simplex, so
+    # preprocess_observations_fn is left at brax's identity default. noise_std_type /
+    # init_noise_std / state_dependent_std are only read by the "normal" branch of
+    # make_policy_network; under "tanh_normal" the std comes from the MLP head.
     design_predictor_network = networks.make_policy_network(
         param_size=parametric_design_distribution.param_size,
-        obs_size=(num_objectives,), # TODO: Not sure if this is correct
-        # preprocess_observations_fn=preprocess_observations_fn, # No preprocessing needed since the observation should always be normalized from 0-1
+        obs_size=num_objectives,
         hidden_layer_sizes=design_hidden_layer_sizes,
         activation=activation,
-        # obs_key=policy_obs_key, # Observation is a vector not a dict (there's no state/privileged state split)
         distribution_type=design_distribution_type,
         noise_std_type=design_noise_std_type,
         init_noise_std=design_init_noise_std,
@@ -285,32 +287,42 @@ def make_mo_design_predictor_hypernet_networks(
 
 
 def make_design_predictor_inference_fn(networks_: DesignPredictorHypernetNetworks):
+    """Inference-fn factory for the design predictor ``f(d | w)``.
+
+    Returns ``design_predictor_inference_fn(params, tradeoffs, deterministic=False,
+    key_sample=None) -> (designs, extras)``, where ``params`` is the design-predictor
+    network's params alone (its input is a simplex tradeoff, so there is no normalizer)
+    and ``designs`` are normalized to ``[0, 1]``. ``tradeoffs`` may be a single vector
+    ``(num_objectives,)`` or batched ``(n, num_objectives)``.
+
+    ``extras['raw_action']`` is the *pre-tanh* sample, which is what
+    ``parametric_design_distribution.log_prob`` expects; the returned design is the tanh
+    output mapped from ``(-1, 1)`` onto ``[0, 1]``.
+    """
 
     def design_predictor_inference_fn(
             params: types.Params,
             tradeoffs: jax.Array,
             deterministic: bool = False,
             key_sample: PRNGKey = None,
-    ) -> types.Policy:
-        if len(tradeoffs.shape) == 1:
-            policy_apply = design_predictor_network.apply
-        else:
-            policy_apply = jax.vmap(design_predictor_network.apply, in_axes=(None, None, 0))
-
-        normalizer_params, network_params = params
+    ):
         design_predictor_network = networks_.design_predictor_network
-        parametric_design_distribution = networks_.parametric_design_distribution 
-        logits = policy_apply(normalizer_params, network_params, tradeoffs)
+        parametric_design_distribution = networks_.parametric_design_distribution
+        # No preprocessing, so the processor params are unused.
+        logits = design_predictor_network.apply(None, params, tradeoffs)
+
         if deterministic:
-            return parametric_design_distribution.mode(logits), {}
+            return 0.5 * (parametric_design_distribution.mode(logits) + 1.0), {}
         raw_actions = parametric_design_distribution.sample_no_postprocessing(
             logits, key_sample
         )
+        # raw_actions ranges from -1 to 1 and a transformation is applied to keep it in the range
+        # of 0 to 1. 
+        # TODO: We can remove the need to do this by keeping the "unnormalized"
+        # range from -1 to 1, but will need to change this in multiple places
         log_prob = parametric_design_distribution.log_prob(logits, raw_actions)
-        postprocessed_actions = parametric_design_distribution.postprocess(
-            raw_actions
-        )
-        return postprocessed_actions, {
+        designs = 0.5 * (parametric_design_distribution.postprocess(raw_actions) + 1.0)
+        return designs, {
             "log_prob": log_prob,
             "raw_action": raw_actions,
         }
@@ -336,7 +348,7 @@ def make_mo_design_inference_fn(networks_: DesignHypernetNetworks | DesignPredic
         deterministic: bool = False,
     ) -> types.Policy:
         """Returns a multi-objective design-conditioned policy hypernetwork function."""
-        normalizer_params, hypernet_params = params
+        normalizer_params, hypernet_params = params[0], params[1]
         policy_network = networks_.policy_network
         parametric_action_distribution = networks_.parametric_action_distribution
 
@@ -384,7 +396,7 @@ def make_design_inference_fn(networks_: DesignHypernetNetworks):
     def design_inference_fn(
         params: types.Params, design: jax.Array, deterministic: bool = True
     ) -> types.Policy:
-        normalizer_params, hypernet_params = params
+        normalizer_params, hypernet_params = params[0], params[1]
         policy_network = networks_.policy_network
         parametric_action_distribution = networks_.parametric_action_distribution
 
@@ -422,7 +434,7 @@ def make_value_fn(networks_: DesignHypernetNetworks):
     # Takes in the params and design and outputs a value function (obs -> value)
     def design_inference_fn(
         params: types.Params, design: jax.Array):
-        normalizer_params, hypernet_params = params
+        normalizer_params, hypernet_params = params[0], params[1]
         value_network = networks_.value_network
 
         # Value params from the hypernetwork (ignore policy)

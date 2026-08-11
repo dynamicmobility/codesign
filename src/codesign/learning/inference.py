@@ -18,11 +18,13 @@ import minimal_mjx as mm
 from codesign.hyperdesigners.networks import (
     make_design_inference_fn,
     make_mo_design_inference_fn,
+    make_design_predictor_inference_fn,
     make_value_fn
 )
 from codesign.hyperdesigners.factory import (
     setup_design_hypernetwork,
     setup_mo_design_hypernetwork,
+    setup_mo_design_predictor_hypernetwork,
 )
 
 
@@ -116,3 +118,36 @@ def load_mo_design_hypernetwork(
     design_networks = get_network(params_config, network_factory)
     inference_fn = make_mo_design_inference_fn(design_networks)
     return inference_fn, params
+
+
+def load_mo_design_predictor_hypernetwork(
+    config,
+    network_factory=None,
+    path=None,
+    quiet=True,
+):
+    """Load the MO design predictor hypernetwork from a checkpoint.
+
+    Returns ``(inference_fn, design_predictor_inference_fn, params)`` where ``params`` is
+    ``(normalizer_params, hypernet_params, design_predictor_params)``.
+    """
+    if network_factory is None:
+        _, network_factory = setup_mo_design_predictor_hypernetwork(config)
+    params_config, params = _load_checkpoint(config, path, quiet)
+
+    design_dim = len(config["env_config"]["codesign"]["low"])
+    num_objectives = len(
+        config["env_config"]["reward"]["optimization"]["objectives"]
+    )
+    network_factory = functools.partial(
+        network_factory,
+        design_dim=design_dim,
+        num_objectives=num_objectives,
+        key=jax.random.PRNGKey(0),
+    )
+    design_networks = get_network(params_config, network_factory)
+    return (
+        make_mo_design_inference_fn(design_networks),
+        make_design_predictor_inference_fn(design_networks),
+        params,
+    )

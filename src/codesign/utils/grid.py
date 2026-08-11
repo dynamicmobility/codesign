@@ -118,6 +118,67 @@ class DesignTradeoffSampleGrid:
 
 
 @dataclasses.dataclass
+class DesignPredictorSampleGrid:
+    """Designs paired with the tradeoff they were drawn for, and its flat env ordering.
+
+    Unlike :class:`DesignTradeoffSampleGrid`, designs are not crossed with tradeoffs:
+    ``designs[t, g]`` was sampled from ``f(. | tradeoffs[t])`` and belongs only to that
+    tradeoff. The ``group_size`` axis is the GRPO group.
+    """
+
+    designs: np.ndarray      # (n_tradeoffs, group_size, design_dim), physical units
+    tradeoffs: np.ndarray    # (n_tradeoffs, num_objectives)
+    per_cell: int = 1        # rollout repetitions per (tradeoff, design) cell
+
+    @property
+    def n_tradeoffs(self) -> int:
+        return self.tradeoffs.shape[0]
+
+    @property
+    def group_size(self) -> int:
+        return self.designs.shape[1]
+
+    @property
+    def num_envs(self) -> int:
+        return self.n_tradeoffs * self.group_size * self.per_cell
+
+    def build_models(self, env: CodesignBase) -> mjx.Model:
+        """One model per ``(tradeoff, design)`` pair, repeated ``per_cell`` times."""
+        flat = self.designs.reshape(-1, self.designs.shape[-1])
+        stacked = stack_models(put_design_model(env, d) for d in flat)
+        return jax.tree_util.tree_map(
+            lambda x: jax.numpy.repeat(x, self.per_cell, axis=0), stacked
+        )
+
+    def flatten(self) -> tuple[np.ndarray, np.ndarray]:
+        """Tile designs/tradeoffs to the flat env axis ``((t * G) + g) * per_cell + c``.
+
+        Returns ``(designs_full, tradeoffs_full)``, each with leading axis ``num_envs``.
+        """
+        designs_full = np.repeat(
+            self.designs.reshape(-1, self.designs.shape[-1]), self.per_cell, axis=0
+        )
+        tradeoffs_full = np.repeat(
+            self.tradeoffs, self.group_size * self.per_cell, axis=0
+        )
+        return designs_full, tradeoffs_full
+
+    def group_view(self, x):
+        """Reshape a flat env-axis array to ``(n_tradeoffs, group_size, per_cell, ...)``."""
+        return x.reshape(
+            self.n_tradeoffs, self.group_size, self.per_cell, *x.shape[1:]
+        )
+
+    def unflatten(self, x) -> np.ndarray:
+        """Reshape a flat env-axis array to ``(group_size, n_tradeoffs, per_cell, ...)``.
+
+        Group-major axes swapped so the result matches
+        :class:`DesignTradeoffRolloutGrid`'s ``(design, tradeoff, rep)`` convention.
+        """
+        return np.swapaxes(self.group_view(np.asarray(x)), 0, 1)
+
+
+@dataclasses.dataclass
 class DesignTradeoffRolloutGrid:
     """Rollout results over a design x tradeoff grid, with the grid axes kept intact."""
 
