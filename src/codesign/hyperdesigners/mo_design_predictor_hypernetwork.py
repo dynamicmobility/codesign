@@ -3,7 +3,7 @@
 
 import functools
 import time
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import flax
 import jax
@@ -22,9 +22,8 @@ from codesign.utils import sample_tradeoffs
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_mo_design_hypernet_loss,
+    compute_grpo_loss
 )
-
-
 
 
 @flax.struct.dataclass
@@ -150,7 +149,14 @@ def train_mo_design_predictor(
             optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
         )
 
-    # TODO: Implement GRPO loss function
+    grpo_loss_fn = functools.partial(
+        compute_grpo_loss,
+        design_networks       = design_networks,
+        entropy_cost          = entropy_cost,
+        clipping_epsilon      = clipping_epsilon,
+        normalize_advantage   = normalize_advantage,
+        )
+
     design_gradient_update_fn = gradients.gradient_update_fn(
         grpo_loss_fn, design_optimizer, pmap_axis_name=None, has_aux=True
     )
@@ -160,19 +166,15 @@ def train_mo_design_predictor(
     init_params = DesignHypernetParams(
         hypernetwork=design_networks.hypernetwork.init(key_net)
     )
-    design_predictor_normalizer_params = running_statistics.init_state(
-        model_lib.observation_spec((design_dim,))
-    )
     design_predictor_state = TrainingState(
             optimizer_state=design_optimizer.init(init_params),
             params=init_params,
-            normalizer_params=design_predictor_normalizer_params,
+            normalizer_params=None,
         )
 
-    # TODO: Does build_grid need to take in the params of the predictor? Probably yeah
     model_treedef = None
     def build_grid(
-        n_tradeoffs, per_cell, d_rng, w_rng, it, num_objectives
+        n_tradeoffs, designs_per_group, d_rng, w_rng, it, num_objectives
     ):
         """Sample a design x tradeoff grid and build the tiled per-env model.
 
@@ -182,18 +184,23 @@ def train_mo_design_predictor(
         nonlocal model_treedef
 
         
-        tradeoffs_unique = sample_tradeoffs(
+        tradeoffs = sample_tradeoffs(
             w_rng, it, n_tradeoffs, num_objectives,
             sampling=sampling, alpha=alpha,
         )
 
         # Implements the design predictor network 
-        # TODO: tile tradeoffs_unique per_cell number of times so that 
-        # each tradeoff is evaluated per_cell number of times and results in per_cell number of designs per unique tradeoff
-        designs_unique, _ = design_predictor_inference_fn(design_predictor_state.params, tradeoffs_unique, deterministic=False, key_sample=d_rng)
+        tradeoffs_tiled = jnp.repeat(tradeoffs, designs_per_group, axis=0)
+
+        designs_unique, _ = design_predictor_inference_fn(
+            design_predictor_state.params,
+            tradeoffs_tiled,
+            deterministic=False,
+            key_sample=d_rng,
+        )
 
         grid = DesignTradeoffSampleGrid(
-            designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=1
+            designs=designs_unique, tradeoffs=tradeoffs_tiled, per_cell=1
         )
 
         batched_model = grid.build_models(environment, tiled=True)
@@ -277,6 +284,7 @@ def train_mo_design_predictor(
             )
             return (nstate, nk), data
 
+        # Compute dataset of rollouts
         (state, _), data = jax.lax.scan(
             scan_unroll, (state, key_unroll), (), length=num_scans
         )
@@ -286,9 +294,12 @@ def train_mo_design_predictor(
             lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
         )
 
+        # normalize observations based on current state distribution
         normalizer_params = running_statistics.update(
             training_state.normalizer_params, data.observation
         )
+        
+        # Take SGD steps to update policy params
         (opt_state, params, _), metrics = jax.lax.scan(
             functools.partial(
                 sgd_step, data=data, normalizer_params=normalizer_params
@@ -302,7 +313,7 @@ def train_mo_design_predictor(
             params=params,
             normalizer_params=normalizer_params,
         )
-        return (new_ts, state, new_key), metrics
+        return (new_ts, state, new_key), (metrics, data)
 
     @jax.jit
     def training_chunk(
@@ -316,10 +327,26 @@ def train_mo_design_predictor(
             tradeoffs=tradeoffs,
             first_state=first_state,
         )
-        (training_state, state, _), metrics = jax.lax.scan(
+        (training_state, state, _), (metrics, data) = jax.lax.scan(
             step, (training_state, state, key), (), length=num_training_steps_per_chunk
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
+
+        # Extract values from data and convert it into the design predictor transition format
+
+
+        # Take SGD steps to update design predictor params 
+        key_env, grad_key = jax.random.split(key_env)
+
+        design_gradient_update_fn(
+            design_networks,
+            design_predictor_params=design_predictor_state.params,
+            data=data,
+            rng = grad_key,
+        )
+
+
+
         return training_state, state, metrics
 
     @jax.jit
@@ -434,11 +461,16 @@ def train_mo_design_predictor(
             first_state = env_state
 
             key, chunk_key = jax.random.split(key)
+            # These are all for one design x tradeoff grid, so we can pull the data out
+            # and use this for the group training
             training_state, env_state, train_metrics = training_chunk(
                 training_state, env_state, chunk_key, batched_model,
                 designs_input, tradeoffs, first_state,
             )
             chunk_metrics.append(train_metrics)
+
+
+
 
         train_metrics = jax.tree_util.tree_map(
             lambda *xs: jnp.mean(jnp.stack(xs)), *chunk_metrics
