@@ -51,6 +51,9 @@ def main(
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env, env_params = codesign.load_env(config, backend = 'np')
 
+    # Keep the raw CLI values: the design predictor needs to tell "not given" (use its
+    # own prediction) from "defaulted to the config's design".
+    cli_design, cli_eval_design = design, eval_design
     design      = resolve_design(design, config)                                  # (design_dim,)
     eval_design = design if eval_design is None else resolve_design(eval_design, config)
     algorithm = config["algorithm"]
@@ -87,15 +90,20 @@ def main(
         # The predictor's tradeoff may differ from the policy's, to test specificity.
         w_design = tradeoff if design_tradeoff is None else design_tradeoff
 
-        # Rollout; the design comes from f(. | w_design), so --design is ignored.
+        # The predictor supplies the design, so the model is built from its prediction
+        # unless the CLI names one to override it (--eval_design wins over --design).
+        override = cli_eval_design if cli_eval_design is not None else cli_design
+        override = None if override is None else resolve_design(override, config)
+
+        # Rollout
         frames, traj, reward_plotter, _, _, design = (
             codesign.rollout_mo_design_predictor_hypernetwork_video(
                 env, config, tradeoff=tradeoff, design_tradeoff=w_design,
-                eval_design=None if eval_design is None else eval_design,
-                sample_design=sample_design, n_steps=steps,
+                eval_design=override, sample_design=sample_design, n_steps=steps,
                 checkpoint_path=checkpoint_path, camera=camera, width=640, height=480,
             )
         )
+        eval_design = design if override is None else override
         print(f"predicted design f(. | w'={np.round(w_design, 3)}) = {np.round(design, 3)}")
         out = OUT_DIR / f"mo_design_predictor_hypernetwork.mp4"
         title = (
