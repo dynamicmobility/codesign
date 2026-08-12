@@ -35,15 +35,14 @@ def main(
     trials_per_env: int,
 ) -> None:
     config     = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-    env_params = mm.utils.config.create_config_dict(config["env_config"])
-    env        = codesign.load_env(env_name=config["env"], env_params=env_params, backend="jnp")
+    env, env_params = codesign.envs.create.load_env(config)
 
     # Parallel rollout of the trained hypernetwork across the design sweep.
     designs, rewards = codesign.rollout_design_hypernetwork(
         env             = env,
         config          = config,
         num_envs        = num_designs,
-        n_steps         = steps,
+        num_steps       = steps,
         checkpoint_path = checkpoint_path,
         trials_per_env  = trials_per_env,
         deterministic   = True if trials_per_env == 1 else False,  # add randomness if doing multiple trials per env
@@ -55,7 +54,6 @@ def main(
     cumulative_max = cumulative_trials.max(axis=0)
     time       = np.arange(steps)
 
-    codesign      = config["env_config"]["codesign"]
     design_low  = np.asarray(codesign["design_low"])
     design_high = np.asarray(codesign["design_high"])
 

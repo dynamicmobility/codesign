@@ -11,9 +11,11 @@ from mujoco import mjx
 from codesign.envs.codesign_base import CodesignMO2SO, CodesignBase, MOCodesignBase
 from minimal_mjx.eval import policy as policy_lib
 from codesign.hyperdesigners import acting
-from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork
+from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork, load_mo_design_predictor_hypernetwork
 from codesign.utils import model as model_lib
-from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid
+from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid, sample_tradeoffs
+
+from typing import Callable
 
 
 def rollout_so_parallel(
@@ -125,6 +127,7 @@ def rollout_mo_design_hypernetwork(
     checkpoint_path: str | None = None,
     seed: int = 0,
     deterministic: bool = True,
+    design_predictor: bool = False,
 ) -> DesignTradeoffRolloutGrid:
     """Roll out a trained MO design hypernetwork over a design x tradeoff grid.
 
@@ -147,15 +150,40 @@ def rollout_mo_design_hypernetwork(
         A :class:`DesignTradeoffRolloutGrid` with ``rewards`` of shape
         ``(n_designs, n_tradeoffs, per_cell, num_objectives)``.
     """
-    # Create the sample grid
-    grid = DesignTradeoffSampleGrid.from_uniform_sample(
-        env, seed=seed, n_tradeoffs=n_tradeoffs, n_designs=n_designs, per_cell=per_cell
-    )
-    designs_input = model_lib.normalize_design(jnp.asarray(grid.designs), config=config)
+
+    if design_predictor:
+
+        make_policy_fn, design_predictor_inference_fn, params = (
+            load_mo_design_predictor_hypernetwork(config, path=checkpoint_path)
+        )
+        tradeoffs = sample_tradeoffs(
+            np.random.default_rng(0), 0, n_tradeoffs, len(env.objectives)
+            )
+        design_dim = len(env.params.codesign.default_design)
+        design_low = env.params.codesign.low
+        design_high = env.params.codesign.high
+        # One predictor evaluation per (tradeoff, group member).
+        tradeoffs_tiled = jnp.repeat(jnp.asarray(tradeoffs), n_designs, axis=0)
+        designs_input, extras = design_predictor_inference_fn(params[2], tradeoffs_tiled)
+        # Designs come out normalized to [0, 1]; the model generator wants physical units.
+        designs = model_lib.unnormalize_design(
+            designs_input, design_low, design_high,
+        )
+        print(tradeoffs_tiled.shape)
+        print(designs.shape)
+        grid = DesignTradeoffSampleGrid(designs, tradeoffs_tiled, per_cell = 1)
+
+    else:
+        # Create the sample grid
+        grid = DesignTradeoffSampleGrid.from_uniform_sample(
+            env, seed=seed, n_tradeoffs=n_tradeoffs, n_designs=n_designs, per_cell=per_cell
+        )
+        designs_input = model_lib.normalize_design(jnp.asarray(grid.designs), config=config)
+        # Create the rollout function
+        make_policy_fn, params = load_mo_design_hypernetwork(config, path=checkpoint_path)
+
     batched_model = grid.build_models(env, tiled=False)
 
-    # Create the rollout function
-    make_policy_fn, params = load_mo_design_hypernetwork(config, path=checkpoint_path)
     keys = jax.random.split(
         jax.random.PRNGKey(seed), grid.num_envs
     ).reshape(n_designs, n_tradeoffs, per_cell, -1)
