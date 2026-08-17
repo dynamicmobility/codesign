@@ -146,7 +146,7 @@ def main(
         height          = 480,
     )
     print(f"rendered video -> {rollout.path}")
-    print(f"rendered plots -> {save_reward_plot(rollout)}")
+    # print(f"rendered plots -> {save_reward_plot(rollout)}")
     report_value(rollout, config)
 
 
