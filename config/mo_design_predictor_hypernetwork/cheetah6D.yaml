@@ -51,7 +51,9 @@ learning_params:
     normalize_advantage: true
     normalize_observations: true
     num_evals: 45
-    num_eval_envs: 256
+    # A multiple of every num_designs * num_tradeoffs the sweep visits, so wandb_sweep's
+    # derive_eval_grid leaves it alone and every run scores on the same 8x8 x 16 grid.
+    num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
   network_params:
@@ -71,7 +73,14 @@ learning_params:
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
   design_predictor:
+    # Keys past hidden_layer_sizes name train_mo_design_predictor's arguments directly,
+    # so a sweep can address them without colliding with ppo_params' like-named fields.
     hidden_layer_sizes: [16, 16]
-    learning_rate: 0.001
-    entropy_cost: 0.001
-    num_updates_per_batch: 4
+    design_learning_rate: 0.001
+    design_entropy_cost: 0.001
+    # GRPO's trust region on f, independent of ppo_params.clipping_epsilon on pi.
+    design_clipping_epsilon: 0.3
+    num_design_updates_per_batch: 4
+    # Epochs (of num_evals - 1) where designs are drawn space-filling over the box and
+    # f is held fixed, so H is calibrated off f's support before it starts scoring.
+    num_warmup_iters: 4

@@ -51,7 +51,10 @@ learning_params:
     normalize_advantage: true
     normalize_observations: true
     num_evals: 15
-    num_eval_envs: 256
+    # Every run scores on the same grid: num_eval_tradeoffs x num_eval_designs x 4
+    # episodes = 1024 envs. A multiple of every num_designs * num_tradeoffs the sweep
+    # visits, so wandb_sweep's derive_eval_grid leaves this alone.
+    num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
   network_params:
@@ -60,19 +63,18 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
-    # GRPO group size: designs drawn from f(d | w) per tradeoff. num_envs must be
-    # divisible by num_tradeoffs * num_designs.
-    num_designs: 8
-    # The predictor takes one GRPO batch per resample, so this is also its update count
-    # per epoch. Each resample rebuilds num_tradeoffs * num_designs mujoco models.
-    resamples_per_epoch: 20
-    sampling: random
+    num_designs: 32
+    resamples_per_epoch: 4 # times the grid is resampled (and the DP gets an update) per epoch
+    num_eval_designs: 16
   tradeoff_sampling:
     num_tradeoffs: 8
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
+    num_eval_tradeoffs: 16
   design_predictor:
     hidden_layer_sizes: [16, 16]
-    learning_rate: 0.001
-    entropy_cost: 0.001
-    num_updates_per_batch: 4
+    design_learning_rate: 0.001
+    design_entropy_cost: 0.001
+    design_clipping_epsilon: 0.3 # GRPO trust region
+    num_design_updates_per_batch: 4
+    num_warmup_iters: 2 # sobol sampling instead of DP

@@ -36,7 +36,7 @@ class CodesignBase(SwappableBase):
 
     @classmethod
     @abstractmethod
-    def generate_model(cls, d):
+    def generate_model(cls, d, textures: bool = True):
         pass
     
     @classmethod
@@ -45,6 +45,19 @@ class CodesignBase(SwappableBase):
             filename=xml_path.as_posix(),
             assets=common.get_assets()
         )
+
+    @classmethod
+    def shrink_textures(cls, spec: mj.MjSpec, px: int = 2) -> mj.MjSpec:
+        """Shrink every procedurally generated texture in ``spec`` to ``px`` x ``px``.
+
+        ``spec.compile()`` rasterizes these pixel grids; for the cheetah xml (an 800x800
+        skybox gradient plus two 300x300 checkers) that makes ~98% of compile time. Textures
+        only feed the renderer, so not necessary for training.
+        """
+        for tex in spec.textures:
+            if tex.builtin != mj.mjtBuiltin.mjBUILTIN_NONE:
+                tex.width = tex.height = px
+        return spec
 
     @property
     @abstractmethod

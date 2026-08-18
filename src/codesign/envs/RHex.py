@@ -332,8 +332,10 @@ class RHex(CodesignBase):
         return spec
 
     @classmethod
-    def generate_model(cls, d):
+    def generate_model(cls, d, textures: bool = True):
         spec = cls.generate_spec(d)
+        if not textures:
+            cls.shrink_textures(spec)
         return spec.compile()
 
     @property

@@ -1,7 +1,7 @@
 name: cheetah-6D-sweep-with-hypersize
 method: bayes
 metric:
-  name: Cumulative Hypervolume.max # score each run by its best front, not its last
+  name: Mean Hypervolume.max # score each run by its best front, not its last
   goal: maximize
 parameters:
   learning_rate:

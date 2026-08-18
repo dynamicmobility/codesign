@@ -2,6 +2,7 @@
 """
 
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 
 import jax
 import jax.numpy as jnp
@@ -13,6 +14,9 @@ from scipy.spatial.distance import pdist
 from scipy.stats.qmc import Sobol
 
 from codesign.envs import CodesignBase
+
+# stack_models wants every leaf in host memory, so the per-design models are built there.
+HOST = jax.devices("cpu")[0]
 
 def total_mass(model) -> float:
     """Total mass of the model underlying a ``CodesignBase`` env.
@@ -50,23 +54,46 @@ def stack_models(models: Iterable[mjx.Model]) -> mjx.Model:
             cols, treedef = [[] for _ in leaves], leaf_treedef
         for col, leaf in zip(cols, leaves):
             col.append(np.asarray(leaf))
-    return jax.tree_util.tree_unflatten(treedef, [jnp.stack(col) for col in cols])
+    return jax.tree_util.tree_unflatten(
+        treedef, [jnp.asarray(np.stack(col)) for col in cols]
+    )
 
 
-def put_design_model(env: CodesignBase, design_row: np.ndarray) -> mjx.Model:
-    """Build the env's ``mjx.Model`` for a single design row (host-side, ``mjx.put_model``'d)."""
+def put_design_model(
+    env: CodesignBase, design_row: np.ndarray, textures: bool = False
+) -> mjx.Model:
+    """Build the env's ``mjx.Model`` for a single design row (host-side, ``mjx.put_model``'d).
+
+    Args:
+        env: a ``CodesignBase`` env whose ``generate_model`` maps a design row -> a model.
+        design_row: one design, shape ``(design_dim,)``.
+        textures: keep the xml's procedural textures. They cost ~98% of ``spec.compile()``
+            and mjx never renders, so this defaults off; the compiled dynamics are identical.
+
+    Built on cpu. ``HOST``: :func:`stack_models` reads every leaf back with ``np.asarray``.
+    Sending them to the accelerator first would only round trip them when stacking.
+    """
     d = np.asarray(design_row, np.float32).reshape(-1)
-    return mjx.put_model(env.generate_model(d))
+    return mjx.put_model(env.generate_model(d, textures=textures), device=HOST)
 
 
-def build_batched_model(env, designs: np.ndarray) -> mjx.Model:
+def build_batched_model(
+    env, designs: np.ndarray, workers: int = 1, textures: bool = False
+) -> mjx.Model:
     """Generate one ``mjx.Model`` per design row and stack them.
 
     Args:
         env: a ``CodesignBase`` env whose ``generate_model`` maps a design row -> a model.
         designs: array of shape ``(num_designs, design_dim)``.
+        workers: threads compiling designs concurrently; 1 keeps the serial path.
+            ``MjSpec.compile`` releases the GIL, so this scales near-linearly to ~8 threads.
+        textures: see :func:`put_design_model`.
     """
-    return stack_models(put_design_model(env, d) for d in designs)
+    build = lambda d: put_design_model(env, d, textures=textures)
+    if workers == 1:
+        return stack_models(build(d) for d in designs)
+    with ThreadPoolExecutor(workers) as pool:
+        return stack_models(pool.map(build, designs))
 
 
 def sample_designs(

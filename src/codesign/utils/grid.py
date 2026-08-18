@@ -8,7 +8,7 @@ import numpy as np
 import jax
 from mujoco import mjx
 
-from codesign.utils.model import stack_models, sample_designs, put_design_model
+from codesign.utils.model import build_batched_model, sample_designs
 from codesign.envs.codesign_base import CodesignBase
 
 def sample_tradeoffs(
@@ -89,9 +89,12 @@ class DesignTradeoffSampleGrid:
     def num_envs(self) -> int:
         return self.n_designs * self.n_tradeoffs * self.per_cell
 
-    def build_models(self, env: CodesignBase, tiled: bool) -> mjx.Model:
-        """Stack one model per design (``tiled=False``) or per flat env (``tiled=True``)."""
-        stacked = stack_models(put_design_model(env, d) for d in self.designs)
+    def build_models(self, env: CodesignBase, tiled: bool, workers: int = 1) -> mjx.Model:
+        """Stack one model per design (``tiled=False``) or per flat env (``tiled=True``).
+
+        ``workers`` threads the per-design compiles; see :func:`build_batched_model`.
+        """
+        stacked = build_batched_model(env, self.designs, workers=workers)
         if not tiled:
             return stacked
         reps = self.n_tradeoffs * self.per_cell
@@ -142,10 +145,13 @@ class DesignPredictorSampleGrid:
     def num_envs(self) -> int:
         return self.n_tradeoffs * self.group_size * self.per_cell
 
-    def build_models(self, env: CodesignBase) -> mjx.Model:
-        """One model per ``(tradeoff, design)`` pair, repeated ``per_cell`` times."""
+    def build_models(self, env: CodesignBase, workers: int = 1) -> mjx.Model:
+        """One model per ``(tradeoff, design)`` pair, repeated ``per_cell`` times.
+
+        ``workers`` threads the per-design compiles; see :func:`build_batched_model`.
+        """
         flat = self.designs.reshape(-1, self.designs.shape[-1])
-        stacked = stack_models(put_design_model(env, d) for d in flat)
+        stacked = build_batched_model(env, flat, workers=workers)
         return jax.tree_util.tree_map(
             lambda x: jax.numpy.repeat(x, self.per_cell, axis=0), stacked
         )

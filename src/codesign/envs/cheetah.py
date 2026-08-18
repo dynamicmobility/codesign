@@ -185,8 +185,10 @@ class MOCodesignCheetah(MOCodesignBase):
 
     
     @classmethod
-    def generate_model(cls, d):
+    def generate_model(cls, d, textures: bool = True):
         spec = cls.default_spec()
+        if not textures:
+            cls.shrink_textures(spec)
         
         for pair, d_dim in zip(cls.GEOM_BODY_PAIRS, d, strict=True):
             parent_geom, child_body = pair
@@ -206,6 +208,13 @@ class MOCodesignCheetah1D(MOCodesignCheetah):
         ('bthigh', 'bshin'),
     ]
 
+class MOCodesignCheetah2D(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('bthigh', 'bshin'),
+        ('fthigh', 'fshin'),
+    ]
+
 class MOCodesignCheetahBackLegs(MOCodesignCheetah):
 
     GEOM_BODY_PAIRS = [
@@ -220,4 +229,24 @@ class MOCodesignCheetahFrontLegs(MOCodesignCheetah):
         ('fthigh', 'fshin'),
         ('fshin', 'ffoot'),
         ('ffoot', 'ftoe'),
+    ]
+
+class MOCodesignCheetah4D(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('fthigh', 'fshin'),
+        ('fshin', 'ffoot'),
+        ('ffoot', 'ftoe'),
+        ('bthigh', 'bshin')
+    ]
+
+
+class MOCodesignCheetah5D(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('fthigh', 'fshin'),
+        ('fshin', 'ffoot'),
+        ('ffoot', 'ftoe'),
+        ('bthigh', 'bshin'),
+        ('bshin', 'bfoot'),
     ]

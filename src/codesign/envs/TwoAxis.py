@@ -169,8 +169,10 @@ class TwoAxis(MultiObjectiveBase, CodesignBase):
     
     # d goes from 0 to 1 and modifies the ratio of x force range to y force range
     @classmethod
-    def generate_model(cls, d):
+    def generate_model(cls, d, textures: bool = True):
         spec = cls.default_spec()
+        if not textures:
+            cls.shrink_textures(spec)
         d = np.clip(d, 0.01, 0.99)
         max_force = 10.0
         # load spec from file

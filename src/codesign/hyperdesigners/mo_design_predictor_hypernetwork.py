@@ -71,7 +71,9 @@ def train_mo_design_predictor(
     # design predictor
     design_learning_rate: float = 1e-3,
     design_entropy_cost: float = 1e-3,
+    design_clipping_epsilon: float | None = None,  # None follows the policy's
     num_design_updates_per_batch: int = 4,
+    num_warmup_iters: int = 0,  # leading epochs with space-filling designs and f frozen
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
@@ -105,6 +107,11 @@ def train_mo_design_predictor(
     num_scans = batch_size * num_minibatches // num_envs
     env_step_per_training_step = batch_size * unroll_length * num_minibatches
     num_evals_after_init = max(num_evals - 1, 1)
+    assert 0 <= num_warmup_iters <= num_evals_after_init, (
+        "num_warmup_iters must be in [0, num_evals - 1]"
+    )
+    if design_clipping_epsilon is None:
+        design_clipping_epsilon = clipping_epsilon
     num_training_steps_per_chunk = int(
         np.ceil(
             num_timesteps
@@ -119,6 +126,7 @@ def train_mo_design_predictor(
     key_eval = jax.random.fold_in(key, 2)
     key_design = jax.random.fold_in(key, 3)
     tradeoff_rng = np.random.default_rng(seed + 1)
+    warmup_rng = np.random.default_rng(seed + 2)
 
     jit_reset = jax.jit(
         lambda rngs, model: acting.reset(environment, rngs, model)
@@ -164,12 +172,13 @@ def train_mo_design_predictor(
 
         Each of ``n_tradeoffs`` tradeoffs gets ``n_designs`` designs drawn from
         ``f(. | w)`` -- one GRPO group per tradeoff. Pass ``tradeoffs`` to reuse a fixed
-        set instead of drawing new ones.
+        set instead of drawing new ones. While ``it < num_warmup_iters`` the designs are
+        instead spread over the whole box via Sobol, independently of the tradeoff.
 
         Returns ``(grid, batched_model, designs_input, tradeoffs_full, raw, log_prob)``.
         The middle three have a leading env axis of ``grid.num_envs`` in the grid's flat
         env ordering; ``raw``/``log_prob`` keep the ``(n_tradeoffs, n_designs, ...)``
-        group axes the GRPO loss expects.
+        group axes the GRPO loss expects, and are ``None`` during warmup.
         """
         nonlocal model_treedef
 
@@ -181,9 +190,17 @@ def train_mo_design_predictor(
 
         # One predictor evaluation per (tradeoff, group member).
         tradeoffs_tiled = jnp.repeat(jnp.asarray(tradeoffs), n_designs, axis=0)
-        designs_norm, extras = design_predictor_inference_fn(
-            design_params, tradeoffs_tiled, deterministic=False, key_sample=key_sample
-        )
+
+        if it < num_warmup_iters:
+            # Warmup: cover the box with a Sobol sample instead of drawing from DP.
+            designs_norm = jnp.asarray(model_lib.sample_designs(
+                warmup_rng, n_tradeoffs * n_designs, low=0.0, high=1.0, dim=design_dim
+            ))
+            extras = None
+        else:
+            designs_norm, extras = design_predictor_inference_fn(
+                design_params, tradeoffs_tiled, deterministic=False, key_sample=key_sample
+            )
         # Designs come out normalized to [0, 1]; the model generator wants physical units.
         designs = model_lib.unnormalize_design(
             jnp.reshape(designs_norm, (n_tradeoffs, n_designs, design_dim)),
@@ -203,10 +220,12 @@ def train_mo_design_predictor(
         designs_input = model_lib.normalize_design(
             jnp.asarray(designs_full), design_low, design_high
         )
-        raw = jnp.reshape(
-            extras["raw_action"], (n_tradeoffs, n_designs, design_dim)
-        )
-        log_prob = jnp.reshape(extras["log_prob"], (n_tradeoffs, n_designs))
+        raw = log_prob = None
+        if extras is not None:
+            raw = jnp.reshape(
+                extras["raw_action"], (n_tradeoffs, n_designs, design_dim)
+            )
+            log_prob = jnp.reshape(extras["log_prob"], (n_tradeoffs, n_designs))
         return (
             grid, batched_model, designs_input, jnp.asarray(tradeoffs_full),
             raw, log_prob,
@@ -230,7 +249,7 @@ def train_mo_design_predictor(
         compute_grpo_loss,
         design_networks       = design_networks,
         entropy_cost          = design_entropy_cost,
-        clipping_epsilon      = clipping_epsilon,
+        clipping_epsilon      = design_clipping_epsilon,
     )
     design_gradient_update_fn = gradients.gradient_update_fn(
         grpo_loss_fn, design_optimizer, pmap_axis_name=None, has_aux=True
@@ -499,8 +518,7 @@ def train_mo_design_predictor(
         t0 = time.time()
         chunk_metrics = []
         for _ in range(resamples_per_epoch):
-            # Redraw the designs from the predictor, rebuild the per-env models, and
-            # restart the envs on them (the robot itself changed, so state is stale).
+            # Redraw the designs and restart the envs on them
             key_design, key_sample = jax.random.split(key_design)
             grid, batched_model, designs_input, tradeoffs, raw, log_prob = build_grid(
                 num_tradeoffs, group_size, envs_per_cell,
@@ -532,17 +550,20 @@ def train_mo_design_predictor(
             # [num_envs] -> (n_tradeoffs, G, per_cell) -> average out the repetitions.
             values = jnp.mean(grid.group_view(values), axis=2)
 
-            key_design, key_grad = jax.random.split(key_design)
-            design_predictor_state, design_metrics = design_sgd(
-                design_predictor_state,
-                DesignPredictorTransition(
-                    tradeoff        = jnp.asarray(grid.tradeoffs),
-                    raw_design      = raw,
-                    value           = values,
-                    design_log_prob = log_prob,
-                ),
-                key_grad,
-            )
+            # Warmup designs did not come from f, so there is no ratio to update it on.
+            design_metrics = {}
+            if raw is not None:
+                key_design, key_grad = jax.random.split(key_design)
+                design_predictor_state, design_metrics = design_sgd(
+                    design_predictor_state,
+                    DesignPredictorTransition(
+                        tradeoff        = jnp.asarray(grid.tradeoffs),
+                        raw_design      = raw,
+                        value           = values,
+                        design_log_prob = log_prob,
+                    ),
+                    key_grad,
+                )
             chunk_metrics.append({
                 **train_metrics,
                 **{f"design_{k}": v for k, v in design_metrics.items()},
@@ -565,6 +586,7 @@ def train_mo_design_predictor(
             "training/sps": (num_training_steps_per_epoch * env_step_per_training_step)
             / epoch_time,
             "training/walltime": walltime,
+            "training/warmup": float(it < num_warmup_iters),
             **{f"training/{k}": float(v) for k, v in train_metrics.items()},
         }
         if run_evals:

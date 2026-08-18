@@ -102,6 +102,17 @@ def setup_mo_design_predictor_hypernetwork(config):
         design_hidden_layer_sizes   = tuple(predictor["hidden_layer_sizes"]),
     )
 
+    OPTIONAL_ARGS = ( # TODO: move these into the required args when mature
+        (predictor,         "design_learning_rate"),
+        (predictor,         "design_entropy_cost"),
+        (predictor,         "design_clipping_epsilon"),
+        (predictor,         "num_design_updates_per_batch"),
+        (predictor,         "num_warmup_iters"),
+        (design_sampling,   "num_eval_designs"),
+        (tradeoff_sampling, "num_eval_tradeoffs"),
+    )
+    optional_params = {a: group[a] for group, a in OPTIONAL_ARGS if a in group}
+
     train_fn = functools.partial(
         train_mo_design_predictor,
         network_factory              = network_factory,
@@ -113,9 +124,7 @@ def setup_mo_design_predictor_hypernetwork(config):
         num_tradeoffs                = tradeoff_sampling["num_tradeoffs"],
         alpha                        = tradeoff_sampling["alpha"],
         sampling                     = tradeoff_sampling["sampling"],
-        design_learning_rate         = predictor["learning_rate"],
-        design_entropy_cost          = predictor["entropy_cost"],
-        num_design_updates_per_batch = predictor["num_updates_per_batch"],
+        **optional_params,
         **ppo,
     )
     return train_fn, network_factory
