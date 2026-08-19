@@ -169,8 +169,6 @@ def rollout_mo_design_hypernetwork(
         designs = model_lib.unnormalize_design(
             designs_input, design_low, design_high,
         )
-        print(tradeoffs_tiled.shape)
-        print(designs.shape)
         grid = DesignTradeoffSampleGrid(designs, tradeoffs_tiled, per_cell = 1)
 
     else:
@@ -186,13 +184,16 @@ def rollout_mo_design_hypernetwork(
 
     keys = jax.random.split(
         jax.random.PRNGKey(seed), grid.num_envs
-    ).reshape(n_designs, n_tradeoffs, per_cell, -1)
+    ).reshape(grid.n_designs, grid.n_tradeoffs, grid.per_cell, -1)
     rollout_fn = build_grid_rollout_fn(
         env           = env,
         n_steps       = n_steps,
         make_policy   = make_policy_fn,
         deterministic = deterministic
     )
+    # print(grid.tradeoffs.shape)
+    # print(designs_input.shape)
+    # print(keys.shape)
     
     # Run the rollouts
     (_, final_rewards), _ = rollout_fn(keys, designs_input, jnp.asarray(grid.tradeoffs), batched_model, params)
