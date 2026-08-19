@@ -3,6 +3,7 @@
 from codesign.utils.grid import (
     DesignTradeoffSampleGrid,
     DesignTradeoffRolloutGrid,
+    MOCOPredictorGrid,
     DesignPredictorSampleGrid,
     sample_tradeoffs
 )
@@ -31,6 +32,7 @@ from codesign.utils.plotting import (
 __all__ = [
     "DesignTradeoffSampleGrid",
     "DesignTradeoffRolloutGrid",
+    "MOCOPredictorGrid",
     "DesignPredictorSampleGrid",
     "uniform_design_sweep",
     "stack_models",

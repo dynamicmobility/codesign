@@ -13,6 +13,34 @@ import moplayground as mop
 import minimal_mjx as mm
 
 
+@dataclass
+@dataclass(frozen=False)
+class MODesignTrainingPlottingInfo:
+    """
+    Practical class for holding plotting/evaluation info during training. 
+    
+    Aux should only contain data that can be computed from class attributes but 
+    may be convenient to hold on to.
+    """
+    start_time    : float
+    iterations    : list = field(default_factory=list)
+    grids         : list = field(default_factory=list)
+    times         : list = field(default_factory=list)
+    labels        : list = field(default_factory=list)
+    aux           : dict[str, list] = field(default_factory=dict)
+
+    def save(self, save_dir):
+        pd.DataFrame(
+            {"times": self.times, "iters": self.iterations}
+        ).to_csv(save_dir)
+
+    def update(self, num_steps, grid, time, **aux_kwargs):
+        self.iterations.append(num_steps)
+        self.grids.append(grid)
+        self.times.append(time)
+        for key, value in aux_kwargs.items():
+            self.aux.setdefault(key, []).append(value)
+
 def design_colors(n_designs: int, cmap: str = "viridis") -> np.ndarray:
     """One distinct colour per design."""
     return plt.get_cmap(cmap)(np.linspace(0.0, 1.0, n_designs))

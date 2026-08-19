@@ -72,6 +72,7 @@ from .learning import (
 from .utils import (
     DesignTradeoffSampleGrid,
     DesignTradeoffRolloutGrid,
+    MOCOPredictorGrid,
     DesignPredictorSampleGrid,
     uniform_design_sweep,
     stack_models,
@@ -163,6 +164,7 @@ __all__ = [
     # utils
     "DesignTradeoffSampleGrid",
     "DesignTradeoffRolloutGrid",
+    "MOCOPredictorGrid",
     "DesignPredictorSampleGrid",
     "uniform_design_sweep",
     "stack_models",

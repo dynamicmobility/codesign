@@ -45,6 +45,7 @@ def sample_tradeoffs(
         raise ValueError(f"Sampling type {sampling} not implemented")
     return w.astype(np.float32)
 
+
 @dataclasses.dataclass
 class DesignTradeoffSampleGrid:
     """A sampled design x tradeoff grid and its flat env-axis ordering."""
@@ -192,6 +193,51 @@ class DesignTradeoffRolloutGrid:
     tradeoffs: np.ndarray          # (n_tradeoffs, num_objectives)
     rewards: np.ndarray            # (n_designs, n_tradeoffs, per_cell, num_objectives)
     objectives: list | None = None # per-objective names
+
+    @classmethod
+    def from_flat(
+        cls, grid: DesignTradeoffSampleGrid, flat_rewards, objectives: list | None = None
+    ) -> "DesignTradeoffRolloutGrid":
+        """Build from per-env rewards laid out in ``grid``'s flat env ordering."""
+        return cls(
+            designs       = np.asarray(grid.designs),
+            tradeoffs     = np.asarray(grid.tradeoffs),
+            rewards       = grid.unflatten(flat_rewards),
+            objectives    = objectives,
+        )
+
+    @property
+    def mean_rewards(self) -> np.ndarray:
+        """Rewards averaged over the per-cell repetition axis."""
+        return self.rewards.mean(axis=2)
+
+    def save(self, path: str | Path) -> None:
+        arrays = dict(designs=self.designs, tradeoffs=self.tradeoffs, rewards=self.rewards)
+        if self.objectives is not None:
+            arrays["objectives"] = np.asarray(self.objectives, dtype=object)
+        np.savez(path, **arrays)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "DesignTradeoffRolloutGrid":
+        data = np.load(path, allow_pickle=True)
+        objectives = data["objectives"].tolist() if "objectives" in data else None
+        return cls(
+            designs=data["designs"],
+            tradeoffs=data["tradeoffs"],
+            rewards=data["rewards"],
+            objectives=objectives,
+        )
+
+
+
+@dataclasses.dataclass
+class MOCOPredictorGrid:
+    """Rollout results over a design x tradeoff grid, with the grid axes kept intact."""
+
+    designs       : np.ndarray              # (n_designs, design_dim)
+    tradeoffs     : np.ndarray              # (n_tradeoffs, num_objectives)
+    datas         : dict[str, np.ndarray]   # (n_designs, n_tradeoffs, per_cell, {key, value})
+    objectives    : list | None = None      # per-objective names
 
     @classmethod
     def from_flat(
