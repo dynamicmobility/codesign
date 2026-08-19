@@ -22,8 +22,7 @@ MO_ALGORITHMS = ("mo_design_hypernetwork", "mo_design_predictor_hypernetwork")
 def resolve_single_design(values: list[float] | None, config) -> np.ndarray:
     """CLI design values -> a ``(design_dim,)`` array.
 
-    ``None`` falls back to the config's default design; a single value is broadcast
-    across every design dimension.
+    ``None`` falls back to the config's default design
     """
     if values is None:
         return codesign.default_video_design(config)

@@ -68,8 +68,8 @@ def main(
         print(f"Loaded rollout from {npz_path} (rewards shape {grid.rewards.shape})")
     else:
         config     = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-        env_params = mm.utils.config.create_config_dict(config["env_config"])
-        env        = codesign.cheetah(env_params=env_params, backend="jnp")
+        env, env_params = codesign.envs.create.load_env(config)
+            
 
         grid = codesign.rollout_mo_design_hypernetwork(
             env             = env,
@@ -79,6 +79,7 @@ def main(
             per_cell        = 1,
             n_steps         = steps,
             checkpoint_path = checkpoint_path,
+            design_predictor = config.algorithm == 'mo_design_predictor_hypernetwork'
         )
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         grid.save(OUT_DIR / "mo_design_hypernetwork_rewards.npz")
