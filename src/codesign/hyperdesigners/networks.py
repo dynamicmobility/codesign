@@ -303,7 +303,7 @@ def make_design_predictor_inference_fn(networks_: DesignPredictorHypernetNetwork
     def design_predictor_inference_fn(
             params: types.Params,
             tradeoffs: jax.Array,
-            deterministic: bool = False,
+            deterministic: bool = True,
             key_sample: PRNGKey = None,
     ):
         design_predictor_network = networks_.design_predictor_network

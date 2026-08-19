@@ -253,9 +253,9 @@ def default_video_design(config):
     if config["algorithm"] == "ppo":
         return np.asarray(config['env_config']['codesign']["default_design"], np.float32).reshape(-1)
 
-    codesign = config["env_config"]['codesign']
-    low  = np.asarray(codesign["low"], np.float32).reshape(-1)
-    high = np.asarray(codesign["high"], np.float32).reshape(-1)
+    design = config["env_config"]['codesign']
+    low  = np.asarray(design["low"], np.float32).reshape(-1)
+    high = np.asarray(design["high"], np.float32).reshape(-1)
     return 0.5 * (low + high)  # (design_dim,) box midpoint
 
 
