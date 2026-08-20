@@ -121,7 +121,8 @@ def main(
     design_tradeoff: list[float] | None,
     sample_design: bool,
     steps: int,
-    camera: str
+    camera: str,
+    use_caption: bool
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env, _ = codesign.load_env(config, backend = 'np')  # renderable (mujoco) env
@@ -143,6 +144,7 @@ def main(
         camera          = camera,
         width           = 640,
         height          = 480,
+        use_caption     = use_caption,
     )
     print(f"rendered video -> {rollout.path}")
     # print(f"rendered plots -> {save_reward_plot(rollout)}")
@@ -181,6 +183,8 @@ if __name__ == "__main__":
         "--eval_design", type=float, nargs="+", default=None,
         help="design vector the environment model is built from. defaults to design",
     )
+
+    parser.add_argument("--caption", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     main(
         config_path = args.config,
@@ -191,5 +195,6 @@ if __name__ == "__main__":
         sample_design = args.sample_design,
         steps = args.steps,
         camera = args.camera,
-        eval_design = args.eval_design
+        eval_design = args.eval_design,
+        use_caption = args.caption
     )
