@@ -8,38 +8,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import wandb
+from matplotlib.colors import LinearSegmentedColormap, to_rgba
+from matplotlib.patches import Patch
+from scipy.stats import binned_statistic, gaussian_kde
 
 import moplayground as mop
 import minimal_mjx as mm
 
-
-@dataclass
-@dataclass(frozen=False)
-class MODesignTrainingPlottingInfo:
-    """
-    Practical class for holding plotting/evaluation info during training. 
-    
-    Aux should only contain data that can be computed from class attributes but 
-    may be convenient to hold on to.
-    """
-    start_time    : float
-    iterations    : list = field(default_factory=list)
-    grids         : list = field(default_factory=list)
-    times         : list = field(default_factory=list)
-    labels        : list = field(default_factory=list)
-    aux           : dict[str, list] = field(default_factory=dict)
-
-    def save(self, save_dir):
-        pd.DataFrame(
-            {"times": self.times, "iters": self.iterations}
-        ).to_csv(save_dir)
-
-    def update(self, num_steps, grid, time, **aux_kwargs):
-        self.iterations.append(num_steps)
-        self.grids.append(grid)
-        self.times.append(time)
-        for key, value in aux_kwargs.items():
-            self.aux.setdefault(key, []).append(value)
+# TODO: ensure docstrings describe all arguments for all functions
+# TODO: delete any unused functions
 
 def design_colors(n_designs: int, cmap: str = "viridis") -> np.ndarray:
     """One distinct colour per design."""
@@ -147,6 +124,225 @@ def plot_sequential_design_paretos(
     return fig, axs
 
 
+INK, MUTED = "#0b0b0b", "#52514e"   # chart ink and recessive furniture
+
+
+def dress_axis(ax: plt.Axes) -> plt.Axes:
+    """Apply the house style: recessive grid, muted ticks, no top/right spines."""
+    ax.grid(True, color=INK, alpha=0.12, lw=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(MUTED)
+    ax.tick_params(colors=MUTED, labelsize=8)
+    return ax
+
+
+DENSITY_RESOLUTION = 200  
+
+
+def predictor_density(designs: np.ndarray, points: np.ndarray) -> np.ndarray | None:
+    """Gaussian-KDE density of a design predictor's samples, evaluated at ``points``.
+
+    Args:
+        designs: ``(n_samples, design_dim)`` designs drawn from ``f(. | w)``.
+        points: ``(design_dim, n_points)`` query locations, or ``(n_points,)`` in 1-D.
+
+    Returns ``(n_points,)`` densities, or ``None`` when the sample cannot support a KDE
+    (under two samples, or no spread along an axis, both of which make its bandwidth
+    covariance singular).
+    """
+    dataset = np.atleast_2d(np.asarray(designs).T)
+    if dataset.shape[1] < 2 or np.any(dataset.std(axis=1) < 1e-12):
+        return None
+    return gaussian_kde(dataset)(points)
+
+
+
+def _sweep_curve(
+    designs: np.ndarray,
+    returns: np.ndarray,
+    bins: int | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Mean and standard deviation of ``returns`` along the design axis.
+
+    With ``bins`` set, every return is pooled into one of that many bins spanning the
+    design axis, so the spread is over the designs (and repetitions) sharing a bin.
+    Otherwise each design keeps its own position and the spread is over its repetitions.
+
+    Args:
+        designs: ``(n_designs, 1)`` swept designs.
+        returns: ``(n_designs,)`` or ``(n_designs, n_reps)`` scalarized returns.
+        bins: number of bins along the design axis, or ``None`` to keep each design.
+
+    Returns ``(x, mean, std)``, ascending in ``x``; empty bins are dropped.
+    """
+    x, returns = np.asarray(designs)[:, 0], np.asarray(returns)
+    if bins is None:
+        order = np.argsort(x)
+        if returns.ndim == 1:
+            return x[order], returns[order], np.zeros_like(returns, dtype=float)
+        return x[order], returns[order].mean(axis=1), returns[order].std(axis=1)
+
+    # Each repetition is its own sample, sitting at its design's position.
+    reps = returns.shape[1] if returns.ndim == 2 else 1
+    xs, values = np.repeat(x, reps), returns.reshape(-1)
+    mean, edges, _ = binned_statistic(xs, values, statistic="mean", bins=bins)
+    std, _, _ = binned_statistic(xs, values, statistic="std", bins=bins)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    drawable = ~np.isnan(mean)  # bins no design landed in
+    return centers[drawable], mean[drawable], std[drawable]
+
+
+def plot_design_sweep_1d(
+    ax: plt.Axes,
+    designs: np.ndarray,           # (n_designs, 1)
+    returns: np.ndarray,           # (n_designs,) or (n_designs, n_reps)
+    style: str = "line",
+    bins: int | None = None,
+    points: bool = True,
+    sweep_color: str = 'C0',
+    best_point_color: str = 'C3',
+) -> int:
+    """Scalarized return against the single design parameter, marking the sweep optimum.
+
+    Args:
+        ax: axis to draw on.
+        designs: the swept designs; only the first (single) design axis is read.
+        returns: each design's scalarized return ``w . R``, optionally with a trailing
+            repetition axis (the grid's ``per_cell``).
+        style: ``line`` for the returns themselves, ``band`` for a mean line with a
+            +/-1 standard deviation region shaded around it.
+        bins: pool the designs into this many bins along the design axis, so the curve
+            is a binned mean; ``None`` keeps every design at its own position.
+        points: scatter the individual returns under a ``band``, so the band's meaning
+            is readable off the plot. Ignored by ``line``, which already draws them.
+        sweep_color: colour of the sweep line and its shaded region.
+        best_point_color: colour of the optimum marker.
+
+    Returns the index of the best-returning design. The optimum marks the best design
+    actually swept, not the peak of the (smoothed) curve, so under ``bins`` it can sit
+    off the line.
+    """
+    if style not in ("line", "band"):
+        raise ValueError(f"style must be 'line' or 'band', got {style!r}")
+    designs, returns = np.asarray(designs), np.asarray(returns)
+    if style == "band" and bins is None and returns.ndim == 1:
+        raise ValueError(
+            "style='band' needs a spread to shade: pass returns with a repetition axis, "
+            "shape (n_designs, n_reps), or set bins to pool along the design axis."
+        )
+
+    if style == "band" and points:
+        reps = returns.shape[1] if returns.ndim == 2 else 1
+        ax.plot(
+            np.repeat(designs[:, 0], reps),
+            returns.reshape(-1),
+            ".",
+            ms     = 2,
+            color  = MUTED,
+            alpha  = 0.35,
+            zorder = 1,
+            label  = "rollouts",
+        )
+
+    x, mean, std = _sweep_curve(designs, returns, bins)
+    if style == "band":
+        ax.fill_between(
+            x,
+            mean - std,
+            mean + std,
+            color  = sweep_color,
+            alpha  = 0.25,
+            lw     = 0,
+            zorder = 2,
+            label  = "sweep $\\pm$1 s.d.",
+        )
+    ax.plot(
+        x,
+        mean,
+        "-o" if style == "line" else "-",
+        ms     = 3,
+        lw     = 1.5 if style == "line" else 2,
+        color  = sweep_color,
+        zorder = 3,
+        label  = "universal policy sweep",
+    )
+
+    per_design = returns if returns.ndim == 1 else returns.mean(axis=1)
+    best = int(np.argmax(per_design))
+    ax.plot(
+        designs[best, 0],
+        per_design[best],
+        "*",
+        ms     = 15,
+        color  = best_point_color,
+        zorder = 4,
+        label  = "sweep optimum",
+    )
+    ax.set_xlabel("design $d$", color=MUTED, fontsize=9)
+    ax.set_ylabel("scalarized return $w \\cdot R$", color=MUTED, fontsize=9)
+    dress_axis(ax)
+    return best
+
+
+def plot_design_predictor(
+    ax                    : plt.Axes,
+    designs               : np.ndarray,           # (n_samples, 1)
+    mode                  : np.ndarray,              # (1,) or scalar
+    density_resolution    : int = DENSITY_RESOLUTION,
+    density_color         = 'C3',
+    colormap_name         = 'design_predictor'
+) -> bool:
+    """Overlay a 1-D design predictor on ``ax``: its mean design, and how densely it
+    samples the design axis.
+
+    The density is shaded over the full height of the axis, so it reads as a marginal
+    over the design rather than as a second curve sharing the return axis.
+
+    Args:
+        ax: axis whose x-axis is the design parameter, e.g. from
+            :func:`plot_design_sweep_1d`.
+        designs: designs drawn from ``f(. | w)``; only the first design axis is read.
+        mode: the design the predictor centres on, drawn as a vertical line.
+        density_resolution: points at which the KDE is evaluated across the x-axis.
+
+    Returns whether the density was drawable; see :func:`predictor_density`.
+    """
+    ax.axvline(
+        np.reshape(mode, -1)[0],
+        ls    = "--",
+        lw    = 2,
+        color = density_color,
+        label = "design predictor $f(w)$ mean",
+    )
+
+    # imshow rescales the axes, so pin the limits the sweep established.
+    extent = (*ax.get_xlim(), *ax.get_ylim())
+    density = predictor_density(designs, np.linspace(*extent[:2], density_resolution))
+    if density is None:
+        return False
+    
+    cmap = LinearSegmentedColormap.from_list(
+        colormap_name, 
+        [to_rgba(density_color, 0.0), to_rgba(density_color, 0.4)]
+    )
+    ax.imshow(
+        density[None],
+        extent        = extent,
+        aspect        = "auto",
+        origin        = "lower",
+        interpolation = "bilinear",
+        cmap          = cmap,
+        vmin          = 0,
+        zorder        = 0,
+    )
+    ax.set_xlim(extent[:2])
+    ax.set_ylim(extent[2:])
+    return True
+
+
 def plot_pareto_statistics(
     iterations: list,
     hvs: np.ndarray,
@@ -166,14 +362,8 @@ def plot_pareto_statistics(
     )
     for ax, values, color, label in panels:
         ax.plot(iterations, values, color=color, lw=2, marker="o", ms=4.5)
-        ax.set_ylabel(label, color="#0b0b0b")
-        ax.grid(True, color="#0b0b0b", alpha=0.12, lw=0.8)
-        ax.set_axisbelow(True)
-        for side in ("top", "right"):
-            ax.spines[side].set_visible(False)
-        for side in ("left", "bottom"):
-            ax.spines[side].set_color("#52514e")
-        ax.tick_params(colors="#52514e")
+        ax.set_ylabel(label, color=INK)
+        dress_axis(ax)
 
     last = f"HV {hvs[-1]:.3g}   spacing {sps[-1]:.3g}"
     hv_ax.set_title(f"Pareto front progress   ({last})", loc="left", fontsize=11)

@@ -1,7 +1,7 @@
 """``codesign`` — design-conditioned (multi-objective) hypernetwork RL for robots.
 """
 
-from . import config, envs, eval, hyperdesigners, learning, utils
+from . import envs, eval, hyperdesigners, learning, utils
 
 # envs
 from .envs import (
@@ -23,6 +23,7 @@ from .eval import (
     rollout_so_parallel,
     rollout_design_hypernetwork,
     rollout_mo_design_hypernetwork,
+    TRAJECTORY_FIELDS,
     rollout_single_video,
     rollout_design_hypernetwork_video,
     rollout_mo_design_hypernetwork_video,
@@ -72,7 +73,7 @@ from .learning import (
 from .utils import (
     DesignTradeoffSampleGrid,
     DesignTradeoffRolloutGrid,
-    MOCOPredictorGrid,
+    DesignTradeoffDataset,
     DesignPredictorSampleGrid,
     uniform_design_sweep,
     stack_models,
@@ -90,7 +91,11 @@ from .utils import (
     plot_sequential_design_paretos,
     plot_mo_design_progress,
     MODesignTrainingPlottingInfo,
-    plot_mean_hv_progress
+    plot_mean_hv_progress,
+    dress_axis,
+    plot_design_sweep_1d,
+    plot_design_predictor,
+    predictor_density,
 )
 
 from .optimizers import (
@@ -124,6 +129,7 @@ __all__ = [
     "rollout_so_parallel",
     "rollout_design_hypernetwork",
     "rollout_mo_design_hypernetwork",
+    "TRAJECTORY_FIELDS",
     "rollout_single_video",
     "rollout_design_hypernetwork_video",
     "rollout_mo_design_hypernetwork_video",
@@ -164,7 +170,7 @@ __all__ = [
     # utils
     "DesignTradeoffSampleGrid",
     "DesignTradeoffRolloutGrid",
-    "MOCOPredictorGrid",
+    "DesignTradeoffDataset",
     "DesignPredictorSampleGrid",
     "uniform_design_sweep",
     "stack_models",
@@ -183,6 +189,10 @@ __all__ = [
     "plot_mo_design_progress",
     "MODesignTrainingPlottingInfo",
     "plot_mean_hv_progress",
+    "dress_axis",
+    "plot_design_sweep_1d",
+    "plot_design_predictor",
+    "predictor_density",
     # optimizers
     "TurboState",
 ]
