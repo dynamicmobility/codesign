@@ -24,6 +24,8 @@ parameters:
     max: 8
   num_features: # rank of the (design, tradeoff) -> target-weights map
     values: [16, 32, 64]
+  seed: # replicates; see note in cheetah1D_seeds.yaml before trusting a single winner
+    values: [0, 1, 2]
   num_envs:
     value: 8192
   num_timesteps:
