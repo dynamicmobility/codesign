@@ -253,9 +253,9 @@ def default_video_design(config):
     if config["algorithm"] == "ppo":
         return np.asarray(config['env_config']['codesign']["default_design"], np.float32).reshape(-1)
 
-    codesign = config["env_config"]['codesign']
-    low  = np.asarray(codesign["low"], np.float32).reshape(-1)
-    high = np.asarray(codesign["high"], np.float32).reshape(-1)
+    design = config["env_config"]['codesign']
+    low  = np.asarray(design["low"], np.float32).reshape(-1)
+    high = np.asarray(design["high"], np.float32).reshape(-1)
     return 0.5 * (low + high)  # (design_dim,) box midpoint
 
 
@@ -495,12 +495,17 @@ def write_rollout_video(
     *,
     run: wandb.Run | None = None,
     log_key: str = "rollout",
+    use_caption: bool = True
 ) -> RolloutVideo:
     """Caption ``rollout``'s frames, write them to ``out_path``, optionally log to W&B.
 
     Returns the same ``rollout``, with ``path`` set to where the video was written.
     """
-    frames   = [_captioned_frame(frame, rollout.caption) for frame in rollout.frames]
+    print(use_caption)
+    if(use_caption):
+        frames   = [_captioned_frame(frame, rollout.caption) for frame in rollout.frames]
+    else:
+        frames = [frame for frame in rollout.frames]
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)  # save_video otherwise prompts
     mm.save_video(frames, rollout.dt, out_path)
@@ -532,6 +537,7 @@ def save_policy_rollout_video(
     height: int | None = 480,
     run: wandb.Run | None = None,
     log_key: str = "rollout",
+    use_caption: bool = True,
 ) -> RolloutVideo:
     """Roll out the trained policy for ``config`` and write the video to ``out_path``.
 
@@ -548,4 +554,4 @@ def save_policy_rollout_video(
         camera=camera, width=width, height=height,
     )
     print(f"rendered {len(rollout.traj)} steps: {rollout.caption}")
-    return write_rollout_video(rollout, out_path, run=run, log_key=log_key)
+    return write_rollout_video(rollout, out_path, run=run, log_key=log_key, use_caption=use_caption)

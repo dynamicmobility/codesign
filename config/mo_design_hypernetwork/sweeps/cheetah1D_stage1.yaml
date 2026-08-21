@@ -1,0 +1,35 @@
+# Stage 1: PPO optimization axes only.
+name: cheetah-1D-usup-opt
+method: bayes
+metric:
+  name: Mean Hypervolume.max # score each run by its best front, not its last
+  goal: maximize
+parameters:
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.00003
+    max: 0.001
+  reward_scaling: # value-branch units only; policy loss is invariant under normalize_advantage
+    distribution: log_uniform_values
+    min: 0.003
+    max: 0.1
+  entropy_cost:
+    distribution: log_uniform_values
+    min: 0.001
+    max: 0.05
+  clipping_epsilon:
+    distribution: uniform
+    min: 0.1
+    max: 0.3
+  unroll_length:
+    distribution: int_uniform
+    min: 20
+    max: 40
+  num_minibatches: # powers of two: batch_size is derived through gcd(num_envs, this)
+    values: [8, 16, 32]
+  rollouts_per_step: # unroll scans per training step; batch_size follows
+    values: [1, 2]
+  num_envs:
+    value: 8192 # pinned, not an axis
+  num_timesteps:
+    value: 300000000 # search budget; rerun the winners at the full 1.5e9

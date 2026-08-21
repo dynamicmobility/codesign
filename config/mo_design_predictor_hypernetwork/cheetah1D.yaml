@@ -36,16 +36,16 @@ learning_params:
   ppo_params:
     num_timesteps: 500000000
     episode_length: 500
-    num_envs: 4096
-    unroll_length: 20
-    batch_size: 128
+    num_envs: 8192
+    unroll_length: 22
+    batch_size: 256
     num_minibatches: 32
     num_updates_per_batch: 4
     learning_rate: 0.0001
     entropy_cost: 0.01
     discounting: 0.99
     reward_scaling: 1.0
-    clipping_epsilon: 0.3
+    clipping_epsilon: 0.25
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
@@ -60,7 +60,7 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
-    num_designs: 32
+    num_designs: 8
     resamples_per_epoch: 4 # times the grid is resampled (and the DP gets an update) per epoch
     num_eval_designs: 16
   tradeoff_sampling:
@@ -70,8 +70,8 @@ learning_params:
     num_eval_tradeoffs: 16
   design_predictor:
     hidden_layer_sizes: [16, 16]
-    design_learning_rate: 0.001
-    design_entropy_cost: 0.001
-    design_clipping_epsilon: 0.3 # GRPO trust region
+    design_learning_rate: 0.0003635313668469772
+    design_entropy_cost: 0.2
+    design_clipping_epsilon: 0.15 # GRPO trust region
     num_design_updates_per_batch: 4
-    num_warmup_iters: 2 # sobol sampling instead of DP
+    num_warmup_iters: 4 # sobol sampling instead of DP

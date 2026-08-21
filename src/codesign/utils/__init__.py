@@ -3,6 +3,7 @@
 from codesign.utils.grid import (
     DesignTradeoffSampleGrid,
     DesignTradeoffRolloutGrid,
+    DesignTradeoffDataset,
     DesignPredictorSampleGrid,
     sample_tradeoffs
 )
@@ -25,12 +26,17 @@ from codesign.utils.plotting import (
     plot_sequential_design_paretos,
     plot_mo_design_progress,
     plot_mean_hv_progress,
+    dress_axis,
+    plot_design_sweep_1d,
+    plot_design_predictor,
+    predictor_density,
     MODesignTrainingPlottingInfo,
 )
 
 __all__ = [
     "DesignTradeoffSampleGrid",
     "DesignTradeoffRolloutGrid",
+    "DesignTradeoffDataset",
     "DesignPredictorSampleGrid",
     "uniform_design_sweep",
     "stack_models",
@@ -49,5 +55,9 @@ __all__ = [
     "plot_sequential_design_paretos",
     "plot_mo_design_progress",
     "MODesignTrainingPlottingInfo",
-    "plot_mean_hv_progress"
+    "plot_mean_hv_progress",
+    "dress_axis",
+    "plot_design_sweep_1d",
+    "plot_design_predictor",
+    "predictor_density",
 ]

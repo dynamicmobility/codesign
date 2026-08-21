@@ -45,6 +45,7 @@ def sample_tradeoffs(
         raise ValueError(f"Sampling type {sampling} not implemented")
     return w.astype(np.float32)
 
+
 @dataclasses.dataclass
 class DesignTradeoffSampleGrid:
     """A sampled design x tradeoff grid and its flat env-axis ordering."""
@@ -55,23 +56,34 @@ class DesignTradeoffSampleGrid:
     
     @classmethod
     def from_uniform_sample(
-        cls, env: CodesignBase, seed: int, n_tradeoffs, n_designs, per_cell: int = 1
+        cls,
+        env: CodesignBase,
+        seed: int,
+        n_tradeoffs,
+        n_designs,
+        per_cell: int = 1,
+        sampling: str = "sparse-heavytail",
     ) -> "DesignTradeoffSampleGrid":
-        tradeoffs = jax.random.dirichlet(
-            jax.random.PRNGKey(seed),
-            alpha=np.ones(len(env.objectives)),
-            shape=(n_tradeoffs,),
+        """Space-filling designs over the env's design box crossed with sampled tradeoffs.
+
+        ``sampling`` is passed to :func:`sample_tradeoffs`; under the default
+        ``sparse-heavytail`` asking for ``n_tradeoffs == num_objectives`` returns exactly
+        the one-hot corners of the simplex (the single-objective extremes).
+        """
+        rng = np.random.default_rng(seed)
+        tradeoffs = sample_tradeoffs(
+            rng, 0, n_tradeoffs, len(env.objectives), sampling=sampling
         )
         limits = np.asarray(env.design_limits)
         designs = sample_designs(
-            np.random.default_rng(seed),
+            rng,
             n_designs,
             low=limits[0],
             high=limits[1],
             dim=limits.shape[1],
         )
         return cls(
-            designs=jax.numpy.asarray(designs),
+            designs=designs,
             tradeoffs=tradeoffs,
             per_cell=per_cell,
         )
@@ -145,13 +157,23 @@ class DesignPredictorSampleGrid:
     def num_envs(self) -> int:
         return self.n_tradeoffs * self.group_size * self.per_cell
 
-    def build_models(self, env: CodesignBase, workers: int = 1) -> mjx.Model:
-        """One model per ``(tradeoff, design)`` pair, repeated ``per_cell`` times.
+    def build_models(
+        self, env: CodesignBase, tiled: bool = True, workers: int = 1
+    ) -> mjx.Model:
+        """One model per ``(tradeoff, design)`` pair.
 
-        ``workers`` threads the per-design compiles; see :func:`build_batched_model`.
+        ``tiled=True`` repeats each model ``per_cell`` times onto the flat env axis;
+        ``tiled=False`` keeps the ``(n_tradeoffs, group_size)`` group axes, so repetitions
+        of a cell share one model. ``workers`` threads the per-design compiles; see
+        :func:`build_batched_model`.
         """
         flat = self.designs.reshape(-1, self.designs.shape[-1])
         stacked = build_batched_model(env, flat, workers=workers)
+        if not tiled:
+            return jax.tree_util.tree_map(
+                lambda x: x.reshape(self.n_tradeoffs, self.group_size, *x.shape[1:]),
+                stacked,
+            )
         return jax.tree_util.tree_map(
             lambda x: jax.numpy.repeat(x, self.per_cell, axis=0), stacked
         )
@@ -188,7 +210,8 @@ class DesignPredictorSampleGrid:
 class DesignTradeoffRolloutGrid:
     """Rollout results over a design x tradeoff grid, with the grid axes kept intact."""
 
-    designs: np.ndarray            # (n_designs, design_dim)
+    designs: np.ndarray            # (n_designs, design_dim), or (n_designs, n_tradeoffs,
+                                   # design_dim) when each tradeoff has its own designs
     tradeoffs: np.ndarray          # (n_tradeoffs, num_objectives)
     rewards: np.ndarray            # (n_designs, n_tradeoffs, per_cell, num_objectives)
     objectives: list | None = None # per-objective names
@@ -210,19 +233,76 @@ class DesignTradeoffRolloutGrid:
         """Rewards averaged over the per-cell repetition axis."""
         return self.rewards.mean(axis=2)
 
-    def save(self, path: str | Path) -> None:
+    def _arrays(self) -> dict[str, np.ndarray]:
+        """The npz payload :meth:`save` writes."""
         arrays = dict(designs=self.designs, tradeoffs=self.tradeoffs, rewards=self.rewards)
         if self.objectives is not None:
             arrays["objectives"] = np.asarray(self.objectives, dtype=object)
-        np.savez(path, **arrays)
+        return arrays
+
+    @classmethod
+    def _fields(cls, npz) -> dict:
+        """Constructor kwargs read back out of an npz written by :meth:`save`."""
+        return dict(
+            designs=npz["designs"],
+            tradeoffs=npz["tradeoffs"],
+            rewards=npz["rewards"],
+            objectives=npz["objectives"].tolist() if "objectives" in npz else None,
+        )
+
+    def save(self, path: str | Path) -> None:
+        np.savez(path, **self._arrays())
 
     @classmethod
     def load(cls, path: str | Path) -> "DesignTradeoffRolloutGrid":
-        data = np.load(path, allow_pickle=True)
-        objectives = data["objectives"].tolist() if "objectives" in data else None
-        return cls(
-            designs=data["designs"],
-            tradeoffs=data["tradeoffs"],
-            rewards=data["rewards"],
-            objectives=objectives,
+        return cls(**cls._fields(np.load(path, allow_pickle=True)))
+
+
+@dataclasses.dataclass
+class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
+    """A :class:`DesignTradeoffRolloutGrid` plus the per-step trajectories behind it.
+
+    ``data[key]`` carries the grid axes of ``rewards`` with a time axis in place of the
+    objective axis: ``(n_designs, n_tradeoffs, per_cell, n_steps, ...)``. Which keys are
+    present is up to the recorder that produced them (see
+    :data:`codesign.eval.parallel_eval.TRAJECTORY_FIELDS`); read them off :attr:`keys`.
+    """
+
+    data: dict[str, np.ndarray] = dataclasses.field(default_factory=dict)
+    # TODO: add a config data attribute that stores which config generated the dataset
+
+    _DATA_PREFIX = "data/"  # npz namespace keeping ``data`` apart from the grid arrays
+
+    @classmethod
+    def from_flat(
+        cls,
+        grid: DesignTradeoffSampleGrid,
+        flat_rewards,
+        objectives: list | None = None,
+        flat_data: dict | None = None,
+    ) -> "DesignTradeoffDataset":
+        """Build from per-env rewards and trajectories in ``grid``'s flat env ordering."""
+        dataset = super().from_flat(grid, flat_rewards, objectives)
+        dataset.data = {k: grid.unflatten(v) for k, v in (flat_data or {}).items()}
+        return dataset
+
+    @property
+    def keys(self) -> list[str]:
+        """Names of the recorded per-step quantities."""
+        return sorted(self.data)
+
+    def _arrays(self) -> dict[str, np.ndarray]:
+        return {
+            **super()._arrays(),
+            **{self._DATA_PREFIX + k: v for k, v in self.data.items()},
+        }
+
+    @classmethod
+    def _fields(cls, npz) -> dict:
+        cut = len(cls._DATA_PREFIX)
+        return dict(
+            **super()._fields(npz),
+            data={
+                k[cut:]: npz[k] for k in npz.files if k.startswith(cls._DATA_PREFIX)
+            },
         )

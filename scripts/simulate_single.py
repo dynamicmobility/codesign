@@ -53,9 +53,9 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str, 
     print(f"rendered {len(traj)} steps ({policy_kind} policy, d={design}) -> {out}")
 
     reward_plotter.plot(title=f"{train_config['env']} d={design} reward")
-    discount = train_config.learning_params.ppo_params.discounting
-    print(f"Total value: {np.sum(reward_plotter.rewards )}")
-    print(f"Discounted value: {np.sum(reward_plotter.rewards * np.pow(discount, np.arange(len(reward_plotter.rewards))))}")
+    # discount = train_config.learning_params.ppo_params.discounting
+    # print(f"Total value: {np.sum(reward_plotter.rewards )}")
+    # print(f"Discounted value: {np.sum(reward_plotter.rewards * np.pow(discount, np.arange(len(reward_plotter.rewards))))}")
 
     if(train_config["env"] == "RHex"):
         env: RHex = env

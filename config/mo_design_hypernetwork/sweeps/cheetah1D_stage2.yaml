@@ -1,0 +1,32 @@
+# Stage 2: (design, tradeoff) coverage and hypernetwork capacity.
+#
+# Run after folding stage 1's winning optimization params into the base config. Design and
+# tradeoff counts stay powers of two: num_envs must divide by their product, the eval grid
+# assert wants num_eval_envs divisible by 64, and sample_designs draws from a Sobol
+# sequence whose balance holds only at powers of two.
+name: cheetah-1D-usup-coverage
+method: bayes
+metric:
+  name: Mean Hypervolume.max
+  goal: maximize
+parameters:
+  num_designs:
+    values: [4, 8, 16]
+  num_tradeoffs:
+    values: [4, 8, 16]
+  alpha: # Dirichlet concentration: <1 draws tradeoffs toward the simplex corners
+    distribution: log_uniform_values
+    min: 0.2
+    max: 3.0
+  resamples_per_epoch: # each resample costs num_designs host-side model compiles
+    distribution: int_uniform
+    min: 1
+    max: 8
+  num_features: # rank of the (design, tradeoff) -> target-weights map
+    values: [16, 32, 64]
+  seed: # replicates; see note in cheetah1D_seeds.yaml before trusting a single winner
+    values: [0, 1, 2]
+  num_envs:
+    value: 8192
+  num_timesteps:
+    value: 300000000
