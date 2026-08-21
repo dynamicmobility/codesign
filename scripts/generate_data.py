@@ -53,7 +53,6 @@ def main(args) -> None:
         )
 
     save_path = Path(args.save_path)
-    save_path.mkdir(parents=True, exist_ok=True)
 
     def rollout(design_predictor: bool) -> codesign.DesignTradeoffDataset:
         return codesign.rollout_mo_design_hypernetwork(
@@ -76,11 +75,13 @@ def main(args) -> None:
     if is_predictor_run:
         datasets["predictor"] = rollout(design_predictor=True)
 
+    if args.run_id:
+        save_path = save_path / args.run_id
+    else:
+        save_path = save_path / config.name
+    save_path.mkdir(parents=True, exist_ok=True)
+    
     for name, dataset in datasets.items():
-        if args.run_id:
-            save_path = save_path / args.run_id
-        else:
-            save_path = save_path / config.name
         dataset.save(save_path / f"{name}.npz")
         print(f"{name}: rewards {dataset.rewards.shape}, keys {dataset.keys} -> "
               f"{save_path / f'{name}.npz'}")

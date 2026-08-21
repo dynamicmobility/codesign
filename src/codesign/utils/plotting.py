@@ -196,14 +196,19 @@ def _sweep_curve(
 
 
 def plot_design_sweep_1d(
-    ax: plt.Axes,
-    designs: np.ndarray,           # (n_designs, 1)
-    returns: np.ndarray,           # (n_designs,) or (n_designs, n_reps)
-    style: str = "line",
-    bins: int | None = None,
-    points: bool = True,
-    sweep_color: str = 'C0',
-    best_point_color: str = 'C3',
+    ax                  : plt.Axes,
+    designs             : np.ndarray,           # (n_designs, 1)
+    returns             : np.ndarray,           # (n_designs,) or (n_designs, n_reps)
+    style               : str = "line",
+    bins                : int | None = None,
+    points              : bool = True,
+    sweep_color         : str = 'C0',
+    best_point_color    : str = 'C0',
+    sweep_label         : str = 'Design sweep',
+    band_label          : str = 'Sweep $\\pm 1 \sigma$',
+    points_label        : str = 'Design rollouts',
+    optimum_label       : str = 'Optimal design',
+
 ) -> int:
     """Scalarized return against the single design parameter, marking the sweep optimum.
 
@@ -244,7 +249,7 @@ def plot_design_sweep_1d(
             color  = MUTED,
             alpha  = 0.35,
             zorder = 1,
-            label  = "rollouts",
+            label  = points_label,
         )
 
     x, mean, std = _sweep_curve(designs, returns, bins)
@@ -257,7 +262,7 @@ def plot_design_sweep_1d(
             alpha  = 0.25,
             lw     = 0,
             zorder = 2,
-            label  = "sweep $\\pm$1 s.d.",
+            label  = band_label,
         )
     ax.plot(
         x,
@@ -267,7 +272,7 @@ def plot_design_sweep_1d(
         lw     = 1.5 if style == "line" else 2,
         color  = sweep_color,
         zorder = 3,
-        label  = "universal policy sweep",
+        label  = sweep_label,
     )
 
     per_design = returns if returns.ndim == 1 else returns.mean(axis=1)
@@ -279,7 +284,7 @@ def plot_design_sweep_1d(
         ms     = 15,
         color  = best_point_color,
         zorder = 4,
-        label  = "sweep optimum",
+        label  = optimum_label,
     )
     ax.set_xlabel("design $d$", color=MUTED, fontsize=9)
     ax.set_ylabel("scalarized return $w \\cdot R$", color=MUTED, fontsize=9)

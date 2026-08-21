@@ -34,24 +34,24 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 500000000
+    num_timesteps: 1500000000
     episode_length: 500
-    num_envs: 4096
-    unroll_length: 20
-    batch_size: 128
+    num_envs: 8192
+    unroll_length: 22
+    batch_size: 256
     num_minibatches: 32
     num_updates_per_batch: 4
     learning_rate: 0.0001
     entropy_cost: 0.01
     discounting: 0.99
     reward_scaling: 1.0
-    clipping_epsilon: 0.3
+    clipping_epsilon: 0.25
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
     num_evals: 15
-    num_eval_envs: 256
+    num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
   network_params:
@@ -61,9 +61,10 @@ learning_params:
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
     num_designs: 8 
-    resamples_per_epoch: 1
-    sampling: random
+    resamples_per_epoch: 4
+    num_eval_designs: 16
   tradeoff_sampling:
     num_tradeoffs: 8
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
+    num_eval_tradeoffs: 16

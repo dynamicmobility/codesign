@@ -1,0 +1,20 @@
+name: cheetah-1D-usup
+method: bayes
+metric:
+  name: Mean Hypervolume.max # score each run by its best front, not its last
+  goal: maximize
+parameters:
+  resamples_per_epoch:
+    distribution: int_uniform
+    min: 1
+    max: 16
+  clipping_epsilon:
+    distribution: uniform
+    min: 0.1
+    max: 0.3
+  unroll_length:
+    distribution: int_uniform
+    min: 20
+    max: 40
+  num_envs:
+    value: 8192 # pinned, not an axis
