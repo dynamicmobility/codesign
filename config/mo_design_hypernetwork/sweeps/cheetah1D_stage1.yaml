@@ -1,7 +1,4 @@
 # Stage 1: PPO optimization axes only.
-#
-# The (design, tradeoff) grid is pinned to the base config so every run is scored on the
-# same amount of coverage, and `num_timesteps` is cut for the search.
 name: cheetah-1D-usup-opt
 method: bayes
 metric:
