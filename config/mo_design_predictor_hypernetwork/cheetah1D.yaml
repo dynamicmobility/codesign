@@ -1,8 +1,8 @@
 # Training config for the `mo_design_predictor_hypernetwork` algorithm on CodesignCheetah.
 #
 # f(d | w) = N(mu(w), sigma(w))  ->  H_\pi(d, w) = \pi(a | s)
-name: test
-save_dir: results/Aug11
+name: sweepCheetah1D
+save_dir: results/Aug18
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths, with a GRPO-trained design predictor."
 algorithm: "mo_design_predictor_hypernetwork"
 env: "MOCodesignCheetah1D"
@@ -51,9 +51,6 @@ learning_params:
     normalize_advantage: true
     normalize_observations: true
     num_evals: 15
-    # Every run scores on the same grid: num_eval_tradeoffs x num_eval_designs x 4
-    # episodes = 1024 envs. A multiple of every num_designs * num_tradeoffs the sweep
-    # visits, so wandb_sweep's derive_eval_grid leaves this alone.
     num_eval_envs: 1024
     deterministic_eval: true
     seed: 0

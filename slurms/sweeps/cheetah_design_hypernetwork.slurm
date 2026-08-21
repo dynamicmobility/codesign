@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=moco_hyper_sweep_trial
+#SBATCH --job-name=test
 #SBATCH --account=gts-mtucker34
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=6
-#SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
+#SBATCH --gres=gpu:rtx_6000:1
 #SBATCH --mem=64G
-#SBATCH --time=24:00:00
+#SBATCH --time=1:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
@@ -14,7 +14,7 @@
 
 source ~/.bashrc
 module load anaconda3
-conda activate codesign
+conda activate codesign-scratch
 
 cd /storage/home/hcoda1/3/njanwani3/Documents/codesign
 
@@ -31,7 +31,7 @@ export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
 python3 -m scripts.wandb_sweep \
---config config/mo_design_hypernetwork/cheetah6D.yaml \
---sweep config/sweeps/cheetah_mo_design_hypernetwork.yaml \
---num_trials 20 \
+--config config/design_hypernetwork/cheetah1D.yaml \
+--sweep config/sweeps/cheetah_design_hypernetwork.yaml \
+--num_trials 50 \
 --pace True

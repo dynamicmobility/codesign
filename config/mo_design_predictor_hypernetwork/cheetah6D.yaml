@@ -1,8 +1,8 @@
 # Training config for the `mo_design_predictor_hypernetwork` algorithm on CodesignCheetah.
 #
 # f(d | w) = N(mu(w), sigma(w))  ->  H_\pi(d, w) = \pi(a | s)
-name: test6D
-save_dir: results/Aug11
+name: sweepCheetah6D
+save_dir: results/Aug18
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah6D, with a GRPO-trained design predictor."
 algorithm: "mo_design_predictor_hypernetwork"
 env: "MOCodesignCheetah"
@@ -34,7 +34,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 1500000000
+    num_timesteps: 500000000
     episode_length: 500
     num_envs: 4096
     unroll_length: 20
@@ -50,37 +50,28 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 45
-    # A multiple of every num_designs * num_tradeoffs the sweep visits, so wandb_sweep's
-    # derive_eval_grid leaves it alone and every run scores on the same 8x8 x 16 grid.
+    num_evals: 15
     num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
   network_params:
-    hypersize: [256, 256]
-    num_features: 32
+    hypersize: [1024, 1024]
+    num_features: 128
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
-    # GRPO group size: designs drawn from f(d | w) per tradeoff. num_envs must be
-    # divisible by num_tradeoffs * num_designs.
-    num_designs: 16
-    # The predictor takes one GRPO batch per resample, so this is also its update count
-    # per epoch. Each resample rebuilds num_tradeoffs * num_designs mujoco models.
-    resamples_per_epoch: 20
+    num_designs: 32
+    resamples_per_epoch: 4 # times the grid is resampled (and the DP gets an update) per epoch
+    num_eval_designs: 16
   tradeoff_sampling:
     num_tradeoffs: 8
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
+    num_eval_tradeoffs: 16
   design_predictor:
-    # Keys past hidden_layer_sizes name train_mo_design_predictor's arguments directly,
-    # so a sweep can address them without colliding with ppo_params' like-named fields.
-    hidden_layer_sizes: [16, 16]
+    hidden_layer_sizes: [32, 32]
     design_learning_rate: 0.001
     design_entropy_cost: 0.001
-    # GRPO's trust region on f, independent of ppo_params.clipping_epsilon on pi.
-    design_clipping_epsilon: 0.3
+    design_clipping_epsilon: 0.3 # GRPO trust region
     num_design_updates_per_batch: 4
-    # Epochs (of num_evals - 1) where designs are drawn space-filling over the box and
-    # f is held fixed, so H is calibrated off f's support before it starts scoring.
-    num_warmup_iters: 4
+    num_warmup_iters: 2 # sobol sampling instead of DP
