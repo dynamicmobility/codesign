@@ -262,10 +262,9 @@ class DesignTradeoffRolloutGrid:
 class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
     """A :class:`DesignTradeoffRolloutGrid` plus the per-step trajectories behind it.
 
-    ``data[key]`` carries the grid axes of ``rewards`` with a time axis in place of the
-    objective axis: ``(n_designs, n_tradeoffs, per_cell, n_steps, ...)``. Which keys are
-    present is up to the recorder that produced them (see
-    :data:`codesign.eval.parallel_eval.TRAJECTORY_FIELDS`); read them off :attr:`keys`.
+    Recorded ``data[key]`` carries the grid axes of ``rewards`` with a time axis in place
+    of the objective axis: ``(n_designs, n_tradeoffs, per_cell, n_steps, ...)``. Additional
+    per-cell values, such as an initial-state value prediction, omit the time axis.
     """
 
     data: dict[str, np.ndarray] = dataclasses.field(default_factory=dict)

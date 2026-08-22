@@ -120,6 +120,36 @@ def load_mo_design_hypernetwork(
     return inference_fn, params
 
 
+def load_mo_design_value_hypernetwork(
+    config,
+    network_factory=None,
+    path=None,
+    quiet=True,
+):
+    """Load the value inference function from an MO design-hypernetwork checkpoint."""
+    if network_factory is None:
+        setup_fn = (
+            setup_mo_design_predictor_hypernetwork
+            if config["algorithm"] == "mo_design_predictor_hypernetwork"
+            else setup_mo_design_hypernetwork
+        )
+        _, network_factory = setup_fn(config)
+    params_config, params = _load_checkpoint(config, path, quiet)
+
+    design_dim = len(config["env_config"]["codesign"]["low"])
+    num_objectives = len(
+        config["env_config"]["reward"]["optimization"]["objectives"]
+    )
+    network_factory = functools.partial(
+        network_factory,
+        design_dim=design_dim,
+        num_objectives=num_objectives,
+        key=jax.random.PRNGKey(0),
+    )
+    design_networks = get_network(params_config, network_factory)
+    return make_value_fn(design_networks), params
+
+
 def load_mo_design_predictor_hypernetwork(
     config,
     network_factory=None,
