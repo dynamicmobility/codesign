@@ -4,3 +4,6 @@
 [submodule "submodules/minimal-mjx"]
 	path = submodules/minimal-mjx
 	url = https://github.com/dynamicmobility/minimal-mjx.git
+[submodule "submodules/pyPolar"]
+	path = submodules/pyPolar
+	url = git@github.com:dynamicmobility/pyPolar.git
