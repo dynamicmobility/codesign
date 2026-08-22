@@ -37,15 +37,15 @@ learning_params:
     num_timesteps: 1500000000
     episode_length: 500
     num_envs: 8192
-    unroll_length: 22
+    unroll_length: 26
     batch_size: 256
     num_minibatches: 32
     num_updates_per_batch: 4
-    learning_rate: 0.0001
-    entropy_cost: 0.01
+    learning_rate: 0.00007382460273218768
+    entropy_cost: 0.023
     discounting: 0.99
-    reward_scaling: 1.0
-    clipping_epsilon: 0.25
+    reward_scaling: 0.005333732736851479
+    clipping_epsilon: 0.28
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
