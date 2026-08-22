@@ -11,7 +11,7 @@ from mujoco import mjx
 from codesign.envs.codesign_base import CodesignMO2SO, CodesignBase, MOCodesignBase
 from minimal_mjx.eval import policy as policy_lib
 from codesign.hyperdesigners import acting
-from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork, load_mo_design_predictor_hypernetwork
+from codesign.learning.inference import load_design_hypernetwork, load_mo_design_hypernetwork, load_mo_design_predictor_hypernetwork, load_mo_design_value_hypernetwork
 from codesign.utils import model as model_lib
 from codesign.utils.grid import (
     DesignTradeoffSampleGrid,
@@ -234,8 +234,9 @@ def rollout_mo_design_hypernetwork(
     Returns:
         A :class:`DesignTradeoffDataset` whose ``rewards`` are the accumulated
         per-objective returns, shape ``(n_designs, n_tradeoffs, per_cell, num_objectives)``,
-        and whose ``data[key]`` holds each recorded field with a leading
-        ``(n_designs, n_tradeoffs, per_cell, n_steps)``.
+        whose recorded ``data[key]`` fields have a leading
+        ``(n_designs, n_tradeoffs, per_cell, n_steps)``, and whose ``data["value"]``
+        is the initial-state value prediction per grid cell.
     """
     # Which checkpoint the run wrote is set by its algorithm, not by `design_predictor`:
     # a predictor run's saved network config carries the extra predictor kwargs, so its
@@ -307,12 +308,27 @@ def rollout_mo_design_hypernetwork(
         keys, designs_input, jnp.asarray(tradeoffs), batched_model, params
     )
 
+    value_inference_fn, value_params = load_mo_design_value_hypernetwork(
+        config, path=checkpoint_path
+    )
+    flat_designs, flat_tradeoffs = grid.flatten()
+    reset_keys = jax.vmap(jax.random.split)(keys.reshape(-1, 2))[:, 0]
+    initial_states = jax.vmap(env.reset)(
+        reset_keys, grid.build_models(env, tiled=True)
+    )
+    value_fn = value_inference_fn(
+        value_params,
+        model_lib.normalize_design(jnp.asarray(flat_designs), config=config),
+        jnp.asarray(flat_tradeoffs),
+    )
+    values = grid.unflatten(value_fn(initial_states.obs))
+
     return DesignTradeoffDataset(
         designs       = to_grid_axes(grid.designs),
         tradeoffs     = np.asarray(tradeoffs),
         rewards       = to_grid_axes(final_rewards),
         objectives    = env.objectives,
-        data          = _named_records(records, to_grid_axes),
+        data          = {**_named_records(records, to_grid_axes), "value": values},
     )
 
 
