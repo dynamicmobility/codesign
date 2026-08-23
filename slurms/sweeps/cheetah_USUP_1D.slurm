@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=md_hypernetwork
+#SBATCH --job-name=cheetah1d-usup-ppo-param-sweep
 #SBATCH --account=gts-mtucker34
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=6
 #SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
 #SBATCH --mem=64G
-#SBATCH --time=2:00:00
+#SBATCH --time=8:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
@@ -30,5 +30,8 @@ module load cuda
 export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
-python3 -m scripts.train \
---config config/mo_design_hypernetwork/cheetah1D.yaml
+python3 -m scripts.wandb_sweep \
+--sweep config/mo_design_hypernetwork/sweeps/cheetah1D_stage2.yaml \
+--config config/mo_design_hypernetwork/cheetah1D.yaml \
+--num_trials 50 \
+--pace True

@@ -71,15 +71,32 @@ def main(
         env, env_params = codesign.envs.create.load_env(config)
             
 
+        if config.algorithm == "mo_design_predictor_hypernetwork":
+            # params = (normalizer, hypernet, design_predictor)
+            _, design_predictor_inference_fn, params = (
+                codesign.load_mo_design_predictor_hypernetwork(
+                    config, path=checkpoint_path
+                )
+            )
+            sample_grid = codesign.DesignPredictorSampleGrid.from_predictor(
+                env,
+                design_predictor_inference_fn,
+                params[2],
+                seed        = 0,
+                n_tradeoffs = n_tradeoffs,
+                group_size  = n_designs,
+            )
+        else:
+            sample_grid = codesign.DesignTradeoffSampleGrid.from_uniform_sample(
+                env, seed=0, n_tradeoffs=n_tradeoffs, n_designs=n_designs
+            )
+
         grid = codesign.rollout_mo_design_hypernetwork(
             env             = env,
             config          = config,
-            n_designs       = n_designs,
-            n_tradeoffs     = n_tradeoffs,
-            per_cell        = 1,
+            grid            = sample_grid,
             n_steps         = steps,
             checkpoint_path = checkpoint_path,
-            design_predictor = config.algorithm == 'mo_design_predictor_hypernetwork'
         )
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         grid.save(OUT_DIR / "mo_design_hypernetwork_rewards.npz")

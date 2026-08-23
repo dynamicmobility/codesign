@@ -17,7 +17,6 @@ from codesign.utils.grid import (
     DesignTradeoffSampleGrid,
     DesignPredictorSampleGrid,
     DesignTradeoffDataset,
-    sample_tradeoffs,
 )
 
 from typing import Callable
@@ -189,47 +188,57 @@ def build_predictor_rollout_fn(
     return jax.jit(over_tradeoffs)
 
 
+def _load_mo_design_networks(config, checkpoint_path, design_predictor):
+    """Loads a mo design hypernetwork and design predictor if needed"""
+    # Which checkpoint the run wrote is set by its algorithm, not by `design_predictor`:
+    # a predictor run's saved network config carries the extra predictor kwargs, so its
+    # policy hypernetwork can only be rebuilt by the predictor factory.
+    make_policy_fn, design_predictor_inference_fn, params = (None,) * 3
+    if config["algorithm"] == "mo_design_predictor_hypernetwork":
+        make_policy_fn, design_predictor_inference_fn, params = (
+            load_mo_design_predictor_hypernetwork(config, path=checkpoint_path)
+        )
+    elif design_predictor:
+        raise ValueError(
+            f"a predictor grid needs a 'mo_design_predictor_hypernetwork' run; "
+            f"this one is '{config['algorithm']}'."
+        )
+    else:
+        make_policy_fn, params = load_mo_design_hypernetwork(
+            config, path=checkpoint_path
+        )
+    
+    return make_policy_fn, design_predictor_inference_fn, params
+
+
 def rollout_mo_design_hypernetwork(
     env: CodesignBase,
     config,
-    n_designs: int,
-    n_tradeoffs: int,
-    per_cell: int,
+    grid: DesignTradeoffSampleGrid | DesignPredictorSampleGrid,
     n_steps: int,
     *,
     checkpoint_path: str | None = None,
     seed: int = 0,
     deterministic: bool = True,
-    design_predictor: bool = False,
     record=(),
-    sampling: str = "sparse-heavytail",
 ) -> DesignTradeoffDataset:
-    # TODO: clean up this function and make it human-readable
-    """Roll out a trained MO design hypernetwork over a design x tradeoff grid.
+    """Roll out a trained MO design hypernetwork over a sampled design x tradeoff grid.
 
-    Tradeoffs are :func:`sample_tradeoffs` draws on the objective simplex. Designs are
-    either a space-filling sweep of the configured design range (``design_predictor=False``)
-    or drawn from the trained design predictor ``f(d | w)`` for each tradeoff
-    (``design_predictor=True``); in the latter case the ``n_designs`` designs of a tradeoff
-    belong to that tradeoff alone and are *not* rolled out against the others. Each grid
-    cell is rolled out ``per_cell`` times for ``n_steps`` env steps.
+    How designs and tradeoffs pair up is the grid's: a
+    :class:`DesignTradeoffSampleGrid` crosses every design with every tradeoff, while a
+    :class:`DesignPredictorSampleGrid` holds designs drawn from the trained predictor
+    ``f(d | w)`` that belong to their own tradeoff alone and are *not* rolled out against
+    the others. Each grid cell is rolled out ``grid.per_cell`` times for ``n_steps`` steps.
 
     Args:
         env: a model-as-input env (e.g. ``CodesignCheetah``).
         config: the run config dict (as written to ``config.yaml`` at train time).
-        n_designs: designs per tradeoff (the whole sweep when ``design_predictor=False``).
-        n_tradeoffs: number of sampled tradeoffs.
-        per_cell: rollout repetitions per (design, tradeoff) cell. Only informative when
-            the env's reset or the policy is stochastic; the cheetah reset is neither.
+        grid: the design x tradeoff grid to roll out, in physical design units.
         n_steps: rollout length in env steps.
         checkpoint_path: explicit checkpoint dir; defaults to latest under ``save_dir/name``.
-        seed: base PRNG seed for resets, tradeoff sampling and design sampling.
+        seed: base PRNG seed for the rollout resets and action streams.
         deterministic: take the policy mode (vs. sampling) at each step.
-        design_predictor: draw designs from ``f(d | w)`` instead of sweeping the design box.
-            With ``n_designs == 1`` the predictor's mode (its predicted optimum) is used;
-            with more, designs are sampled from ``f`` so the group spreads around it.
         record: :data:`TRAJECTORY_FIELDS` keys to keep per step, e.g. ``("reward", "obs")``.
-        sampling: tradeoff sampling style; see :func:`sample_tradeoffs`.
 
     Returns:
         A :class:`DesignTradeoffDataset` whose ``rewards`` are the accumulated
@@ -238,64 +247,22 @@ def rollout_mo_design_hypernetwork(
         ``(n_designs, n_tradeoffs, per_cell, n_steps)``, and whose ``data["value"]``
         is the initial-state value prediction per grid cell.
     """
-    # Which checkpoint the run wrote is set by its algorithm, not by `design_predictor`:
-    # a predictor run's saved network config carries the extra predictor kwargs, so its
-    # policy hypernetwork can only be rebuilt by the predictor factory.
-    if config["algorithm"] == "mo_design_predictor_hypernetwork":
-        make_policy_fn, design_predictor_inference_fn, params = (
-            load_mo_design_predictor_hypernetwork(config, path=checkpoint_path)
-        )
-    elif design_predictor:
-        raise ValueError(
-            f"design_predictor=True needs a 'mo_design_predictor_hypernetwork' run; "
-            f"this one is '{config['algorithm']}'."
-        )
-    else:
-        make_policy_fn, params = load_mo_design_hypernetwork(
-            config, path=checkpoint_path
-        )
-
-    if design_predictor:
-        tradeoffs = sample_tradeoffs(
-            np.random.default_rng(seed), 0, n_tradeoffs, len(env.objectives),
-            sampling=sampling,
-        )
-        limits = np.asarray(env.design_limits)
-        # One predictor draw per (tradeoff, group member).
-        tradeoffs_tiled = jnp.repeat(jnp.asarray(tradeoffs), n_designs, axis=0)
-        designs_input, _ = design_predictor_inference_fn(
-            params[2],
-            tradeoffs_tiled,
-            deterministic = n_designs == 1,
-            key_sample    = jax.random.PRNGKey(seed + 1),
-        )
-        designs_input = designs_input.reshape(n_tradeoffs, n_designs, -1)
-        # Designs come out normalized to [0, 1]; the model generator wants physical units.
-        designs = model_lib.unnormalize_design(designs_input, limits[0], limits[1])
-        grid = DesignPredictorSampleGrid(
-            designs=np.asarray(designs), tradeoffs=tradeoffs, per_cell=per_cell
-        )
-        build_rollout_fn = build_predictor_rollout_fn
-        grid_shape = (grid.n_tradeoffs, grid.group_size, grid.per_cell)
-        # (tradeoff, group, rep) -> the (design, tradeoff, rep) convention of the dataset
-        to_grid_axes = lambda x: np.swapaxes(np.asarray(x), 0, 1)
-    else:
-        grid = DesignTradeoffSampleGrid.from_uniform_sample(
-            env, seed=seed, n_tradeoffs=n_tradeoffs, n_designs=n_designs,
-            per_cell=per_cell, sampling=sampling,
-        )
-        tradeoffs = grid.tradeoffs
-        designs_input = model_lib.normalize_design(
-            jnp.asarray(grid.designs), config=config
-        )
-        build_rollout_fn = build_grid_rollout_fn
-        grid_shape = (grid.n_designs, grid.n_tradeoffs, grid.per_cell)
-        to_grid_axes = np.asarray
+    predictor_grid = isinstance(grid, DesignPredictorSampleGrid)
+    make_policy_fn, _, params = _load_mo_design_networks(
+        config           = config,
+        checkpoint_path  = checkpoint_path,
+        design_predictor = predictor_grid,
+    )
+    build_rollout_fn = (
+        build_predictor_rollout_fn if predictor_grid else build_grid_rollout_fn
+    )
 
     batched_model = grid.build_models(env, tiled=False)
     keys = jax.random.split(
         jax.random.PRNGKey(seed + 2), grid.num_envs
-    ).reshape(*grid_shape, -1)
+    ).reshape(*grid.shape, -1)
+    # The policy is conditioned on designs in [0, 1]; the grid holds physical units.
+    designs_input = model_lib.normalize_design(jnp.asarray(grid.designs), config=config)
 
     rollout_fn = build_rollout_fn(
         env           = env,
@@ -305,7 +272,7 @@ def rollout_mo_design_hypernetwork(
         record_fn     = make_record_fn(record),
     )
     (_, _, final_rewards), records = rollout_fn(
-        keys, designs_input, jnp.asarray(tradeoffs), batched_model, params
+        keys, designs_input, jnp.asarray(grid.tradeoffs), batched_model, params
     )
 
     value_inference_fn, value_params = load_mo_design_value_hypernetwork(
@@ -324,11 +291,11 @@ def rollout_mo_design_hypernetwork(
     values = grid.unflatten(value_fn(initial_states.obs))
 
     return DesignTradeoffDataset(
-        designs       = to_grid_axes(grid.designs),
-        tradeoffs     = np.asarray(tradeoffs),
-        rewards       = to_grid_axes(final_rewards),
+        designs       = grid.to_grid_axes(grid.designs),
+        tradeoffs     = np.asarray(grid.tradeoffs),
+        rewards       = grid.to_grid_axes(final_rewards),
         objectives    = env.objectives,
-        data          = {**_named_records(records, to_grid_axes), "value": values},
+        data          = {**_named_records(records, grid.to_grid_axes), "value": values},
     )
 
 
