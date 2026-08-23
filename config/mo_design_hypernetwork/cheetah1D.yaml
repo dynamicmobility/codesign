@@ -2,8 +2,8 @@
 #
 # H_\pi(d, w) = \pi(a | s)
 name: test
-save_dir: results/Aug5
-description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
+save_dir: results/Aug22
+description: "testing mo-design hypernetwork with vector value function"
 algorithm: "mo_design_hypernetwork"
 env: "MOCodesignCheetah1D"
 backend: jnp # always jnp for training
