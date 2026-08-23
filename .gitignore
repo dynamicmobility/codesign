@@ -232,3 +232,5 @@ scripts/outputs
 MUJOCO_LOG.TXT
 
 logs/
+
+scripts/iros/outputs

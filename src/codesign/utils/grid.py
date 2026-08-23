@@ -206,6 +206,19 @@ class DesignPredictorSampleGrid:
         return np.swapaxes(self.group_view(np.asarray(x)), 0, 1)
 
 
+def _kept(n: int, sel) -> np.ndarray:
+    """Indices kept along an axis of length ``n``.
+
+    ``sel`` is any numpy index (slice, sequence, boolean mask, scalar) or ``None`` for
+    the whole axis; tuples index as sequences, and scalars keep the axis.
+    """
+    if sel is None:
+        sel = slice(None)
+    elif isinstance(sel, tuple):
+        sel = list(sel)
+    return np.atleast_1d(np.arange(n)[sel])
+
+
 @dataclasses.dataclass
 class DesignTradeoffRolloutGrid:
     """Rollout results over a design x tradeoff grid, with the grid axes kept intact."""
@@ -233,6 +246,25 @@ class DesignTradeoffRolloutGrid:
         """Rewards averaged over the per-cell repetition axis."""
         return self.rewards.mean(axis=2)
 
+    def flatten(
+        self, design_slice=None, tradeoff_slice=None
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Drop the grid axes so rewards, designs, and tradeoffs index-correspond.
+        """
+        d_idx = _kept(self.rewards.shape[0], design_slice)
+        t_idx = _kept(self.rewards.shape[1], tradeoff_slice)
+        rewards = self.rewards[d_idx][:, t_idx]
+        designs = self.designs[d_idx]
+        # one design set shared by every tradeoff, or one per tradeoff
+        designs = designs[:, None] if designs.ndim == 2 else designs[:, t_idx]
+        grid = rewards.shape[:3]
+        designs = np.broadcast_to(designs[:, :, None], grid + designs.shape[-1:])
+        tradeoffs = np.broadcast_to(
+            self.tradeoffs[t_idx][None, :, None], grid + self.tradeoffs.shape[-1:]
+        )
+        flat = lambda x: x.reshape(-1, x.shape[-1])
+        return flat(rewards), flat(designs), flat(tradeoffs)
+
     def _arrays(self) -> dict[str, np.ndarray]:
         """The npz payload :meth:`save` writes."""
         arrays = dict(designs=self.designs, tradeoffs=self.tradeoffs, rewards=self.rewards)
@@ -257,15 +289,14 @@ class DesignTradeoffRolloutGrid:
     def load(cls, path: str | Path) -> "DesignTradeoffRolloutGrid":
         return cls(**cls._fields(np.load(path, allow_pickle=True)))
 
-
+# TODO: add config yaml here to be saved with dataset
 @dataclasses.dataclass
 class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
     """A :class:`DesignTradeoffRolloutGrid` plus the per-step trajectories behind it.
 
-    ``data[key]`` carries the grid axes of ``rewards`` with a time axis in place of the
-    objective axis: ``(n_designs, n_tradeoffs, per_cell, n_steps, ...)``. Which keys are
-    present is up to the recorder that produced them (see
-    :data:`codesign.eval.parallel_eval.TRAJECTORY_FIELDS`); read them off :attr:`keys`.
+    Recorded ``data[key]`` carries the grid axes of ``rewards`` with a time axis in place
+    of the objective axis: ``(n_designs, n_tradeoffs, per_cell, n_steps, ...)``. Additional
+    per-cell values, such as an initial-state value prediction, omit the time axis.
     """
 
     data: dict[str, np.ndarray] = dataclasses.field(default_factory=dict)
