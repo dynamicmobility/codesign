@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
 #SBATCH --mem=64G
-#SBATCH --time=24:00:00
+#SBATCH --time=8:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
@@ -31,7 +31,7 @@ export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
 python3 -m scripts.wandb_sweep \
---sweep config/mo_design_hypernetwork/sweeps/cheetah1D_stage1.yaml \
+--sweep config/mo_design_hypernetwork/sweeps/cheetah1D_stage2.yaml \
 --config config/mo_design_hypernetwork/cheetah1D.yaml \
 --num_trials 50 \
 --pace True

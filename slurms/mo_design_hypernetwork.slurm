@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
 #SBATCH --mem=64G
-#SBATCH --time=8:00:00
+#SBATCH --time=2:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
@@ -14,7 +14,7 @@
 
 source ~/.bashrc
 module load anaconda3
-conda activate codesign
+conda activate codesign-scratch
 
 cd /storage/home/hcoda1/3/njanwani3/Documents/codesign
 
@@ -31,4 +31,4 @@ export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
 python3 -m scripts.train \
---config /storage/home/hcoda1/3/njanwani3/Documents/codesign/config/mo_design_hypernetwork_cheetah.yaml
+--config config/mo_design_hypernetwork/cheetah1D.yaml
