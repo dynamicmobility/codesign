@@ -213,7 +213,7 @@ def compute_mo_design_hypernet_loss(
         out_axes=2,
     )(rewards, baseline, bootstrap_value)
     if normalize_advantage:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        advantages = (advantages - advantages.mean(axis=2)) / (advantages.std(axis=2) + 1e-8)
 
     scalar_advantages = jnp.sum(data.tradeoff * advantages, axis=2)
 

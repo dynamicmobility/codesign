@@ -165,23 +165,15 @@ def make_design_hypernet_networks(
         init_noise_std=init_noise_std,
         state_dependent_std=state_dependent_std,
     )
-    if num_value_outputs == 1:
-        value_network = networks.make_value_network(
-            obs_size=observation_size,
-            preprocess_observations_fn=preprocess_observations_fn,
-            hidden_layer_sizes=value_hidden_layer_sizes,
-            activation=activation,
-            obs_key=value_obs_key,
-        )
-    else:
-        value_network = make_vector_value_network(
-            obs_size=observation_size,
-            preprocess_observations_fn=preprocess_observations_fn,
-            hidden_layer_sizes=value_hidden_layer_sizes,
-            num_objectives=num_value_outputs,
-            activation=activation,
-            obs_key=value_obs_key,
-        )
+
+    value_network = make_vector_value_network(
+        obs_size=observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=value_hidden_layer_sizes,
+        num_objectives=num_value_outputs,
+        activation=activation,
+        obs_key=value_obs_key,
+    )
 
     key_policy, key_value = jax.random.split(key)
     target_policy_params = policy_network.init(key_policy)
