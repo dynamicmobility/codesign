@@ -189,8 +189,7 @@ def compute_mo_design_hypernet_loss(
         normalizer_params, value_params, terminal_obs
     )
 
-    # Scalarize the per-objective reward by the per-step tradeoff: [T, B, M] -> [T, B].
-    rewards = jnp.sum(data.tradeoff * data.reward, axis=2) * reward_scaling
+    rewards = data.reward * reward_scaling
 
     truncation = data.extras["state_extras"]["truncation"]
     termination = (1 - data.discount) * (1 - truncation)
@@ -200,22 +199,29 @@ def compute_mo_design_hypernet_loss(
     )
     behaviour_action_log_probs = data.extras["policy_extras"]["log_prob"]
 
-    vs, advantages = ppo_losses.compute_gae(
-        truncation=truncation,
-        termination=termination,
-        rewards=rewards,
-        values=baseline,
-        bootstrap_value=bootstrap_value,
-        lambda_=gae_lambda,
-        discount=discounting,
-    )
+    vs, advantages = jax.vmap(
+        lambda reward, value, bootstrap: ppo_losses.compute_gae(
+            truncation=truncation,
+            termination=termination,
+            rewards=reward,
+            values=value,
+            bootstrap_value=bootstrap,
+            lambda_=gae_lambda,
+            discount=discounting,
+        ),
+        in_axes=(2, 2, 1),
+        out_axes=2,
+    )(rewards, baseline, bootstrap_value)
     if normalize_advantage:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        advantages = (advantages - advantages.mean(axis=2)) / (advantages.std(axis=2) + 1e-8)
+
+    scalar_advantages = jnp.sum(data.tradeoff * advantages, axis=2)
 
     rho_s = jnp.exp(target_action_log_probs - behaviour_action_log_probs)
-    surrogate_loss1 = rho_s * advantages
+    surrogate_loss1 = rho_s * scalar_advantages
     surrogate_loss2 = (
-        jnp.clip(rho_s, 1 - clipping_epsilon, 1 + clipping_epsilon) * advantages
+        jnp.clip(rho_s, 1 - clipping_epsilon, 1 + clipping_epsilon)
+        * scalar_advantages
     )
     policy_loss = -jnp.mean(jnp.minimum(surrogate_loss1, surrogate_loss2))
 

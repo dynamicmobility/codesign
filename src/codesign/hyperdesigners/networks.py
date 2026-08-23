@@ -5,6 +5,8 @@ import flax
 import jax
 import jax.numpy as jnp
 from brax.training import distribution, networks, types
+from brax.training.networks import ActivationFn, DistributionalCritic, Initializer, FeedForwardNetwork, MLP, Mapping
+from brax.training.networks import normalizer_select, _get_obs_state_size
 from brax.training.types import PRNGKey
 from flax import linen
 
@@ -70,6 +72,52 @@ def make_design_hypernetwork(
     return FeedForwardHypernetwork(init=init, apply=apply)
 
 
+def make_vector_value_network(
+    obs_size: types.ObservationSize,
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    hidden_layer_sizes: Sequence[int] = (256, 256),
+    num_objectives: int = 1,
+    activation: ActivationFn = linen.relu,
+    obs_key: str = 'state',
+    kernel_init: Initializer = jax.nn.initializers.lecun_uniform(),
+    use_distributional_critic: bool = False,
+    num_quantiles: int = 32,
+) -> FeedForwardNetwork:
+  """Creates a value network."""
+  if use_distributional_critic:
+    value_module = DistributionalCritic(
+        hidden_layer_sizes=list(hidden_layer_sizes),
+        activation=activation,
+        kernel_init=kernel_init,
+        num_quantiles=num_quantiles,
+    )
+  else:
+    value_module = MLP(
+        layer_sizes=list(hidden_layer_sizes) + [num_objectives],
+        activation=activation,
+        kernel_init=kernel_init,
+    )
+
+  def apply(processor_params, value_params, obs):
+    if isinstance(obs, Mapping):
+      obs = preprocess_observations_fn(
+          obs[obs_key], normalizer_select(processor_params, obs_key)
+      )
+    else:
+      obs = preprocess_observations_fn(obs, processor_params)
+    if use_distributional_critic:
+      v_estimate, quantiles = value_module.apply(value_params, obs)
+      return jnp.squeeze(v_estimate, axis=-1), quantiles
+    else:
+      return jnp.squeeze(value_module.apply(value_params, obs))
+
+  obs_size = _get_obs_state_size(obs_size, obs_key)
+  dummy_obs = jnp.zeros((1, obs_size))
+  return FeedForwardNetwork(
+      init=lambda key: value_module.init(key, dummy_obs), apply=apply
+  )
+
+
 def make_design_hypernet_networks(
     observation_size: types.ObservationSize,
     action_size: int,
@@ -88,6 +136,7 @@ def make_design_hypernet_networks(
     state_dependent_std: bool = False,
     num_features: int = 8,
     w_variance: float = 0.0,
+    num_value_outputs: int = 1,
 ) -> DesignHypernetNetworks:
     """Build the target policy/value MLPs and the design-conditioned hypernetwork."""
     if distribution_type == "normal":
@@ -116,10 +165,12 @@ def make_design_hypernet_networks(
         init_noise_std=init_noise_std,
         state_dependent_std=state_dependent_std,
     )
-    value_network = networks.make_value_network(
+
+    value_network = make_vector_value_network(
         obs_size=observation_size,
         preprocess_observations_fn=preprocess_observations_fn,
         hidden_layer_sizes=value_hidden_layer_sizes,
+        num_objectives=num_value_outputs,
         activation=activation,
         obs_key=value_obs_key,
     )
@@ -192,6 +243,7 @@ def make_mo_design_hypernet_networks(
         state_dependent_std=state_dependent_std,
         num_features=num_features,
         w_variance=w_variance,
+        num_value_outputs=num_objectives,
     )
 
 def make_mo_design_predictor_hypernet_networks(
@@ -246,6 +298,7 @@ def make_mo_design_predictor_hypernet_networks(
         state_dependent_std=state_dependent_std,
         num_features=num_features,
         w_variance=w_variance,
+        num_value_outputs=num_objectives,
     )
 
     if design_distribution_type == "normal":
