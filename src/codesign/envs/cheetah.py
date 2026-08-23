@@ -140,14 +140,18 @@ class MOCodesignCheetah(MOCodesignBase):
             'alive'  : self.reward_alive(),
             'energy' : self.reward_power(data, info),
             'height' : self.mo_backend.reward_height(data),
-            'run'    : self.mo_backend.reward_run(info),
+            'run'    : self.reward_run(info),
             'done'   : self.mo_backend.reward_done(done)
         }
         return rewards
-
+    
+    def reward_run(self, info):
+        reward_run = (info['xposafter'] - info['xposbefore']) / self.dt
+        return reward_run
+    
     def reward_power(self, data, info):
         P = jnp.sum(jnp.square(data.qfrc_actuator[3:])) # power = force * velocity
-        return -P
+        return -P 
     
     def fall_termination(
         self,  
@@ -207,6 +211,28 @@ class MOCodesignCheetah1D(MOCodesignCheetah):
     GEOM_BODY_PAIRS = [
         ('bthigh', 'bshin'),
     ]
+
+class MOCodesignCheetah1DOldEnergy(MOCodesignCheetah):
+
+    GEOM_BODY_PAIRS = [
+        ('bthigh', 'bshin'),
+    ]
+
+    def reward_function(
+        self,
+        data,
+        action,
+        info,
+        done
+    ):
+        rewards = {
+            'alive'  : self.reward_alive(),
+            'energy' : self.mo_backend.reward_energy(action),
+            'height' : self.mo_backend.reward_height(data),
+            'run'    : self.reward_run(info),
+            'done'   : self.mo_backend.reward_done(done)
+        }
+        return rewards
 
 class MOCodesignCheetah2D(MOCodesignCheetah):
 
