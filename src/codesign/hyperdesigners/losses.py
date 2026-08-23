@@ -213,7 +213,12 @@ def compute_mo_design_hypernet_loss(
         out_axes=2,
     )(rewards, baseline, bootstrap_value)
     if normalize_advantage:
-        advantages = (advantages - advantages.mean(axis=2)) / (advantages.std(axis=2) + 1e-8)
+        # Standardize each objective over the batch axes [T, B] only. The objective axis
+        # M is not a batch axis: its entries carry different units, so they get their own
+        # mean/std, which puts them on a common scale before the tradeoff mixes them.
+        mean = advantages.mean(axis=(0, 1), keepdims=True)
+        std = advantages.std(axis=(0, 1), keepdims=True)
+        advantages = (advantages - mean) / (std + 1e-8)
 
     scalar_advantages = jnp.sum(data.tradeoff * advantages, axis=2)
 

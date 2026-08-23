@@ -109,7 +109,10 @@ def make_vector_value_network(
       v_estimate, quantiles = value_module.apply(value_params, obs)
       return jnp.squeeze(v_estimate, axis=-1), quantiles
     else:
-      return jnp.squeeze(value_module.apply(value_params, obs))
+      v = value_module.apply(value_params, obs)
+      # Drop the trailing axis only for a scalar critic; a bare squeeze would also
+      # collapse leading axes that happen to have length 1.
+      return jnp.squeeze(v, axis=-1) if num_objectives == 1 else v
 
   obs_size = _get_obs_state_size(obs_size, obs_key)
   dummy_obs = jnp.zeros((1, obs_size))

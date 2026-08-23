@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: trying-for-good-again
+name: testing-value-2
 save_dir: results/Aug22
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
