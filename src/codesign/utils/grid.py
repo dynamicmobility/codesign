@@ -2,14 +2,15 @@
 """
 
 import dataclasses
+import itertools
 from pathlib import Path
 
 import numpy as np
 import jax
 from mujoco import mjx
 
-from codesign.utils.model import build_batched_model, sample_designs
-from codesign.envs.codesign_base import CodesignBase
+from codesign.utils.model import build_batched_model, sample_designs, unnormalize_design
+from codesign.envs.codesign_base import CodesignBase, MOCodesignBase
 
 def sample_tradeoffs(
     rng: np.random.Generator,
@@ -46,6 +47,17 @@ def sample_tradeoffs(
     return w.astype(np.float32)
 
 
+def _box_designs(rng: np.random.Generator, env: CodesignBase, n_designs: int) -> np.ndarray:
+    """Space-filling sample of ``n_designs`` over the env's design box.
+
+    Returns shape ``(n_designs, design_dim)`` in physical units.
+    """
+    limits = np.asarray(env.design_limits)
+    return sample_designs(
+        rng, n_designs, low=limits[0], high=limits[1], dim=limits.shape[1]
+    )
+
+
 @dataclasses.dataclass
 class DesignTradeoffSampleGrid:
     """A sampled design x tradeoff grid and its flat env-axis ordering."""
@@ -74,17 +86,54 @@ class DesignTradeoffSampleGrid:
         tradeoffs = sample_tradeoffs(
             rng, 0, n_tradeoffs, len(env.objectives), sampling=sampling
         )
-        limits = np.asarray(env.design_limits)
-        designs = sample_designs(
-            rng,
-            n_designs,
-            low=limits[0],
-            high=limits[1],
-            dim=limits.shape[1],
-        )
         return cls(
-            designs=designs,
+            designs=_box_designs(rng, env, n_designs),
             tradeoffs=tradeoffs,
+            per_cell=per_cell,
+        )
+        
+    @classmethod
+    def from_simplex_corners(
+        cls,
+        env: MOCodesignBase,
+        seed: int,
+        n_designs,
+        per_cell: int = 1,
+    ) -> "DesignTradeoffSampleGrid":
+        """Space-filling designs crossed with the one-hot corners of the simplex.
+        """
+        m = len(env.objectives)
+        return cls(
+            designs=_box_designs(np.random.default_rng(seed), env, n_designs),
+            tradeoffs=np.eye(m, dtype=np.float32),
+            per_cell=per_cell,
+        )
+
+    @classmethod
+    def from_2d_tradeoffs(
+        cls,
+        env: MOCodesignBase,
+        seed: int,
+        n_tradeoffs_per_pair,
+        n_designs,
+        per_cell: int = 1,
+    ) -> "DesignTradeoffSampleGrid":
+        """Samples tradeoffs purely in two objectives. For instance when
+        m = 3, samples [x, y, 0], [x, 0, y], [0, x, y]. Useful for when plotting
+        2D paretos from a 3D mo design hypernetwork.
+        """
+        m = len(env.objectives)
+        if m < 2:
+            raise ValueError(f"2D tradeoffs need at least 2 objectives; env has {m}.")
+        x = np.linspace(0.0, 1.0, n_tradeoffs_per_pair, dtype=np.float32)
+        blocks = []
+        for i, j in itertools.combinations(range(m), 2):
+            block = np.zeros((n_tradeoffs_per_pair, m), dtype=np.float32)
+            block[:, i], block[:, j] = x, 1.0 - x
+            blocks.append(block)
+        return cls(
+            designs=_box_designs(np.random.default_rng(seed), env, n_designs),
+            tradeoffs=np.concatenate(blocks, axis=0),
             per_cell=per_cell,
         )
 
@@ -96,6 +145,11 @@ class DesignTradeoffSampleGrid:
     @property
     def n_tradeoffs(self) -> int:
         return self.tradeoffs.shape[0]
+    
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        """Leading grid axes of a rollout over this grid."""
+        return (self.n_designs, self.n_tradeoffs, self.per_cell)
 
     @property
     def num_envs(self) -> int:
@@ -131,6 +185,13 @@ class DesignTradeoffSampleGrid:
         x = np.asarray(x)
         return x.reshape(self.n_designs, self.n_tradeoffs, self.per_cell, *x.shape[1:])
 
+    def to_grid_axes(self, x) -> np.ndarray:
+        """Map an array with :attr:`shape`'s leading axes to ``(design, tradeoff, rep, ...)``.
+
+        Already the rollout's own axis order here, so this is a plain conversion.
+        """
+        return np.asarray(x)
+
 
 @dataclasses.dataclass
 class DesignPredictorSampleGrid:
@@ -145,9 +206,55 @@ class DesignPredictorSampleGrid:
     tradeoffs: np.ndarray    # (n_tradeoffs, num_objectives)
     per_cell: int = 1        # rollout repetitions per (tradeoff, design) cell
 
+    @classmethod
+    def from_predictor(
+        cls,
+        env: CodesignBase,
+        design_predictor_inference_fn,
+        design_params,
+        seed: int,
+        n_tradeoffs: int,
+        group_size: int = 1,
+        per_cell: int = 1,
+        sampling: str = "sparse-heavytail",
+    ) -> "DesignPredictorSampleGrid":
+        """Designs drawn from the trained predictor ``f(d | w)``, one group per tradeoff.
+
+        ``group_size == 1`` takes the predictor's mode (its predicted optimum for that
+        tradeoff); with more, designs are sampled from ``f`` so the group spreads around
+        it. ``sampling`` is passed to :func:`sample_tradeoffs`.
+        """
+        tradeoffs = sample_tradeoffs(
+            np.random.default_rng(seed), 0, n_tradeoffs, len(env.objectives),
+            sampling=sampling,
+        )
+        # One predictor evaluation per (tradeoff, group member).
+        tradeoffs_tiled = np.repeat(tradeoffs, group_size, axis=0)
+        designs_norm, _ = design_predictor_inference_fn(
+            design_params,
+            jax.numpy.asarray(tradeoffs_tiled),
+            deterministic = group_size == 1,
+            key_sample    = jax.random.PRNGKey(seed + 1),
+        )
+        # Designs come out normalized to [0, 1]; the model generator wants physical units.
+        limits = np.asarray(env.design_limits)
+        designs = unnormalize_design(
+            designs_norm.reshape(n_tradeoffs, group_size, -1), limits[0], limits[1]
+        )
+        return cls(
+            designs=np.asarray(designs),
+            tradeoffs=tradeoffs,
+            per_cell=per_cell,
+        )
+
     @property
     def n_tradeoffs(self) -> int:
         return self.tradeoffs.shape[0]
+
+    @property
+    def n_designs(self) -> int:
+        """Designs per tradeoff -- the design axis of a rollout is the group axis."""
+        return self.group_size
 
     @property
     def group_size(self) -> int:
@@ -156,6 +263,11 @@ class DesignPredictorSampleGrid:
     @property
     def num_envs(self) -> int:
         return self.n_tradeoffs * self.group_size * self.per_cell
+
+    @property
+    def shape(self) -> tuple[int, int, int]:
+        """Leading grid axes of a rollout over this grid, group-major."""
+        return (self.n_tradeoffs, self.group_size, self.per_cell)
 
     def build_models(
         self, env: CodesignBase, tiled: bool = True, workers: int = 1
@@ -198,12 +310,16 @@ class DesignPredictorSampleGrid:
         )
 
     def unflatten(self, x) -> np.ndarray:
-        """Reshape a flat env-axis array to ``(group_size, n_tradeoffs, per_cell, ...)``.
+        """Reshape a flat env-axis array to ``(group_size, n_tradeoffs, per_cell, ...)``."""
+        return self.to_grid_axes(self.group_view(np.asarray(x)))
 
-        Group-major axes swapped so the result matches
+    def to_grid_axes(self, x) -> np.ndarray:
+        """Map an array with :attr:`shape`'s leading axes to ``(design, tradeoff, rep, ...)``.
+
+        Swaps the group-major axes so the result matches
         :class:`DesignTradeoffRolloutGrid`'s ``(design, tradeoff, rep)`` convention.
         """
-        return np.swapaxes(self.group_view(np.asarray(x)), 0, 1)
+        return np.swapaxes(np.asarray(x), 0, 1)
 
 
 def _kept(n: int, sel) -> np.ndarray:
