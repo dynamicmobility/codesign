@@ -1,0 +1,14 @@
+# Seed replication: everything from the base config, ten PPO seeds.
+#
+# Grid, not bayes: the point is one run per seed, not a search. `seed` is defined only under
+# ppo_params, so apply_sweep_params routes it there unambiguously. Nothing else is swept, so
+# no batching or eval-grid derivation fires and num_timesteps stays at the base config's 1.5e9.
+# Run with --num_trials 10 so the agent exhausts the grid.
+name: cheetah-1D-usup-seeds
+method: grid
+metric:
+  name: Mean Hypervolume.max # score each run by its best front, not its last
+  goal: maximize
+parameters:
+  seed:
+    values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
