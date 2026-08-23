@@ -1,11 +1,11 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test
-save_dir: results/Aug5
+name: trying-old-energy
+save_dir: results/Aug22
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
-env: "MOCodesignCheetah1D"
+env: "MOCodesignCheetah1DOldEnergy"
 backend: jnp # always jnp for training
 
 env_config:
@@ -16,7 +16,7 @@ env_config:
     weights:
       run:        1.0
       height:     10.0
-      energy:     0.00003
+      energy:     1.0
       alive:      1.0
       done:       0
     optimization:
@@ -56,7 +56,7 @@ learning_params:
     seed: 0
   network_params:
     hypersize: [256, 256]
-    num_features: 32
+    num_features: 16
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:

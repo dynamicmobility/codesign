@@ -130,7 +130,7 @@ class MOCodesignBase(CodesignBase):
                 num_free    = num_free
             )
         else:
-            self.mo_backend: mop.envs.generic.MultiObjectiveBase = mo_backend
+            self.mo_backend = mo_backend
     
     def get_reward_and_metrics(self, rewards, metrics):
         return self.mo_backend.get_reward_and_metrics(rewards, metrics)

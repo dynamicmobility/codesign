@@ -22,6 +22,16 @@ def design_colors(n_designs: int, cmap: str = "viridis") -> np.ndarray:
     """One distinct colour per design."""
     return plt.get_cmap(cmap)(np.linspace(0.0, 1.0, n_designs))
 
+def get_colors(arr: np.ndarray, cmap: str = 'viridis') -> np.ndarray:
+    """Makes a list of colors (N, 3) from arr (N, M), where N is the number
+    of points and M is the number of elements per item in arr."""
+    arr = np.atleast_2d(arr)
+
+    if arr.shape[1] == 1:
+        return plt.get_cmap(name=cmap)(arr)
+    
+    # TODO: implement Nd versions
+
 
 def objective_labels(objectives) -> list[str] | None:
     """Flatten nested objective names (e.g. ``[['run'], ['energy']]``) to strings."""
