@@ -31,6 +31,7 @@ def get_colors(arr: np.ndarray, cmap: str = 'viridis') -> np.ndarray:
         return plt.get_cmap(name=cmap)(arr)
     
     # TODO: implement Nd versions
+    raise NotImplementedError(f'get_colors expects (N, 1); got {arr.shape}')
 
 
 def objective_labels(objectives) -> list[str] | None:
