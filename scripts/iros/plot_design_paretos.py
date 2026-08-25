@@ -5,8 +5,9 @@ import moplayground as mop
 from itertools import combinations
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
+from moplayground.utils.pareto import get_nondominated
 
-DATASET = 'scripts/outputs/datasets/ls8xn17y/sweep_2d.npz'
+DATASET = 'scripts/outputs/datasets/95mhoslv/sweep_2d.npz'
 # DATASET = 'scripts/outputs/datasets/sweep-j24wm6rn-best-again/sweep.npz'
 OUT_DIR = 'scripts/iros/outputs'
 TRADEOFF_LABELS = ['Run', 'Energy', 'Height']
@@ -30,19 +31,6 @@ def main():
         designs  = np.repeat(usup.designs, on_face.sum(), axis=0)
 
         fig, ax = plt.subplots(figsize=(5, 4), layout='constrained')
-        mop.plot_pareto(
-            ax        = ax,
-            pareto    = rewards[:, objs],
-            colors    = codesign.get_colors(norm(designs), cmap=CMAP)[:, 0, :],
-            objective = [TRADEOFF_LABELS[o] for o in objs],
-            dominated_alpha = 0.2,
-            dominated_s = 8,
-            nondominated_s  = 30,
-            outline_nondominated=1.0,
-            show_dominated=False,
-            connect=True
-        )
-
         # one frontier per called-out design, coloured on the same scale as the colorbar
         for d in (DESIGN_A, DESIGN_B):
             on_design = np.isclose(d, designs, atol=1e-1).ravel()
@@ -55,16 +43,45 @@ def main():
                 connect=True,
                 nondominated_s  = 30,
                 outline_nondominated=1.0,
-                set_lims=False
+                set_lims=False,
+                marker='s',
             )
         
+        mop.plot_pareto(
+            ax        = ax,
+            pareto    = rewards[:, objs],
+            colors    = codesign.get_colors(norm(designs), cmap=CMAP)[:, 0, :],
+            objective = [TRADEOFF_LABELS[o] for o in objs],
+            dominated_alpha = 0.2,
+            dominated_s = 8,
+            nondominated_s  = 30,
+            outline_nondominated=1.0,
+            show_dominated=False,
+            connect=True,
+            marker='o'
+        )
+
+        nd_idx = get_nondominated(rewards[:, objs])
+        nd_rewards = rewards[:, objs][nd_idx]
+        rewards_sorted = np.sort(np.sum(rewards[:, objs][nd_idx], axis=1))
+        # print(rewards_sorted[int(rewards_sorted.size/2)])
+        nd_designs = designs[nd_idx, :]
+        print(f"In {TRADEOFF_LABELS[objs[0]]} vs {TRADEOFF_LABELS[objs[1]]}, the " \
+              f"{TRADEOFF_LABELS[objs[0]]} maximizing design is {nd_designs[np.argmax(nd_rewards[:, 0])]} " \
+              f"the {TRADEOFF_LABELS[objs[1]]} maximizing design is {nd_designs[np.argmax(nd_rewards[:, 1])]} " \
+              f"and the mixed maximizing design is {nd_designs[np.argmax(nd_rewards[:, 0] + nd_rewards[:, 1])]}")
+
+        # print(f"Color for {nd_designs[np.argmax(nd_rewards[:, 0])]} is {codesign.get_colors(norm(designs), cmap=CMAP)[:, nd_designs[np.argmax(nd_rewards[:, 0])], :]}")
+        # print(f"Color for {nd_designs[np.argmax(nd_rewards[:, 1])]} is {codesign.get_colors(norm(designs), cmap=CMAP)[:, nd_designs[np.argmax(nd_rewards[:, 1])], :]}")
+        # print(f"Color for {nd_designs[np.argmax(nd_rewards[:, 0] + nd_rewards[:, 1])]} is {codesign.get_colors(norm(designs), cmap=CMAP)[:, nd_designs[np.argmax(nd_rewards[:, 0] + nd_rewards[:, 1])], :]}")
+
         ax = codesign.dress_axis(ax)
         # ax.set_title(f"Desi{' vs. '.join(TRADEOFF_LABELS[o] for o in objs)}")
         fig.colorbar(
             ScalarMappable(norm=norm, cmap=CMAP), ax=ax, label=DESIGN_LABEL, aspect=50
         )
         name = '_'.join(TRADEOFF_LABELS[o].lower() for o in objs)
-        fig.savefig(f'{OUT_DIR}/dsup_vs_usup_{name}.svg')
+        fig.savefig(f'{OUT_DIR}/design_pareto_{name}.svg')
         plt.close(fig)
 
 if __name__ == '__main__':
