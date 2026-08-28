@@ -14,7 +14,7 @@ from codesign.optimizers import TurboState, TurboOptimizer
 from codesign.utils import model as model_lib
 from codesign.eval.parallel_eval import rollout_so_parallel
 from minimal_mjx.eval import policy as policy_lib
-from codesign.learning.inference import load_design_hypernetwork, load_design_value_hypernetwork
+from codesign.learning.inference import load_design_hypernetwork, load_design_value_hypernetwork, load_mo_design_value_hypernetwork
 from functools import partial
 
 import minimal_mjx as mm
@@ -29,9 +29,9 @@ import time
 warnings.filterwarnings("ignore", category=BadInitialCandidatesWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-CONFIG_PATH = "config/design_hypernetwork/cheetah6D.yaml"
+CONFIG_PATH = "config/mo_design_hypernetwork/cheetah3D.yaml"
 config     = mm.utils.config.create_config_dict(mop.utils.read_config(CONFIG_PATH))
-env, env_params = codesign.load_env(config=config, backend="np")
+env, env_params = codesign.load_env(config=config, backend="jnp")
 
 _, reset = mm.get_step_reset(env)
 
@@ -39,12 +39,12 @@ lower_bounds = np.array([env_params.codesign.low])
 upper_bounds = np.array([env_params.codesign.high])
 
 batch_size=4
-dim = 6
+dim = len(lower_bounds)
 n_init = 16
 max_cholesky_size = float("inf")  # Always use Cholesky
 
 # value_inference_fn is the hypernetwork
-value_inference_fn, params = load_design_value_hypernetwork(config)
+value_inference_fn, params = load_mo_design_value_hypernetwork(config)
 
 
 def rollout_fun(designs_normalized: torch.Tensor):
