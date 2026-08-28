@@ -296,6 +296,7 @@ def rollout_mo_design_hypernetwork(
         rewards       = grid.to_grid_axes(final_rewards),
         objectives    = env.objectives,
         data          = {**_named_records(records, grid.to_grid_axes), "value": values},
+        config        = config,
     )
 
 

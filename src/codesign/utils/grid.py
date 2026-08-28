@@ -405,7 +405,6 @@ class DesignTradeoffRolloutGrid:
     def load(cls, path: str | Path) -> "DesignTradeoffRolloutGrid":
         return cls(**cls._fields(np.load(path, allow_pickle=True)))
 
-# TODO: add config yaml here to be saved with dataset
 @dataclasses.dataclass
 class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
     """A :class:`DesignTradeoffRolloutGrid` plus the per-step trajectories behind it.
@@ -416,9 +415,10 @@ class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
     """
 
     data: dict[str, np.ndarray] = dataclasses.field(default_factory=dict)
-    # TODO: add a config data attribute that stores which config generated the dataset
+    config: dict | None = None
 
     _DATA_PREFIX = "data/"  # npz namespace keeping ``data`` apart from the grid arrays
+    _CONFIG_KEY = "config"
 
     @classmethod
     def from_flat(
@@ -427,10 +427,12 @@ class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
         flat_rewards,
         objectives: list | None = None,
         flat_data: dict | None = None,
+        config: dict | None = None,
     ) -> "DesignTradeoffDataset":
         """Build from per-env rewards and trajectories in ``grid``'s flat env ordering."""
         dataset = super().from_flat(grid, flat_rewards, objectives)
         dataset.data = {k: grid.unflatten(v) for k, v in (flat_data or {}).items()}
+        dataset.config = config
         return dataset
 
     @property
@@ -439,10 +441,13 @@ class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
         return sorted(self.data)
 
     def _arrays(self) -> dict[str, np.ndarray]:
-        return {
+        arrays = {
             **super()._arrays(),
             **{self._DATA_PREFIX + k: v for k, v in self.data.items()},
         }
+        if self.config is not None:
+            arrays[self._CONFIG_KEY] = np.asarray(self.config, dtype=object)
+        return arrays
 
     @classmethod
     def _fields(cls, npz) -> dict:
@@ -452,4 +457,5 @@ class DesignTradeoffDataset(DesignTradeoffRolloutGrid):
             data={
                 k[cut:]: npz[k] for k in npz.files if k.startswith(cls._DATA_PREFIX)
             },
+            config=npz[cls._CONFIG_KEY].item() if cls._CONFIG_KEY in npz else None,
         )
