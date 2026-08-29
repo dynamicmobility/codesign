@@ -61,6 +61,12 @@ def setup_mo_design_hypernetwork(config):
         value_hidden_layer_sizes    = tuple(net["value_hidden_layer_sizes"]),
     )
 
+    OPTIONAL_ARGS = ( # TODO: move these into the required args when mature
+        (design_sampling,   "num_eval_designs"),
+        (tradeoff_sampling, "num_eval_tradeoffs"),
+    )
+    optional_params = {a: group[a] for group, a in OPTIONAL_ARGS if a in group}
+
     train_fn = functools.partial(
         train_mo_design_hypernetwork,
         network_factory       = network_factory,
@@ -72,6 +78,7 @@ def setup_mo_design_hypernetwork(config):
         num_tradeoffs         = tradeoff_sampling["num_tradeoffs"],
         alpha                 = tradeoff_sampling["alpha"],
         sampling              = tradeoff_sampling["sampling"],
+        **optional_params,
         **ppo,
     )
     return train_fn, network_factory

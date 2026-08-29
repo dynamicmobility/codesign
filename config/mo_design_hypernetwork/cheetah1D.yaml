@@ -1,11 +1,11 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: testing-value-2
-save_dir: results/Aug22
+name: trying-with-design-pareto-prog-2
+save_dir: results/Aug29
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
-env: "MOCodesignCheetah1DOldEnergy"
+env: "MOCodesignCheetah1D"
 backend: jnp # always jnp for training
 
 env_config:
@@ -16,7 +16,7 @@ env_config:
     weights:
       run:        1.0
       height:     10.0
-      energy:     1.0
+      energy:     0.00003
       alive:      1.0
       done:       0
     optimization:
@@ -24,6 +24,7 @@ env_config:
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
       default_scalarization: [1.0, 1.0, 1.0]
+      reference_point:       [0.0, 0.0, 0.0]
   termination:
     enabled: true
     base_height: 0.2
@@ -34,7 +35,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 1500000000
+    num_timesteps: 500000000
     episode_length: 500
     num_envs: 8192
     unroll_length: 26

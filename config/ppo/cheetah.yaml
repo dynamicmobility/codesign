@@ -1,5 +1,5 @@
 # PPO training config.
-name: shortfront-longback
+name: longfront-shortback
 save_dir: results/Aug29
 description: Normal RL
 algorithm: ppo
@@ -27,8 +27,8 @@ env_config:
     base_height: 0.2
   codesign:
     # default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    # default_design: [1.0, 1.0, 1.0, 0.6, 0.6, 0.6]
-    default_design: [0.6, 0.6, 0.6, 1.0, 1.0, 1.0]
+    default_design: [1.0, 1.0, 1.0, 0.6, 0.6, 0.6]
+    # default_design: [0.6, 0.6, 0.6, 1.0, 1.0, 1.0]
     low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
     high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
