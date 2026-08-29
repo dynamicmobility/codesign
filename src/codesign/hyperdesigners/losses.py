@@ -59,13 +59,13 @@ def compute_design_mlp_loss(
     """
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
-        design_networks.policy_network.apply, in_axes=(None, 0, 1)
+        design_networks.policy_network.apply, in_axes=(None, None, 1)
     )
     value_apply = jax.vmap(
-        design_networks.value_network.apply, in_axes=(None, 0, 1)
+        design_networks.value_network.apply, in_axes=(None, None, 1)
     )
     single_value_apply = jax.vmap(
-        design_networks.value_network.apply, in_axes=(None, 0, 0)
+        design_networks.value_network.apply, in_axes=(None, None, 0)
     )
 
     # Per-env policy/value params from the hypernetwork (design is constant over time).

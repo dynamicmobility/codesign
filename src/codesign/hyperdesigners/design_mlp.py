@@ -76,12 +76,17 @@ def train_design_mlp(
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
+    assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
     num_scans = batch_size * num_minibatches // num_envs
     env_step_per_training_step = batch_size * unroll_length * num_minibatches
     num_evals_after_init = max(num_evals - 1, 1)
-    num_training_steps_per_epoch = int(
-        np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
+    num_training_steps_per_chunk = int(
+        np.ceil(
+            num_timesteps
+            / (num_evals_after_init * resamples_per_epoch * env_step_per_training_step)
+        )
     )
+    num_training_steps_per_epoch = num_training_steps_per_chunk * resamples_per_epoch
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
@@ -192,6 +197,7 @@ def train_design_mlp(
         policy = inference_fn(
             (training_state.normalizer_params, training_state.params.policy_params),
             designs,
+            deterministic=False
         )
 
         def scan_unroll(c, _):
@@ -248,7 +254,7 @@ def train_design_mlp(
             first_state=first_state,
         )
         (training_state, state, _), metrics = jax.lax.scan(
-            step, (training_state, state, key), (), length=num_training_steps_per_epoch
+            step, (training_state, state, key), (), length=num_training_steps_per_chunk
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, state, metrics

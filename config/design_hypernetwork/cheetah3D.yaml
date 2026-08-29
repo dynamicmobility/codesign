@@ -1,10 +1,10 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test
-save_dir: results/Aug28
-description: "Single-objective design-conditioned MLP network PPO over 3D CodesignCheetah."
-algorithm: "design_mlp"
+name: test-design-hypernetwork-3D
+save_dir: results/Aug29
+description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
+algorithm: design_hypernetwork
 env: "MOCodesignCheetahBackLegs"
 backend: jnp # always jnp for training
 
@@ -60,12 +60,6 @@ learning_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
-    num_designs: 32
-    num_eval_designs: 8
+    num_designs: 8 
     resamples_per_epoch: 1
     sampling: random
-  tradeoff_sampling:
-    num_tradeoffs: 8
-    num_eval_tradeoffs: 8
-    alpha: 1.0
-    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg

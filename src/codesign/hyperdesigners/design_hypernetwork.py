@@ -176,6 +176,7 @@ def train_design_hypernetwork(
         policy = inference_fn(
             (training_state.normalizer_params, training_state.params.hypernetwork),
             designs,
+            deterministic=False,
         )
 
         def scan_unroll(c, _):
