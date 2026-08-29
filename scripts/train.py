@@ -17,6 +17,8 @@ import codesign
 
 def get_handle_params(config):
     match config.algorithm:
+        case 'design_mlp':
+            return codesign.hyperdesigners.setup_design_mlp
         case 'design_hypernetwork':
             return codesign.hyperdesigners.setup_design_hypernetwork
         case 'mo_design_hypernetwork':
@@ -38,7 +40,7 @@ def get_progress_fn(config, env: codesign.CodesignBase):
         )
         # return functools.partial(plot_mo_design_progress, training_data=training_data)
         return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
-    elif config.algorithm == 'design_hypernetwork' or config.algorithm == 'ppo':
+    elif config.algorithm in ['design_hypernetwork', 'ppo', 'design_mlp']:
         return None
     else:
         raise Exception(f'Unknown algorithm {config.algorithm}')
@@ -56,6 +58,11 @@ def wrap_env(config, env):
                 design = config.env_config.codesign.default_design
             )
         case 'design_hypernetwork':
+            env = codesign.CodesignMO2SO(
+                env       = env,
+                weighting = config.env_config.reward.optimization.default_scalarization
+            )
+        case 'design_mlp':
             env = codesign.CodesignMO2SO(
                 env       = env,
                 weighting = config.env_config.reward.optimization.default_scalarization

@@ -1,5 +1,6 @@
 import functools
 
+from codesign.hyperdesigners.design_mlp import train_design_mlp
 from codesign.hyperdesigners.design_hypernetwork import train_design_hypernetwork
 from codesign.hyperdesigners.mo_design_hypernetwork import (
     train_mo_design_hypernetwork,
@@ -9,6 +10,7 @@ from codesign.hyperdesigners.mo_design_predictor_hypernetwork import (
 )
 from codesign.hyperdesigners.networks import (
     make_design_hypernet_networks,
+    make_design_mlp_networks,
     make_mo_design_hypernet_networks,
     make_mo_design_predictor_hypernet_networks,
 )
@@ -72,6 +74,34 @@ def setup_mo_design_hypernetwork(config):
         num_tradeoffs         = tradeoff_sampling["num_tradeoffs"],
         alpha                 = tradeoff_sampling["alpha"],
         sampling              = tradeoff_sampling["sampling"],
+        **ppo,
+    )
+    return train_fn, network_factory
+
+
+def setup_design_mlp(config):
+    """Return ``(train_fn, network_factory)`` for the multi-objective design hypernetwork.
+    """
+    lp                = config["learning_params"]
+    ppo               = dict(lp["ppo_params"])
+    net               = dict(lp["network_params"])
+    codesign          = dict(config['env_config']['codesign'])
+    design_sampling   = dict(lp['design_sampling'])
+
+    network_factory = functools.partial(
+        make_design_mlp_networks,
+        policy_hidden_layer_sizes   = tuple(net["policy_hidden_layer_sizes"]),
+        value_hidden_layer_sizes    = tuple(net["value_hidden_layer_sizes"]),
+    )
+
+    train_fn = functools.partial(
+        train_design_mlp,
+        network_factory       = network_factory,
+        design_low            = codesign["low"],
+        design_high           = codesign["high"],
+        design_dim            = len(codesign["low"]),
+        num_designs           = design_sampling["num_designs"],
+        resamples_per_epoch   = design_sampling["resamples_per_epoch"],
         **ppo,
     )
     return train_fn, network_factory

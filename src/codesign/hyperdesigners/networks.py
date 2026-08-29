@@ -19,6 +19,14 @@ class FeedForwardHypernetwork:
     apply: Callable[..., Any]
 
 
+# Represents an MLP conditioned on design for single-objective multi-design
+@flax.struct.dataclass
+class DesignNetworks:
+    policy_network: networks.FeedForwardNetwork
+    value_network: networks.FeedForwardNetwork
+    parametric_action_distribution: distribution.ParametricDistribution
+
+
 @flax.struct.dataclass
 class DesignHypernetNetworks:
     hypernetwork: FeedForwardHypernetwork
@@ -35,6 +43,124 @@ class DesignPredictorHypernetNetworks:
     design_predictor_network: networks.FeedForwardNetwork
     parametric_design_distribution: distribution.ParametricDistribution
 
+
+def make_design_mlp_networks(
+    observation_size: types.ObservationSize,
+    action_size: int,
+    design_dim: int,
+    key: jax.Array,
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    activation: networks.ActivationFn = linen.swish,
+    policy_obs_key: str = "state",
+    value_obs_key: str = "state",
+    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    noise_std_type: Literal["scalar", "log"] = "scalar",
+    init_noise_std: float = 1.0,
+    state_dependent_std: bool = False,
+    num_value_outputs: int = 1,
+)->DesignNetworks:
+    """Build the target policy/value MLPs and the design-conditioned hypernetwork."""
+    if distribution_type == "normal":
+        parametric_action_distribution = distribution.NormalDistribution(
+            event_size=action_size
+        )
+    elif distribution_type == "tanh_normal":
+        parametric_action_distribution = distribution.NormalTanhDistribution(
+            event_size=action_size
+        )
+    else:
+        raise ValueError(
+            f'Unsupported distribution type: {distribution_type}. Must be one'
+            ' of "normal" or "tanh_normal".'
+        )
+    print(observation_size[policy_obs_key][-1])
+    policy_network = networks.make_policy_network(
+        param_size=parametric_action_distribution.param_size,
+        obs_size=observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=policy_hidden_layer_sizes,
+        activation=activation,
+        obs_key=policy_obs_key,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+    )
+
+    value_network = make_vector_value_network(
+        obs_size=observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=value_hidden_layer_sizes,
+        num_objectives=num_value_outputs,
+        activation=activation,
+        obs_key=value_obs_key,
+    )
+
+    return DesignNetworks(
+        policy_network=policy_network,
+        value_network=value_network,
+        parametric_action_distribution=parametric_action_distribution,
+    )
+
+def make_design_mlp_inference_fn(networks_: DesignNetworks):
+    """Inference-fn factory keyed on the robot design.
+
+    Returns ``inference_fn(params, design, deterministic=False) -> policy(obs, key)``,
+    where ``params = (normalizer_params, hypernet_params)``. ``design`` may be a single
+    design ``(design_dim,)`` or batched ``(num_envs, design_dim)``; in the batched case
+    obs/params are vmapped over the leading env axis.
+    """
+
+    def design_mlp_inference_fn(
+        params: types.Params, design: jax.Array, deterministic: bool = True
+    ) -> types.Policy:
+        normalizer_params, policy_params = params[0], params[1]
+        policy_network = networks_.policy_network
+        parametric_action_distribution = networks_.parametric_action_distribution
+
+        if len(design.shape) == 1:
+            policy_apply = policy_network.apply
+        else:
+            policy_apply = jax.vmap(policy_network.apply, in_axes=(None, None, 0))
+
+        def policy(
+            observations: types.Observation, key_sample: PRNGKey
+        ) -> Tuple[types.Action, types.Extra]:
+            design_input = jax.tree_util.tree_map(
+                lambda obs: jnp.broadcast_to(
+                    design, obs.shape[:-1] + design.shape[-1:]
+                ),
+                observations,
+            )
+
+            logits = policy_apply(
+                normalizer_params,
+                policy_params,
+                jax.tree_util.tree_map(
+                    lambda obs, des: jnp.concatenate((obs, des), axis=-1),
+                    observations,
+                    design_input,
+                ),
+            )
+            if deterministic:
+                return parametric_action_distribution.mode(logits), {}
+            raw_actions = parametric_action_distribution.sample_no_postprocessing(
+                logits, key_sample
+            )
+            log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
+            postprocessed_actions = parametric_action_distribution.postprocess(
+                raw_actions
+            )
+            return postprocessed_actions, {
+                "log_prob": log_prob,
+                "raw_action": raw_actions,
+            }
+
+        return policy
+
+    return design_mlp_inference_fn
 
 def make_design_hypernetwork(
     design_dim: int,
