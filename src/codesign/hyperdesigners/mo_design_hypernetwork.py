@@ -1,6 +1,7 @@
 """``mo_design_hypernetwork`` training algo.
 """
 
+import dataclasses
 import functools
 import time
 from typing import Callable
@@ -12,13 +13,11 @@ import numpy as np
 import optax
 from brax.training import gradients
 from brax.training.acme import running_statistics
-from mujoco import mjx
 
 from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
-from codesign.utils.grid import DesignTradeoffSampleGrid, DesignTradeoffRolloutGrid
-from codesign.utils import sample_tradeoffs
+from codesign.utils.grid import Grid
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_mo_design_hypernet_loss,
@@ -58,14 +57,11 @@ def train_mo_design_hypernetwork(
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
     normalize_observations: bool = True,
-    design_low: float = 0.5,
-    design_high: float = 2.0,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
-    warmup_frac: float = 0.0,
     network_factory: Callable = net_lib.make_mo_design_hypernet_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
@@ -109,45 +105,26 @@ def train_mo_design_hypernetwork(
     key, key_net = jax.random.split(key)
     key_env = jax.random.fold_in(key, 1)
     key_eval = jax.random.fold_in(key, 2)
-    design_rng = np.random.default_rng(seed)
-    tradeoff_rng = np.random.default_rng(seed + 1)
+    grid_rng = np.random.default_rng(seed)
 
     jit_reset = jax.jit(
         lambda rngs, model: acting.reset(environment, rngs, model)
     )
 
-    model_treedef = None
-    def build_grid(
-        n_designs, n_tradeoffs, per_cell, d_rng, w_rng, it, num_objectives
-    ):
+    reference_model = None  # treedef of the first stacked model; see build_grid
+    def build_grid(n_designs, n_tradeoffs, per_cell, rng):
         """Sample a design x tradeoff grid and build the tiled per-env model.
-
-        Returns ``(grid, batched_model, designs_input, tradeoffs_full)`` where the last
-        three have a leading env axis of ``grid.num_envs`` in the grid's flat env ordering.
         """
-        nonlocal model_treedef
-        designs_unique = model_lib.sample_designs(
-            d_rng, n_designs, design_low, design_high, design_dim
-        )
-        tradeoffs_unique = sample_tradeoffs(
-            w_rng, it, n_tradeoffs, num_objectives,
+        nonlocal reference_model
+        grid = Grid.from_uniform_sample(
+            environment, rng, n_tradeoffs, n_designs, per_cell,
             sampling=sampling, alpha=alpha,
         )
-        grid = DesignTradeoffSampleGrid(
-            designs=designs_unique, tradeoffs=tradeoffs_unique, per_cell=per_cell
+        batched_model, designs_input, tradeoffs = grid.env_inputs(
+            environment, like=reference_model
         )
-
-        batched_model = grid.build_models(environment, tiled=True)
-        leaves, treedef = jax.tree_util.tree_flatten(batched_model)
-        if model_treedef is None:
-            model_treedef = treedef
-        batched_model = jax.tree_util.tree_unflatten(model_treedef, leaves)
-
-        designs_full, tradeoffs_full = grid.flatten()
-        designs_input = model_lib.normalize_design(
-            jnp.asarray(designs_full), design_low, design_high
-        )
-        return grid, batched_model, designs_input, jnp.asarray(tradeoffs_full)
+        reference_model = batched_model
+        return grid, batched_model, designs_input, tradeoffs
     
     obs_size = environment.observation_size
     num_objectives = len(environment.params.reward.optimization.objectives)
@@ -316,11 +293,7 @@ def train_mo_design_hypernetwork(
         return ret
 
     eval_grid_bundle = build_grid(
-        num_eval_designs, num_eval_tradeoffs, eval_envs_per_cell,
-        np.random.default_rng(seed + 1000),
-        np.random.default_rng(seed + 1001),
-        num_evals_after_init,  # past warmup for eval
-        num_objectives,
+        num_eval_designs, num_eval_tradeoffs, eval_envs_per_cell, seed + 1000
     )
 
     def evaluate(training_state, key):
@@ -346,8 +319,8 @@ def train_mo_design_hypernetwork(
             metrics[f"eval/episode_reward_obj{i}"] = float(np.mean(ret[:, i]))
 
         # Design x tradeoff grid of per-objective returns, for Pareto plotting.
-        metrics["eval_grid"] = DesignTradeoffRolloutGrid.from_flat(
-            eval_grid, ret, objectives=environment.objectives
+        metrics["eval_grid"] = dataclasses.replace(
+            eval_grid, rewards=eval_grid.unflatten(ret)
         )
         return metrics
 
@@ -387,8 +360,7 @@ def train_mo_design_hypernetwork(
             # Redraw the grid, rebuild the per-env models, and restart the envs on them
             # (the robot itself changed, so the carried state is stale).
             _, batched_model, designs_input, tradeoffs = build_grid(
-                num_designs, num_tradeoffs, envs_per_cell,
-                design_rng, tradeoff_rng, it, num_objectives,
+                num_designs, num_tradeoffs, envs_per_cell, grid_rng
             )
             key_env, sub = jax.random.split(key_env)
             rngs = jax.random.split(sub, num_envs)

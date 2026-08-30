@@ -34,8 +34,6 @@ def setup_design_hypernetwork(config):
     train_fn = functools.partial(
         train_design_hypernetwork,
         network_factory   = network_factory,
-        design_low        = design["low"],
-        design_high       = design["high"],
         design_dim        = len(design['low']),
         num_designs       = design_sampling.get("num_designs", 8),
         **ppo,
@@ -70,8 +68,6 @@ def setup_mo_design_hypernetwork(config):
     train_fn = functools.partial(
         train_mo_design_hypernetwork,
         network_factory       = network_factory,
-        design_low            = codesign["low"],
-        design_high           = codesign["high"],
         design_dim            = len(codesign["low"]),
         num_designs           = design_sampling["num_designs"],
         resamples_per_epoch   = design_sampling["resamples_per_epoch"],
@@ -123,8 +119,6 @@ def setup_mo_design_predictor_hypernetwork(config):
     train_fn = functools.partial(
         train_mo_design_predictor,
         network_factory              = network_factory,
-        design_low                   = codesign["low"],
-        design_high                  = codesign["high"],
         design_dim                   = len(codesign["low"]),
         num_designs                  = design_sampling["num_designs"],
         resamples_per_epoch          = design_sampling["resamples_per_epoch"],

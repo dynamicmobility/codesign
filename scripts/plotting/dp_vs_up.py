@@ -41,29 +41,27 @@ def select_tradeoffs(tradeoffs, sample, n_tradeoffs, fixed, rng) -> np.ndarray:
 
 def check_shared_tradeoffs(sweep, predictor) -> None:
     """Both grids must sit on the same tradeoffs for a column-by-column comparison."""
-    if sweep.tradeoffs.shape != predictor.tradeoffs.shape or not np.allclose(
-        sweep.tradeoffs, predictor.tradeoffs, atol=1e-6
-    ):
+    a, b = sweep.unique_tradeoffs, predictor.unique_tradeoffs
+    if a.shape != b.shape or not np.allclose(a, b, atol=1e-6):
         raise ValueError(
             f"'{SWEEP_NAME}' and '{PREDICTOR_NAME}' were rolled out on different tradeoffs "
-            f"{sweep.tradeoffs.shape} vs {predictor.tradeoffs.shape}; regenerate both with "
-            f"the same --seed, --n_tradeoffs and env."
+            f"{a.shape} vs {b.shape}; regenerate both with the same --seed, --n_tradeoffs "
+            f"and env."
         )
 
 
 def designs_at(dataset, t: int) -> np.ndarray:
-    """The designs behind tradeoff column ``t``, returns ``(n_designs, design_dim)``.
+    """The designs behind tradeoff column ``t``, ``(n_designs, design_dim)``.
 
-    The sweep shares one design set across all tradeoffs; the predictor draws its own per
-    tradeoff, so its ``designs`` carry an extra tradeoff axis.
+    A grid cell carries its own design either way: the sweep repeats one design down the
+    whole tradeoff row, the predictor drew a fresh group for each column.
     """
-    designs = np.asarray(dataset.designs)
-    return designs[:, t] if designs.ndim == 3 else designs
+    return np.asarray(dataset.designs)[:, t]
 
 
 def scalarized(dataset, t: int) -> np.ndarray:
     """``w . R`` per design: the scalar that tradeoff ``w`` asks the design to maximize."""
-    return dataset.mean_rewards[:, t] @ np.asarray(dataset.tradeoffs)[t]
+    return dataset.mean_rewards[:, t] @ dataset.unique_tradeoffs[t]
 
 
 def plot_tradeoff_1d(ax, up_designs, up_returns, dp_designs) -> bool:
@@ -122,8 +120,8 @@ def tradeoff_title(tradeoff, labels) -> str:
 
 def main(args) -> None:
     data_path = Path(args.data_path)
-    sweep     = codesign.DesignTradeoffDataset.load(data_path / SWEEP_NAME)
-    predictor = codesign.DesignTradeoffDataset.load(data_path / PREDICTOR_NAME)
+    sweep     = codesign.Grid.load(data_path / SWEEP_NAME)
+    predictor = codesign.Grid.load(data_path / PREDICTOR_NAME)
     check_shared_tradeoffs(sweep, predictor)
 
     design_dim = np.asarray(sweep.designs).shape[-1]
@@ -134,7 +132,7 @@ def main(args) -> None:
         )
 
     indices = select_tradeoffs(
-        np.asarray(sweep.tradeoffs), args.tradeoff_sample, args.n_tradeoffs,
+        sweep.unique_tradeoffs, args.tradeoff_sample, args.n_tradeoffs,
         args.fixed_tradeoff, np.random.default_rng(args.seed),
     )
     labels = codesign.objective_labels(sweep.objectives)
@@ -153,7 +151,7 @@ def main(args) -> None:
         drew_density |= plot_fn(
             ax, designs_at(sweep, t), scalarized(sweep, t), designs_at(predictor, t)
         )
-        ax.set_title(tradeoff_title(np.asarray(sweep.tradeoffs)[t], labels), fontsize=10)
+        ax.set_title(tradeoff_title(sweep.unique_tradeoffs[t], labels), fontsize=10)
     for ax in axes.ravel()[len(indices):]:
         ax.set_visible(False)
 

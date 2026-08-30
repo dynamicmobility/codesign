@@ -19,16 +19,16 @@ DESIGN_A = 0.5
 DESIGN_B = 2.0
 
 def main():
-    usup = codesign.DesignTradeoffDataset.load(DATASET)
+    usup = codesign.Grid.load(DATASET)
     num_obj = usup.rewards.shape[-1]
     norm = Normalize(vmin=usup.designs.min(), vmax=usup.designs.max())
 
     for objs in combinations(range(num_obj), 2):
         # the pair's 2D face: tradeoffs putting no weight on the objective left out
         left_out = (set(range(num_obj)) - set(objs)).pop()
-        on_face  = np.isclose(usup.tradeoffs[:, left_out], 0, atol=1e-3)
+        on_face  = np.isclose(usup.unique_tradeoffs[:, left_out], 0, atol=1e-3)
         rewards  = usup.mean_rewards[:, on_face].reshape(-1, num_obj)
-        designs  = np.repeat(usup.designs, on_face.sum(), axis=0)
+        designs  = usup.designs[:, on_face].reshape(-1, usup.design_dim)
 
         fig, ax = plt.subplots(figsize=(5, 4), layout='constrained')
         # one frontier per called-out design, coloured on the same scale as the colorbar

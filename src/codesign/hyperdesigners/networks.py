@@ -301,7 +301,6 @@ def make_mo_design_predictor_hypernet_networks(
         state_dependent_std=state_dependent_std,
         num_features=num_features,
         w_variance=w_variance,
-        num_value_outputs=num_objectives,
     )
 
     if design_distribution_type == "normal":
@@ -450,7 +449,7 @@ def make_design_inference_fn(networks_: DesignHypernetNetworks):
     """
 
     def design_inference_fn(
-        params: types.Params, design: jax.Array, deterministic: bool = True
+        params: types.Params, design: jax.Array, deterministic: bool = False
     ) -> types.Policy:
         normalizer_params, hypernet_params = params[0], params[1]
         policy_network = networks_.policy_network

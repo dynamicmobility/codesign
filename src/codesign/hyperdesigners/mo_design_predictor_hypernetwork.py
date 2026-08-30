@@ -1,6 +1,7 @@
 """``mo_design_hypernetwork`` training algo using design predictor to guide designs
 """
 
+import dataclasses
 import functools
 import time
 from typing import Callable
@@ -17,8 +18,7 @@ from brax.training.types import Params
 from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
-from codesign.utils.grid import DesignPredictorSampleGrid, DesignTradeoffRolloutGrid
-from codesign.utils import sample_tradeoffs
+from codesign.utils.grid import Grid, sample_tradeoffs
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     DesignPredictorTransition,
@@ -64,8 +64,6 @@ def train_mo_design_predictor(
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
     normalize_observations: bool = True,
-    design_low: float = 0.5,
-    design_high: float = 2.0,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
     # design predictor
@@ -77,7 +75,6 @@ def train_mo_design_predictor(
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
-    warmup_frac: float = 0.0,
     network_factory: Callable = net_lib.make_mo_design_predictor_hypernet_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
@@ -163,73 +160,47 @@ def train_mo_design_predictor(
             optax.clip_by_global_norm(max_grad_norm), optax.adam(design_learning_rate)
         )
 
-    model_treedef = None
+    reference_model = None  # treedef of the first stacked model; see build_grid
     def build_grid(
-        n_tradeoffs, n_designs, per_cell, w_rng, key_sample, it, design_params,
+        n_designs, n_tradeoffs, per_cell, rng, key_sample, it, design_params,
         tradeoffs=None,
     ):
-        """Sample a tradeoff-paired design grid from ``f(d | w)`` and build its models.
-
-        Each of ``n_tradeoffs`` tradeoffs gets ``n_designs`` designs drawn from
-        ``f(. | w)`` -- one GRPO group per tradeoff. Pass ``tradeoffs`` to reuse a fixed
-        set instead of drawing new ones. While ``it < num_warmup_iters`` the designs are
-        instead spread over the whole box via Sobol, independently of the tradeoff.
-
-        Returns ``(grid, batched_model, designs_input, tradeoffs_full, raw, log_prob)``.
-        The middle three have a leading env axis of ``grid.num_envs`` in the grid's flat
-        env ordering; ``raw``/``log_prob`` keep the ``(n_tradeoffs, n_designs, ...)``
-        group axes the GRPO loss expects, and are ``None`` during warmup.
-        """
-        nonlocal model_treedef
-
-        if tradeoffs is None:
-            tradeoffs = sample_tradeoffs(
-                w_rng, it, n_tradeoffs, num_objectives,
-                sampling=sampling, alpha=alpha,
-            )
-
-        # One predictor evaluation per (tradeoff, group member).
-        tradeoffs_tiled = jnp.repeat(jnp.asarray(tradeoffs), n_designs, axis=0)
-
+        """Sample a tradeoff-paired design grid from ``f(d | w)`` and build its models."""
+        nonlocal reference_model
         if it < num_warmup_iters:
-            # Warmup: cover the box with a Sobol sample instead of drawing from DP.
-            designs_norm = jnp.asarray(model_lib.sample_designs(
-                warmup_rng, n_tradeoffs * n_designs, low=0.0, high=1.0, dim=design_dim
-            ))
-            extras = None
+            # Warmup: cover the box with a Sobol sample instead of drawing from f.
+            if tradeoffs is None:
+                tradeoffs = sample_tradeoffs(
+                    rng, n_tradeoffs, num_objectives, sampling=sampling, alpha=alpha
+                )
+            low, high = np.asarray(environment.design_limits)
+            designs = model_lib.sample_designs(
+                warmup_rng, n_designs * n_tradeoffs, low, high, design_dim
+            ).reshape(n_designs, n_tradeoffs, design_dim)
+            grid, extras = Grid.paired(
+                designs, tradeoffs, per_cell, objectives=environment.objectives
+            ), None
         else:
-            designs_norm, extras = design_predictor_inference_fn(
-                design_params, tradeoffs_tiled, deterministic=False, key_sample=key_sample
+            grid, extras = Grid.from_predictor(
+                environment,
+                design_predictor_inference_fn,
+                design_params,
+                seed          = rng,
+                n_tradeoffs   = n_tradeoffs,
+                n_designs     = n_designs,
+                per_cell      = per_cell,
+                sampling      = sampling,
+                alpha         = alpha,
+                tradeoffs     = tradeoffs,
+                key           = key_sample,
+                deterministic = False,
             )
-        # Designs come out normalized to [0, 1]; the model generator wants physical units.
-        designs = model_lib.unnormalize_design(
-            jnp.reshape(designs_norm, (n_tradeoffs, n_designs, design_dim)),
-            design_low, design_high,
-        )
-        grid = DesignPredictorSampleGrid(
-            designs=np.asarray(designs), tradeoffs=tradeoffs, per_cell=per_cell
-        )
 
-        batched_model = grid.build_models(environment)
-        leaves, treedef = jax.tree_util.tree_flatten(batched_model)
-        if model_treedef is None:
-            model_treedef = treedef
-        batched_model = jax.tree_util.tree_unflatten(model_treedef, leaves)
-
-        designs_full, tradeoffs_full = grid.flatten()
-        designs_input = model_lib.normalize_design(
-            jnp.asarray(designs_full), design_low, design_high
+        batched_model, designs_input, tradeoffs_full = grid.env_inputs(
+            environment, like=reference_model
         )
-        raw = log_prob = None
-        if extras is not None:
-            raw = jnp.reshape(
-                extras["raw_action"], (n_tradeoffs, n_designs, design_dim)
-            )
-            log_prob = jnp.reshape(extras["log_prob"], (n_tradeoffs, n_designs))
-        return (
-            grid, batched_model, designs_input, jnp.asarray(tradeoffs_full),
-            raw, log_prob,
-        )
+        reference_model = batched_model
+        return grid, batched_model, designs_input, tradeoffs_full, extras
 
     loss_fn = functools.partial(
         compute_mo_design_hypernet_loss,
@@ -422,15 +393,15 @@ def train_mo_design_predictor(
     # Tradeoffs are pinned across epochs so hypervolume stays comparable; only the
     # designs move, tracking the predictor.
     eval_tradeoffs = sample_tradeoffs(
-        np.random.default_rng(seed + 1001), num_evals_after_init, num_eval_tradeoffs,
-        num_objectives, sampling=sampling, alpha=alpha,
+        np.random.default_rng(seed + 1001), num_eval_tradeoffs, num_objectives,
+        sampling=sampling, alpha=alpha,
     )
     corner_tradeoffs = jnp.eye(num_objectives, dtype=jnp.float32)
 
     def evaluate(training_state, design_params, key):
         key, key_grid, key_rollout = jax.random.split(key, 3)
-        grid, model, designs, tradeoffs, _, _ = build_grid(
-            num_eval_tradeoffs, num_eval_designs, eval_envs_per_cell,
+        grid, model, designs, tradeoffs, _ = build_grid(
+            num_eval_designs, num_eval_tradeoffs, eval_envs_per_cell,
             None, key_grid, num_evals_after_init, design_params,
             tradeoffs=eval_tradeoffs,
         )
@@ -458,19 +429,14 @@ def train_mo_design_predictor(
             design_predictor_inference_fn(
                 design_params, corner_tradeoffs, deterministic=True
             )[0],
-            design_low, design_high,
+            *np.asarray(environment.design_limits),
         )
         for i in range(num_objectives):
             for j in range(design_dim):
                 metrics[f"eval/design_mode_obj{i}_dim{j}"] = float(corner_designs[i, j])
 
         # Predictor sample x tradeoff grid of per-objective returns, for Pareto plotting.
-        metrics["eval_grid"] = DesignTradeoffRolloutGrid(
-            designs    = np.asarray(grid.designs).swapaxes(0, 1),
-            tradeoffs  = np.asarray(grid.tradeoffs),
-            rewards    = grid.unflatten(ret),
-            objectives = environment.objectives,
-        )
+        metrics["eval_grid"] = dataclasses.replace(grid, rewards=grid.unflatten(ret))
         return metrics
 
     # Initialize training state.
@@ -520,8 +486,8 @@ def train_mo_design_predictor(
         for _ in range(resamples_per_epoch):
             # Redraw the designs and restart the envs on them
             key_design, key_sample = jax.random.split(key_design)
-            grid, batched_model, designs_input, tradeoffs, raw, log_prob = build_grid(
-                num_tradeoffs, group_size, envs_per_cell,
+            grid, batched_model, designs_input, tradeoffs, extras = build_grid(
+                group_size, num_tradeoffs, envs_per_cell,
                 tradeoff_rng, key_sample, it, design_predictor_state.params,
             )
             key_env, sub = jax.random.split(key_env)
@@ -547,20 +513,21 @@ def train_mo_design_predictor(
                 ),
                 tradeoffs,
             )
-            # [num_envs] -> (n_tradeoffs, G, per_cell) -> average out the repetitions.
-            values = jnp.mean(grid.group_view(values), axis=2)
+            # [num_envs] -> (G, n_tradeoffs, per_cell) -> average out the repetitions,
+            # then to the tradeoff-major group layout GRPO reads.
+            values = jnp.mean(grid.unflatten(values), axis=2).swapaxes(0, 1)
 
             # Warmup designs did not come from f, so there is no ratio to update it on.
             design_metrics = {}
-            if raw is not None:
+            if extras is not None:
                 key_design, key_grad = jax.random.split(key_design)
                 design_predictor_state, design_metrics = design_sgd(
                     design_predictor_state,
                     DesignPredictorTransition(
-                        tradeoff        = jnp.asarray(grid.tradeoffs),
-                        raw_design      = raw,
+                        tradeoff        = jnp.asarray(grid.unique_tradeoffs),
+                        raw_design      = extras["raw_action"],
                         value           = values,
-                        design_log_prob = log_prob,
+                        design_log_prob = extras["log_prob"],
                     ),
                     key_grad,
                 )

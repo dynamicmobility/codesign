@@ -12,11 +12,11 @@ import numpy as np
 import optax
 from brax.training import gradients
 from brax.training.acme import running_statistics
-from mujoco import mjx
 
 from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
+from codesign.utils.grid import Grid
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_design_hypernet_loss,
@@ -48,8 +48,6 @@ def train_design_hypernetwork(
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
     normalize_observations: bool = True,
-    design_low: float = 0.5,
-    design_high: float = 2.0,
     design_dim: int = 1,
     num_designs: int = 8,
     reward_objective_weights: tuple | None = None,
@@ -92,25 +90,19 @@ def train_design_hypernetwork(
         lambda rngs, model: acting.reset(environment, rngs, model)
     )
 
-    def sample_designs_and_model(rng, n):
+    reference_model = None  # treedef of the first stacked model; see build_grid
+    def build_grid(rng, n):
         """Sample ``num_designs`` designs and tile them across ``n`` envs.
-
-        Returns ``(designs_np, batched_model, designs_input)``, each with a leading env
-        axis of ``n``; one model is compiled per distinct design and then repeated.
         """
-        reps = n // num_designs
-        designs_np = model_lib.sample_designs(
-            rng, num_designs, design_low, design_high, design_dim
+        nonlocal reference_model
+        grid = Grid.from_design_sample(
+            environment, rng, num_designs, per_cell=n // num_designs
         )
-        batched_model = jax.tree_util.tree_map(
-            lambda x: jnp.repeat(x, reps, axis=0),
-            model_lib.build_batched_model(environment, designs_np),
+        batched_model, designs_input, _ = grid.env_inputs(
+            environment, like=reference_model
         )
-        designs_np = np.repeat(designs_np, reps, axis=0)
-        designs_input = model_lib.normalize_design(
-            jnp.asarray(designs_np), design_low, design_high
-        )
-        return designs_np, batched_model, designs_input
+        reference_model = batched_model
+        return batched_model, designs_input
     
     obs_size = environment.observation_size
     normalize = (
@@ -257,9 +249,7 @@ def train_design_hypernetwork(
         return ret
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
-    _, eval_model, eval_designs = sample_designs_and_model(
-        np.random.default_rng(seed + 1000), num_eval_envs
-    )
+    eval_model, eval_designs = build_grid(seed + 1000, num_eval_envs)
 
     def evaluate(training_state, key):
         eval_rngs = jax.random.split(key, num_eval_envs)
@@ -307,9 +297,7 @@ def train_design_hypernetwork(
 
     walltime = 0.0
     for it in range(num_evals_after_init):
-        designs_np, batched_model, designs_input = sample_designs_and_model(
-            design_rng, num_envs
-        )
+        batched_model, designs_input = build_grid(design_rng, num_envs)
         key_env, sub = jax.random.split(key_env)
         rngs = jax.random.split(sub, num_envs)
         env_state = jit_reset(rngs, batched_model)

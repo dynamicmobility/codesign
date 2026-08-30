@@ -6,7 +6,7 @@ from pathlib import Path
 
 import minimal_mjx as mm
 import moplayground as mop
-
+from functools import partial
 import codesign
 
 ENTITY            = "vmadabushi3-georgia-institute-of-technology"
@@ -23,12 +23,12 @@ PER_CELL    = 1    # rollout repetitions per (design, tradeoff) cell
 STEPS       = 500  # rollout length (env steps)
 RECORD      = ("reward", "done", "qpos")
 
-# Tradeoff layout of the non-predictor grid -> its DesignTradeoffSampleGrid constructor
-# and the keyword --n_tradeoffs feeds it (None where the layout fixes its own count).
+# Tradeoff layout of the non-predictor grid -> its Grid constructor and the keyword
+# --n_tradeoffs feeds it (None where the layout fixes its own count).
 TRADEOFF_LAYOUTS = {
-    "uniform" : (codesign.DesignTradeoffSampleGrid.from_uniform_sample, "n_tradeoffs"),
-    "corners" : (codesign.DesignTradeoffSampleGrid.from_simplex_corners, None),
-    "2d"      : (codesign.DesignTradeoffSampleGrid.from_2d_tradeoffs, "n_tradeoffs_per_pair"),
+    "uniform" : (codesign.Grid.from_uniform_sample, "n_tradeoffs"),
+    "corners" : (codesign.Grid.from_simplex_corners, None),
+    "2d"      : (codesign.Grid.from_2d_tradeoffs, "n_tradeoffs_per_pair"),
 }
 TRADEOFFS = "uniform"
 
@@ -51,21 +51,27 @@ def load_config(args) -> dict:
     return mm.create_config_dict(config)
 
 
-def build_sweep_grid(env, args) -> codesign.DesignTradeoffSampleGrid:
-    """The non-predictor grid: a Sobol design sweep crossed with ``--tradeoffs``.
-
-    All three layouts sweep the design box the same way and differ only in which
-    tradeoffs they cross it with: ``uniform`` samples the whole simplex, ``corners``
-    takes just its one-hot corners (one per objective), and ``2d`` sweeps the edge of
-    every objective pair, ``--n_tradeoffs`` weights per pair.
+def build_sweep_grid(env, args) -> codesign.Grid:
+    """Builds the sweep grid depending on the sampling strategy in args.tradeoffs
     """
-    build, count_arg = TRADEOFF_LAYOUTS[args.tradeoffs]
+    match args.tradeoffs:
+        case 'uniform':
+            build = partial(
+                codesign.Grid.from_uniform_sample,
+                n_tradeoffs = args.n_tradeoffs
+            )
+        case 'corners':
+            build = codesign.Grid.from_simplex_corners
+        case '2d':
+            build = partial(
+                codesign.Grid.from_2d_tradeoffs,
+                n_tradeoffs_per_pair = args.n_tradeoffs
+            )
     return build(
         env,
         seed      = args.seed,
         n_designs = args.n_designs,
         per_cell  = args.per_cell,
-        **({count_arg: args.n_tradeoffs} if count_arg else {}),
     )
 
 
@@ -89,17 +95,18 @@ def main(args) -> None:
         _, design_predictor_inference_fn, params = (
             codesign.load_mo_design_predictor_hypernetwork(config, path=args.checkpoint)
         )
-        return codesign.DesignPredictorSampleGrid.from_predictor(
+        grid, _ = codesign.Grid.from_predictor(
             env,
             design_predictor_inference_fn,
             params[2],
             seed        = args.seed,
             n_tradeoffs = args.n_tradeoffs,
-            group_size  = args.n_designs,
+            n_designs   = args.n_designs,
             per_cell    = args.per_cell,
         )
+        return grid
 
-    def rollout(design_predictor: bool) -> codesign.DesignTradeoffDataset:
+    def rollout(design_predictor: bool) -> codesign.Grid:
         return codesign.rollout_mo_design_hypernetwork(
             env              = env,
             config           = config,

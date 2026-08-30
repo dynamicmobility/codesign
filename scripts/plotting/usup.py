@@ -6,26 +6,26 @@ import moplayground as mop
 def main():
     fig, axs = plt.subplots(ncols=3)
     axs = axs.flatten()
-    dpup = codesign.DesignTradeoffDataset.load('scripts/outputs/datasets/7sesooah/sweep.npz')
-    usup = codesign.DesignTradeoffDataset.load('scripts/outputs/datasets/ls8xn17y/sweep.npz')
+    dpup = codesign.Grid.load('scripts/outputs/datasets/7sesooah/sweep.npz')
+    usup = codesign.Grid.load('scripts/outputs/datasets/ls8xn17y/sweep.npz')
     for i, ax in enumerate(axs):
         value_ax = ax.twinx()
         for dataset, color, label in (
             (dpup, 'C0', 'DPUP value prediction'),
             (usup, 'C1', 'USUP value prediction'),
         ):
-            values = np.asarray(dataset.data['value'][:, i])
-            values = values.reshape(values.shape[0], -1).mean(axis=1)
-            order = np.argsort(dataset.designs[:, 0])
+            # column i is tradeoff i: its (n_designs, per_cell) values and own designs
+            values = np.asarray(dataset.data['value'][:, i]).mean(axis=1)
+            designs = dataset.designs[:, i, 0]
+            order = np.argsort(designs)
             value_ax.plot(
-                dataset.designs[order, 0], values[order], '--', color=color,
-                label=label,
+                designs[order], values[order], '--', color=color, label=label,
             )
 
         codesign.plot_design_sweep_1d(
             ax            = ax,
-            designs       = dpup.designs,
-            returns       = dpup.rewards[:, i] @ dpup.tradeoffs[i],
+            designs       = dpup.designs[:, i],
+            returns       = dpup.rewards[:, i] @ dpup.unique_tradeoffs[i],
             style         = 'band',
             bins          = 32,
             sweep_label   = 'DPUP',
@@ -34,8 +34,8 @@ def main():
 
         codesign.plot_design_sweep_1d(
             ax                  = ax,
-            designs             = usup.designs,
-            returns             = usup.rewards[:, i] @ usup.tradeoffs[i],
+            designs             = usup.designs[:, i],
+            returns             = usup.rewards[:, i] @ usup.unique_tradeoffs[i],
             style               = 'band',
             bins                = 32,
             sweep_color         = 'C1',
@@ -50,7 +50,7 @@ def main():
             handles, labels = ax.get_legend_handles_labels()
             value_handles, value_labels = value_ax.get_legend_handles_labels()
             ax.legend(handles + value_handles, labels + value_labels)
-        ax.set_title(f'Tradeoff = {dpup.tradeoffs[i]}')
+        ax.set_title(f'Tradeoff = {dpup.unique_tradeoffs[i]}')
     
     # fig.legend()
     fig.set_size_inches((15, 8))

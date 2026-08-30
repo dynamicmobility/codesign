@@ -2,7 +2,7 @@
 #
 # H_\pi(d, w) = \pi(a | s)
 name: test-design-hypernetwork-1D
-save_dir: results/Aug3
+save_dir: results/Aug29
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: design_hypernetwork
 env: "MOCodesignCheetah1D"

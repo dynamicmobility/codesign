@@ -109,7 +109,7 @@ def plot_design_objective_pareto(
 
 def plot_sequential_design_paretos(
     ax_titles: list,
-    grids: list,                   # list of DesignTradeoffRolloutGrid
+    grids: list,                   # list of Grid
 ):
     """One subplot per checkpoint, each showing every design's Pareto frontier."""
     rewards_seq = [g.mean_rewards for g in grids]

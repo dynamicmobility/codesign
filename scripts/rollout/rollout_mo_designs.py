@@ -22,7 +22,7 @@ OUT_DIR = Path("scripts/outputs")
 
 
 def plot_mo_designs_rollout(
-    grid: codesign.DesignTradeoffRolloutGrid,
+    grid: codesign.Grid,
     save_dir: Path = None,
     show_dominated_designs=True,
 ):
@@ -64,7 +64,7 @@ def main(
     npz_path: str | None = None,
 ) -> None:
     if npz_path is not None:
-        grid = codesign.DesignTradeoffRolloutGrid.load(npz_path)
+        grid = codesign.Grid.load(npz_path)
         print(f"Loaded rollout from {npz_path} (rewards shape {grid.rewards.shape})")
     else:
         config     = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
@@ -78,16 +78,16 @@ def main(
                     config, path=checkpoint_path
                 )
             )
-            sample_grid = codesign.DesignPredictorSampleGrid.from_predictor(
+            sample_grid, _ = codesign.Grid.from_predictor(
                 env,
                 design_predictor_inference_fn,
                 params[2],
                 seed        = 0,
                 n_tradeoffs = n_tradeoffs,
-                group_size  = n_designs,
+                n_designs   = n_designs,
             )
         else:
-            sample_grid = codesign.DesignTradeoffSampleGrid.from_uniform_sample(
+            sample_grid = codesign.Grid.from_uniform_sample(
                 env, seed=0, n_tradeoffs=n_tradeoffs, n_designs=n_designs
             )
 
