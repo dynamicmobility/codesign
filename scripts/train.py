@@ -34,12 +34,15 @@ def get_progress_fn(config, env: codesign.CodesignBase):
     frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
     
     if config.algorithm in ('mo_design_hypernetwork', 'mo_design_predictor_hypernetwork'):
+        optimization = config.env_config.reward.optimization
         training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = env.objectives,
+            ref_point  = optimization.get('reference_point', None),
         )
         # return functools.partial(plot_mo_design_progress, training_data=training_data)
-        return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
+        # return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
+        return functools.partial(codesign.plot_design_pareto_progress, training_data=training_data)
     elif config.algorithm in ['design_hypernetwork', 'ppo', 'design_mlp']:
         return None
     else:

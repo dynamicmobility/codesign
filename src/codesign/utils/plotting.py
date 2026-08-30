@@ -216,7 +216,7 @@ def plot_design_sweep_1d(
     sweep_color         : str = 'C0',
     best_point_color    : str = 'C0',
     sweep_label         : str = 'Design sweep',
-    band_label          : str = 'Sweep $\\pm 1 \sigma$',
+    band_label          : str = r'Sweep $\pm 1 \sigma$',
     points_label        : str = 'Design rollouts',
     optimum_label       : str = 'Optimal design',
 
@@ -363,17 +363,18 @@ def plot_pareto_statistics(
     iterations: list,
     hvs: np.ndarray,
     sps: np.ndarray,
+    hv_label: str = "Hypervolume (averaged over designs)",
 ):
     """Hypervolume and front spacing vs. env steps, one panel each.
 
-    ``hvs`` and ``sps`` is per-eval hypervolume and spacing averaged over 
-    designs, respectively.    
+    ``hvs`` and ``sps`` is per-eval hypervolume and spacing, respectively;
+    ``hv_label`` names how they were pooled over the design axis.
     """
     fig, (hv_ax, sp_ax) = plt.subplots(
         2, 1, sharex=True, figsize=(6.5, 5.5), height_ratios=[1, 1]
     )
     panels = (
-        (hv_ax, hvs, "#2a78d6", "Hypervolume (averaged over designs)"),
+        (hv_ax, hvs, "#2a78d6", hv_label),
         (sp_ax, sps, "#eb6834", "Front spacing"),
     )
     for ax, values, color, label in panels:
@@ -402,6 +403,7 @@ class MODesignTrainingPlottingInfo:
     times         : list = field(default_factory=list)
     labels        : list = field(default_factory=list)
     aux           : dict[str, list] = field(default_factory=dict)
+    ref_point     : list | None = None  # hypervolume reference; None means the origin
 
     def save(self, save_dir):
         pd.DataFrame(
@@ -468,20 +470,20 @@ def plot_mean_hv_progress(
     run: wandb.Run = None,
     **kwargs
 ):
-    """Log Pareto statistics accumulated over the *design* axis of the eval grid.
+    """Log Pareto statistics per design of the eval grid.
 
-    Hypervolume is summed over designs. Spacing is averaged over them.
     """
     print_training_update(num_steps)
     times.append(time.time())
     grid = metrics['eval_grid']
     mean_rewards = grid.mean_rewards
     per_design = [
-        mop.get_pareto_statistics(mean_rewards[d])
+        mop.get_pareto_statistics(mean_rewards[d], ref_point=training_data.ref_point)
         for d in range(mean_rewards.shape[0])
     ]
-    hv = float(np.mean([h for h, _ in per_design]))
-    sp = float(np.mean([s for _, s in per_design]))
+    hv    = float(np.mean([h for h, _ in per_design]))
+    sp    = float(np.mean([s for _, s in per_design]))
+    sp_sd = float(np.std([s for _, s in per_design]))
     training_data.update(
         num_steps = num_steps,
         grid      = grid,
@@ -496,9 +498,9 @@ def plot_mean_hv_progress(
     if run:
         run.log(
             {
-                'Mean Hypervolume' : hv,
-                'Average Spacing'        : float(sps.mean()),
-                'Spacing Standard Dev.'  : float(sps.std()),
+                'Mean Hypervolume'       : hv,
+                'Mean Front Spacing'     : sp,
+                'Front Spacing Std. Dev.': sp_sd,
                 **scalar_metrics(metrics),
             },
             step=num_steps,
@@ -510,3 +512,54 @@ def plot_mean_hv_progress(
         fig.savefig(save_dir / 'progress.svg')
         plt.close(fig)
 
+
+def plot_design_pareto_progress(
+    num_steps: int,
+    metrics: dict,
+    training_data: MODesignTrainingPlottingInfo,
+    times: list,
+    save_dir: Path = None,
+    run: wandb.Run = None,
+    **kwargs
+):
+    """Log Design-Pareto statistics. i.e. only Pareto-optimal designs are 
+    included in the front.
+    """
+    print_training_update(num_steps)
+    times.append(time.time())
+    grid = metrics['eval_grid']
+    mean_rewards = grid.mean_rewards  # (n_designs, n_tradeoffs, num_objectives)
+    hv, sp = mop.get_pareto_statistics(
+        mean_rewards.reshape(-1, mean_rewards.shape[-1]),
+        ref_point = training_data.ref_point,
+    )
+    training_data.update(
+        num_steps = num_steps,
+        grid      = grid,
+        time      = time.time(),
+        hv        = float(hv),
+        sp        = float(sp),
+    )
+
+    hvs = np.asarray(training_data.aux['hv'])
+    sps = np.asarray(training_data.aux['sp'])
+
+    if run:
+        run.log(
+            {
+                'Pareto-Optimal Design Hypervolume'   : float(hv),
+                'Pareto-Optimal Design Spacing'       : float(sp),
+                **scalar_metrics(metrics),
+            },
+            step=num_steps,
+        )
+
+    if save_dir:
+        training_data.save(save_dir / 'design_pareto_progress.csv')
+        grid.save(save_dir / f"eval_grid_{num_steps}.npz")
+        fig = plot_pareto_statistics(
+            training_data.iterations, hvs, sps,
+            hv_label = "Hypervolume (pooled over designs)",
+        )
+        fig.savefig(save_dir / 'progress.svg')
+        plt.close(fig)
