@@ -18,19 +18,19 @@ from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
 from codesign.utils import model as model_lib
 from codesign.hyperdesigners.losses import (
-    DesignHypernetParams,
-    compute_design_hypernet_loss,
+    DesignMLPParams,
+    compute_design_mlp_loss,
 )
 
 
 @flax.struct.dataclass
 class TrainingState:
     optimizer_state: optax.OptState
-    params: DesignHypernetParams
+    params: DesignMLPParams
     normalizer_params: running_statistics.RunningStatisticsState
 
 
-def train_design_hypernetwork(
+def train_design_mlp(
     environment,
     num_timesteps: int,
     episode_length: int,
@@ -53,7 +53,8 @@ def train_design_hypernetwork(
     design_dim: int = 1,
     num_designs: int = 8,
     reward_objective_weights: tuple | None = None,
-    network_factory: Callable = net_lib.make_design_hypernet_networks,
+    network_factory: Callable = net_lib.make_design_mlp_networks,
+    resamples_per_epoch: int = 1,
     num_evals: int = 10,
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
@@ -75,12 +76,17 @@ def train_design_hypernetwork(
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
+    assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
     num_scans = batch_size * num_minibatches // num_envs
     env_step_per_training_step = batch_size * unroll_length * num_minibatches
     num_evals_after_init = max(num_evals - 1, 1)
-    num_training_steps_per_epoch = int(
-        np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
+    num_training_steps_per_chunk = int(
+        np.ceil(
+            num_timesteps
+            / (num_evals_after_init * resamples_per_epoch * env_step_per_training_step)
+        )
     )
+    num_training_steps_per_epoch = num_training_steps_per_chunk * resamples_per_epoch
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
@@ -111,19 +117,34 @@ def train_design_hypernetwork(
             jnp.asarray(designs_np), design_low, design_high
         )
         return designs_np, batched_model, designs_input
-    
-    obs_size = environment.observation_size
+
+    obs_size = jax.tree_util.tree_map(
+        lambda size: (
+            size[:-1] + (size[-1] + design_dim,)
+            if isinstance(size, tuple)
+            else size + design_dim
+        ),
+        environment.observation_size,
+        is_leaf=lambda size: isinstance(size, tuple),
+    )
+
+    def append_design(observation, design):
+        return jax.tree_util.tree_map(
+            lambda obs: jnp.concatenate((obs, design), axis=-1), observation
+        )
+
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
     )
-    design_networks = network_factory(
+    design_networks: net_lib.DesignNetworks = network_factory(
         observation_size=obs_size,
         action_size=environment.action_size,
         design_dim=design_dim,
         key=key_net,
         preprocess_observations_fn=normalize,
     )
-    inference_fn = net_lib.make_design_inference_fn(design_networks)
+
+    inference_fn = net_lib.make_design_mlp_inference_fn(design_networks)
 
     optimizer = optax.adam(learning_rate)
     if max_grad_norm is not None:
@@ -132,7 +153,7 @@ def train_design_hypernetwork(
         )
 
     loss_fn = functools.partial(
-        compute_design_hypernet_loss,
+        compute_design_mlp_loss,
         design_networks=design_networks,
         entropy_cost=entropy_cost,
         discounting=discounting,
@@ -174,9 +195,9 @@ def train_design_hypernetwork(
         training_state, state, key = carry
         key_sgd, key_unroll, new_key = jax.random.split(key, 3)
         policy = inference_fn(
-            (training_state.normalizer_params, training_state.params.hypernetwork),
+            (training_state.normalizer_params, training_state.params.policy_params),
             designs,
-            deterministic=False,
+            deterministic=False
         )
 
         def scan_unroll(c, _):
@@ -206,7 +227,8 @@ def train_design_hypernetwork(
         )
 
         normalizer_params = running_statistics.update(
-            training_state.normalizer_params, data.observation
+            training_state.normalizer_params,
+            append_design(data.observation, data.design),
         )
         (opt_state, params, _), metrics = jax.lax.scan(
             functools.partial(
@@ -224,7 +246,7 @@ def train_design_hypernetwork(
         return (new_ts, state, new_key), metrics
 
     @jax.jit
-    def training_epoch(training_state, state, key, batched_model, designs, first_state):
+    def training_chunk(training_state, state, key, batched_model, designs, first_state):
         step = functools.partial(
             training_step,
             batched_model=batched_model,
@@ -232,16 +254,16 @@ def train_design_hypernetwork(
             first_state=first_state,
         )
         (training_state, state, _), metrics = jax.lax.scan(
-            step, (training_state, state, key), (), length=num_training_steps_per_epoch
+            step, (training_state, state, key), (), length=num_training_steps_per_chunk
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, state, metrics
 
     @jax.jit
-    def eval_unroll(normalizer_params, hypernet_params, designs, batched_model, rngs, key):
+    def eval_unroll(normalizer_params, policy_params, designs, batched_model, rngs, key):
         state = acting.reset(environment, rngs, batched_model)
         policy = inference_fn(
-            (normalizer_params, hypernet_params), designs, deterministic=deterministic_eval
+            (normalizer_params, policy_params), designs, deterministic=deterministic_eval
         )
 
         def body(carry, _):
@@ -266,7 +288,7 @@ def train_design_hypernetwork(
         eval_rngs = jax.random.split(key, num_eval_envs)
         ret = eval_unroll(
             training_state.normalizer_params,
-            training_state.params.hypernetwork,
+            training_state.params.policy_params,
             eval_designs,
             eval_model,
             eval_rngs,
@@ -279,8 +301,9 @@ def train_design_hypernetwork(
         }
 
     # Initialize training state.
-    init_params = DesignHypernetParams(
-        hypernetwork=design_networks.hypernetwork.init(key_net)
+    init_params = DesignMLPParams(
+        policy_params=design_networks.policy_network.init(key_net),
+        value_params=design_networks.value_network.init(key_net)
     )
     normalizer_params = running_statistics.init_state(
         model_lib.observation_spec(obs_size)
@@ -303,28 +326,41 @@ def train_design_hypernetwork(
     if run_evals and num_evals > 1:
         metrics = evaluate(training_state, key_eval)
         progress_fn(0, metrics)
-    params = (training_state.normalizer_params, training_state.params.hypernetwork)
+    params = (training_state.normalizer_params, training_state.params.policy_params)
     policy_params_fn(0, inference_fn, params)
 
     walltime = 0.0
     for it in range(num_evals_after_init):
-        designs_np, batched_model, designs_input = sample_designs_and_model(
-            design_rng, num_envs
-        )
-        key_env, sub = jax.random.split(key_env)
-        rngs = jax.random.split(sub, num_envs)
-        env_state = jit_reset(rngs, batched_model)
-        first_state = env_state
-
-        key, epoch_key = jax.random.split(key)
         t0 = time.time()
-        training_state, env_state, train_metrics = training_epoch(
-            training_state, env_state, epoch_key, batched_model, designs_input, first_state
+        chunk_metrics = []
+        for _ in range(resamples_per_epoch):
+            # Redraw the grid, rebuild the per-env models, and restart the envs on them
+            # (the robot itself changed, so the carried state is stale).
+            _, batched_model, designs_input = sample_designs_and_model(
+                design_rng, num_envs
+            )
+            key_env, sub = jax.random.split(key_env)
+            rngs = jax.random.split(sub, num_envs)
+            env_state = jit_reset(rngs, batched_model)
+            first_state = env_state
+
+            key, chunk_key = jax.random.split(key)
+            training_state, env_state, train_metrics = training_chunk(
+                training_state, env_state, chunk_key, batched_model, designs_input, first_state
+            )
+            chunk_metrics.append(train_metrics)
+
+        train_metrics = jax.tree_util.tree_map(
+            lambda *xs: jnp.mean(jnp.stack(xs)), *chunk_metrics
         )
-        train_metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), train_metrics)
+        train_metrics = jax.tree_util.tree_map(
+            lambda x: x.block_until_ready(), train_metrics
+        )
         epoch_time = time.time() - t0
         walltime += epoch_time
-        current_step = (it + 1) * num_training_steps_per_epoch * env_step_per_training_step
+        current_step = (
+            (it + 1) * num_training_steps_per_epoch * env_step_per_training_step
+        )
 
         metrics = {
             "training/sps": (num_training_steps_per_epoch * env_step_per_training_step)
@@ -336,7 +372,7 @@ def train_design_hypernetwork(
             key_eval, eval_subkey = jax.random.split(key_eval)
             metrics.update(evaluate(training_state, eval_subkey))
 
-        params = (training_state.normalizer_params, training_state.params.hypernetwork)
+        params = (training_state.normalizer_params, training_state.params.policy_params)
         policy_params_fn(current_step, inference_fn, params)
         progress_fn(current_step, metrics)
 

@@ -1,5 +1,5 @@
 from codesign.envs.codesign_base import CodesignBase, CodesignMO2SO
-from codesign.envs.cheetah import MOCodesignCheetah, MOCodesignCheetah1D, MOCodesignCheetah1DOldEnergy
+from codesign.envs.cheetah import *
 from codesign.envs.TwoAxis import TwoAxis
 from codesign.envs.RHex import RHex
 import minimal_mjx as mm
@@ -16,6 +16,8 @@ def load_env(config: dict, backend: str | None = None) -> tuple[CodesignBase, di
         env = MOCodesignCheetah1D(env_params=env_params, backend=backend)
     elif(env_name == 'MOCodesignCheetah1DOldEnergy'):
         env = MOCodesignCheetah1DOldEnergy(env_params=env_params, backend=backend)
+    elif(env_name == 'MOCodesignCheetahBackLegs'):
+        env = MOCodesignCheetahBackLegs(env_params=env_params, backend=backend)
     elif(env_name == "TwoAxis"):
         env = TwoAxis(env_params=env_params, backend=backend)
     elif(env_name == "RHex"):

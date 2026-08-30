@@ -16,6 +16,7 @@ from codesign.hyperdesigners.factory import (
     setup_design_hypernetwork,
     setup_mo_design_hypernetwork,
     setup_mo_design_predictor_hypernetwork,
+    setup_design_mlp,
 )
 from codesign.hyperdesigners.networks import (
     DesignHypernetNetworks,
@@ -44,6 +45,7 @@ __all__ = [
     "setup_design_hypernetwork",
     "setup_mo_design_hypernetwork",
     "setup_mo_design_predictor_hypernetwork",
+    "setup_design_mlp",
     "DesignHypernetNetworks",
     "DesignPredictorHypernetNetworks",
     "make_design_hypernet_networks",
