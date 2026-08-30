@@ -2,21 +2,23 @@
 
 Reinforcement learning over a robot's **design** and its **controller** at the same time.
 
-A design-conditioned hypernetwork `H(d, w)` maps a design vector `d` (link lengths, say)
-and a simplex tradeoff `w` over objectives to the weights of a policy/value MLP. Training
-it on a batch of designs at once gives a single network that controls any design in the
-range, so a design can be evaluated without retraining a policy for it. MuJoCo MJX
-supplies one compiled model per design, and rollouts are `vmap`ped across them.
+The policy is conditioned on the robot's design, and trained on a batch of designs at
+once, so one network controls any design in the range and a design can be evaluated
+without retraining a policy for it. Mostly this uses a hypernetwork `H(d, w)` mapping a
+design vector `d` (link lengths, say) and a simplex tradeoff `w` over objectives to the
+weights of a policy/value MLP. MuJoCo MJX supplies one compiled model per design, and
+rollouts are `vmap`ped across them.
 
-Three algorithms live in `src/codesign/hyperdesigners/`:
+Four algorithms live in `src/codesign/hyperdesigners/`:
 
-| Algorithm | Designs come from | Objectives |
-|---|---|---|
-| `design_hypernetwork` | a space-filling sample of the design box | one (scalarized) |
-| `mo_design_hypernetwork` | a space-filling sample, crossed with sampled tradeoffs | vector-valued critic |
-| `mo_design_predictor_hypernetwork` | a learned predictor `f(d \| w)`, trained by GRPO | vector-valued critic |
+| Algorithm | Conditioned on the design by | Designs come from | Objectives |
+|---|---|---|---|
+| `design_mlp` | appending it to the observation | a space-filling sample of the design box | one (scalarized) |
+| `design_hypernetwork` | generating the MLP weights | a space-filling sample of the design box | one (scalarized) |
+| `mo_design_hypernetwork` | generating the MLP weights | a space-filling sample, crossed with sampled tradeoffs | vector-valued critic |
+| `mo_design_predictor_hypernetwork` | generating the MLP weights | a learned predictor `f(d \| w)`, trained by GRPO | vector-valued critic |
 
-All three share the PPO scaffolding in `hyperdesigners/shared.py` and sample into a common
+All four share the PPO scaffolding in `hyperdesigners/shared.py` and sample into a common
 `Grid` (`utils/grid.py`): `M` designs x `K` tradeoffs, each cell rolled out `per_cell`
 times, which is also the on-disk dataset format.
 

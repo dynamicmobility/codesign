@@ -18,6 +18,7 @@ from codesign.hyperdesigners import shared
 from codesign.utils import model as model_lib
 from codesign.utils.grid import Grid, sample_tradeoffs
 from codesign.hyperdesigners.losses import (
+    DesignHypernetParams,
     DesignPredictorTransition,
     compute_mo_design_hypernet_loss,
     compute_grpo_loss,
@@ -117,7 +118,9 @@ def train_mo_design_predictor(
     design_predictor_inference_fn = net_lib.make_design_predictor_inference_fn(
         design_networks
     )
-    make_policy = inference_fn
+    make_policy = lambda norm, params, designs, tradeoffs, **kw: inference_fn(
+        (norm, params.hypernetwork), designs, tradeoffs, **kw
+    )
 
     optimizer = shared.make_optimizer(learning_rate, max_grad_norm)
     loss_fn = functools.partial(
@@ -225,7 +228,7 @@ def train_mo_design_predictor(
         values = discounted_scalarized(
             rollout_returns(
                 training_state.normalizer_params,
-                training_state.params.hypernetwork,
+                training_state.params,
                 sampled.designs, sampled.tradeoffs, sampled.model,
                 jax.random.split(key_value, num_envs), key_value,
             ),
@@ -278,7 +281,7 @@ def train_mo_design_predictor(
         model, designs, tradeoffs = env_inputs(grid)
         rewards = rollout_returns(
             training_state.normalizer_params,
-            training_state.params.hypernetwork,
+            training_state.params,
             designs, tradeoffs, model,
             jax.random.split(key_rollout, num_eval_envs), key_rollout,
         )
@@ -302,7 +305,8 @@ def train_mo_design_predictor(
 
     # Initialize training state.
     training_state = shared.init_training_state(
-        design_networks.hypernetwork, optimizer, key_net, environment.observation_size
+        DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
+        optimizer, environment.observation_size,
     )
     design_init_params = design_networks.design_predictor_network.init(key_design_net)
     design_predictor_state = DesignPredictorTrainingState(

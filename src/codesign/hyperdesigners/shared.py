@@ -19,14 +19,13 @@ from brax.training import gradients
 from brax.training.acme import running_statistics
 
 from codesign.hyperdesigners import acting
-from codesign.hyperdesigners.losses import DesignHypernetParams
 from codesign.utils import model as model_lib
 
 
 @flax.struct.dataclass
 class TrainingState:
     optimizer_state: optax.OptState
-    params: DesignHypernetParams
+    params: Any  # the algo's trainable params, e.g. DesignHypernetParams
     normalizer_params: running_statistics.RunningStatisticsState
 
 
@@ -87,9 +86,12 @@ def make_optimizer(learning_rate: float, max_grad_norm: float | None = None):
     )
 
 
-def init_training_state(hypernetwork, optimizer, key, observation_size) -> TrainingState:
-    """Fresh hypernetwork params, observation normalizer, and optimizer state."""
-    params = DesignHypernetParams(hypernetwork=hypernetwork.init(key))
+def init_training_state(params, optimizer, observation_size) -> TrainingState:
+    """Optimizer state and observation normalizer for a fresh set of ``params``.
+
+    ``observation_size`` is what the normalizer covers, which is the env's own size unless
+    the algo widens the observation (design_mlp appends the design to it).
+    """
     return TrainingState(
         optimizer_state=optimizer.init(params),
         params=params,
@@ -160,20 +162,24 @@ def make_training_chunk(
     unroll_length: int,
     episode_length: int,
     num_updates_per_batch: int,
+    observation_fn: Callable | None = None,
 ) -> Callable:
     """Jitted training against one fixed design x tradeoff grid.
 
     Returns ``training_chunk(training_state, state, key, batched_model, designs, tradeoffs,
     first_state) -> (training_state, state, metrics)``, which collects rollouts under the
-    current hypernetwork, refreshes the observation normalizer, and takes PPO steps,
-    ``num_training_steps_per_chunk`` times over.
+    current networks, refreshes the observation normalizer, and takes PPO steps,
+    ``num_training_steps_per_chunk`` times over. ``observation_fn`` pulls the observation
+    the normalizer covers out of a batch of transitions.
     """
+    observation_fn = observation_fn or (lambda data: data.observation)
 
     def training_step(carry, unused_t, batched_model, designs, tradeoffs, first_state):
         training_state, state, key = carry
         key_sgd, key_unroll, new_key = jax.random.split(key, 3)
         policy = make_policy(
-            (training_state.normalizer_params, training_state.params.hypernetwork),
+            training_state.normalizer_params,
+            training_state.params,
             designs,
             tradeoffs,
         )
@@ -207,7 +213,7 @@ def make_training_chunk(
         )
         # normalize observations based on current state distribution
         normalizer_params = running_statistics.update(
-            training_state.normalizer_params, data.observation
+            training_state.normalizer_params, observation_fn(data)
         )
         # Take SGD steps to update policy params
         (opt_state, params, _), metrics = jax.lax.scan(
@@ -253,18 +259,19 @@ def make_rollout_returns(
 ) -> Callable:
     """Jitted per-step reward of one episode per env, zeroed after termination.
 
-    Returns ``rollout_returns(normalizer_params, hypernet_params, designs, tradeoffs,
-    batched_model, rngs, key) -> [episode_length, num_envs, *reward_shape]``. An env that
-    terminates early contributes zero from its termination step onward.
+    Returns ``rollout_returns(normalizer_params, params, designs, tradeoffs, batched_model,
+    rngs, key) -> [episode_length, num_envs, *reward_shape]``. An env that terminates early
+    contributes zero from its termination step onward.
     """
 
     @jax.jit
     def rollout_returns(
-        normalizer_params, hypernet_params, designs, tradeoffs, batched_model, rngs, key
+        normalizer_params, params, designs, tradeoffs, batched_model, rngs, key
     ):
         state = acting.reset(env, rngs, batched_model)
         policy = make_policy(
-            (normalizer_params, hypernet_params),
+            normalizer_params,
+            params,
             designs,
             tradeoffs,
             deterministic=deterministic,

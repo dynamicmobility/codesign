@@ -5,6 +5,7 @@ MLP's weights (and a separate hypernetwork for the value MLP), optimizing a sing
 reward with brax's clipped PPO loss on a model-as-input environment (``CodesignCheetah``).
 """
 
+from codesign.hyperdesigners.design_mlp import train_design_mlp
 from codesign.hyperdesigners.design_hypernetwork import train_design_hypernetwork
 from codesign.hyperdesigners.mo_design_hypernetwork import (
     train_mo_design_hypernetwork,
@@ -16,6 +17,7 @@ from codesign.hyperdesigners.factory import (
     setup_design_hypernetwork,
     setup_mo_design_hypernetwork,
     setup_mo_design_predictor_hypernetwork,
+    setup_design_mlp,
 )
 from codesign.hyperdesigners.networks import (
     DesignHypernetNetworks,
@@ -39,11 +41,13 @@ from codesign.hyperdesigners.acting import DesignTransition
 
 __all__ = [
     "train_design_hypernetwork",
+    "train_design_mlp",
     "train_mo_design_hypernetwork",
     "train_mo_design_predictor",
     "setup_design_hypernetwork",
     "setup_mo_design_hypernetwork",
     "setup_mo_design_predictor_hypernetwork",
+    "setup_design_mlp",
     "DesignHypernetNetworks",
     "DesignPredictorHypernetNetworks",
     "make_design_hypernet_networks",

@@ -15,6 +15,11 @@ TINY = dict(
 TINY["num_timesteps"] = TINY["batch_size"] * TINY["unroll_length"] * TINY["num_minibatches"]
 
 ALGOS = {
+    "design_mlp": (
+        codesign.setup_design_mlp,
+        dict(num_designs=2),
+        (2, 1, 4, 1),
+    ),
     "design_hypernetwork": (
         codesign.setup_design_hypernetwork,
         dict(num_designs=2),

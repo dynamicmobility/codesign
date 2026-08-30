@@ -40,9 +40,11 @@ from .eval import (
 # hyperdesigners
 from .hyperdesigners import (
     train_design_hypernetwork,
+    train_design_mlp,
     train_mo_design_hypernetwork,
     train_mo_design_predictor,
     setup_design_hypernetwork,
+    setup_design_mlp,
     setup_mo_design_hypernetwork,
     setup_mo_design_predictor_hypernetwork,
     DesignHypernetNetworks,
@@ -141,9 +143,11 @@ __all__ = [
     "extreme_tradeoffs_with_labels",
     # hyperdesigners
     "train_design_hypernetwork",
+    "train_design_mlp",
     "train_mo_design_hypernetwork",
     "train_mo_design_predictor",
     "setup_design_hypernetwork",
+    "setup_design_mlp",
     "setup_mo_design_hypernetwork",
     "setup_mo_design_predictor_hypernetwork",
     "DesignHypernetNetworks",

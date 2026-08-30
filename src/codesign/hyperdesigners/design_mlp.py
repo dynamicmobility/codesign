@@ -1,4 +1,7 @@
-"""``design_hypernetwork`` training algo.
+"""``design_mlp`` training algo.
+
+A plain policy/value MLP pair conditioned on the design by appending it to the
+observation, rather than by a hypernetwork generating the weights from it.
 """
 
 import functools
@@ -13,12 +16,12 @@ from codesign.hyperdesigners import networks as net_lib
 from codesign.hyperdesigners import shared
 from codesign.utils.grid import Grid
 from codesign.hyperdesigners.losses import (
-    DesignHypernetParams,
-    compute_design_hypernet_loss,
+    DesignMLPParams,
+    compute_design_mlp_loss,
 )
 
 
-def train_design_hypernetwork(
+def train_design_mlp(
     environment,
     num_timesteps: int,
     episode_length: int,
@@ -39,7 +42,7 @@ def train_design_hypernetwork(
     design_dim: int = 1,
     num_designs: int = 8,
     resamples_per_epoch: int = 1,
-    network_factory: Callable = net_lib.make_design_hypernet_networks,
+    network_factory: Callable = net_lib.make_design_mlp_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
@@ -67,26 +70,43 @@ def train_design_hypernetwork(
     key, key_net = jax.random.split(key)
     design_rng = np.random.default_rng(seed)
 
+    # The design rides along in the observation, so every observation the networks and the
+    # normalizer see is design_dim wider than the env's own.
+    obs_size = jax.tree_util.tree_map(
+        lambda size: (
+            size[:-1] + (size[-1] + design_dim,)
+            if isinstance(size, tuple)
+            else size + design_dim
+        ),
+        environment.observation_size,
+        is_leaf=lambda size: isinstance(size, tuple),
+    )
+
+    def append_design(data):
+        return jax.tree_util.tree_map(
+            lambda obs: jnp.concatenate((obs, data.design), axis=-1), data.observation
+        )
+
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
     )
     design_networks = network_factory(
-        observation_size=environment.observation_size,
+        observation_size=obs_size,
         action_size=environment.action_size,
         design_dim=design_dim,
         key=key_net,
         preprocess_observations_fn=normalize,
     )
-    inference_fn = net_lib.make_design_inference_fn(design_networks)
-    # This hypernetwork is keyed on the design alone, so the trivial tradeoff the grid
-    # carries goes unused.
+    inference_fn = net_lib.make_design_mlp_inference_fn(design_networks)
+    # The policy appends the design itself, and the trivial tradeoff the grid carries goes
+    # unused.
     make_policy = lambda norm, params, designs, tradeoffs, **kw: inference_fn(
-        (norm, params.hypernetwork), designs, **kw
+        (norm, params.policy_params), designs, **kw
     )
 
     optimizer = shared.make_optimizer(learning_rate, max_grad_norm)
     loss_fn = functools.partial(
-        compute_design_hypernet_loss,
+        compute_design_mlp_loss,
         design_networks       = design_networks,
         entropy_cost          = entropy_cost,
         discounting           = discounting,
@@ -99,6 +119,7 @@ def train_design_hypernetwork(
         environment, make_policy,
         shared.make_sgd_step(loss_fn, optimizer, num_minibatches),
         schedule, unroll_length, episode_length, num_updates_per_batch,
+        observation_fn=append_design,
     )
     rollout_returns = shared.make_rollout_returns(
         environment, make_policy, episode_length, deterministic_eval
@@ -129,11 +150,15 @@ def train_design_hypernetwork(
         )
         return shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
 
-    params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)
+    params_of = lambda ts, extra: (ts.normalizer_params, ts.params.policy_params)
 
+    key_policy, key_value = jax.random.split(key_net)
     training_state = shared.init_training_state(
-        DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
-        optimizer, environment.observation_size,
+        DesignMLPParams(
+            policy_params=design_networks.policy_network.init(key_policy),
+            value_params=design_networks.value_network.init(key_value),
+        ),
+        optimizer, obs_size,
     )
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}

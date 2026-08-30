@@ -12,7 +12,10 @@ from brax.training.acme import running_statistics
 from codesign.hyperdesigners import networks as net_lib
 from codesign.hyperdesigners import shared
 from codesign.utils.grid import Grid
-from codesign.hyperdesigners.losses import compute_mo_design_hypernet_loss
+from codesign.hyperdesigners.losses import (
+    DesignHypernetParams,
+    compute_mo_design_hypernet_loss,
+)
 
 
 def train_mo_design_hypernetwork(
@@ -85,7 +88,9 @@ def train_mo_design_hypernetwork(
         preprocess_observations_fn=normalize,
     )
     inference_fn = net_lib.make_mo_design_inference_fn(design_networks)
-    make_policy = inference_fn
+    make_policy = lambda norm, params, designs, tradeoffs, **kw: inference_fn(
+        (norm, params.hypernetwork), designs, tradeoffs, **kw
+    )
 
     optimizer = shared.make_optimizer(learning_rate, max_grad_norm)
     loss_fn = functools.partial(
@@ -125,7 +130,7 @@ def train_mo_design_hypernetwork(
     def evaluate(training_state, extra_state, key):
         rewards = rollout_returns(
             training_state.normalizer_params,
-            training_state.params.hypernetwork,
+            training_state.params,
             eval_designs,
             eval_tradeoffs,
             eval_model,
@@ -137,7 +142,8 @@ def train_mo_design_hypernetwork(
     params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)
 
     training_state = shared.init_training_state(
-        design_networks.hypernetwork, optimizer, key_net, environment.observation_size
+        DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
+        optimizer, environment.observation_size,
     )
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}

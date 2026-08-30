@@ -16,6 +16,7 @@ CONFIGS = {
     "mo_design_hypernetwork": REPO / "config/mo_design_hypernetwork/cheetah1D.yaml",
     "mo_design_predictor_hypernetwork":
         REPO / "config/mo_design_predictor_hypernetwork/cheetah1D.yaml",
+    "design_mlp": REPO / "config/design_mlp/cheetah3D.yaml",
 }
 
 
@@ -48,6 +49,12 @@ def load_case(algorithm: str):
 
     config = mm.create_config_dict(mop.utils.read_config(str(CONFIGS[algorithm])))
     env, _ = codesign.envs.create.load_env(config)
+    # load_env scalarizes for design_hypernetwork and ppo but not design_mlp, which
+    # scripts/train.py wraps itself; mirror that so the env matches the algo.
+    if algorithm == "design_mlp":
+        env = codesign.CodesignMO2SO(
+            env, config["env_config"]["reward"]["optimization"]["default_scalarization"]
+        )
     return config, env
 
 
