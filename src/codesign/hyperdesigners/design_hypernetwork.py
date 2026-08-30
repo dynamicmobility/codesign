@@ -2,32 +2,17 @@
 """
 
 import functools
-import time
 from typing import Callable
 
-import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
-import optax
-from brax.training import gradients
 from brax.training.acme import running_statistics
 
-from codesign.hyperdesigners import acting
 from codesign.hyperdesigners import networks as net_lib
-from codesign.utils import model as model_lib
+from codesign.hyperdesigners import shared
 from codesign.utils.grid import Grid
-from codesign.hyperdesigners.losses import (
-    DesignHypernetParams,
-    compute_design_hypernet_loss,
-)
-
-
-@flax.struct.dataclass
-class TrainingState:
-    optimizer_state: optax.OptState
-    params: DesignHypernetParams
-    normalizer_params: running_statistics.RunningStatisticsState
+from codesign.hyperdesigners.losses import compute_design_hypernet_loss
 
 
 def train_design_hypernetwork(
@@ -50,7 +35,7 @@ def train_design_hypernetwork(
     normalize_observations: bool = True,
     design_dim: int = 1,
     num_designs: int = 8,
-    reward_objective_weights: tuple | None = None,
+    resamples_per_epoch: int = 1,
     network_factory: Callable = net_lib.make_design_hypernet_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
@@ -64,267 +49,105 @@ def train_design_hypernetwork(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    assert (batch_size * num_minibatches) % num_envs == 0, (
-        "batch_size * num_minibatches must be divisible by num_envs"
-    )
     assert num_envs % num_designs == 0, (
         "num_envs must be divisible by num_designs"
     )
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
-    num_scans = batch_size * num_minibatches // num_envs
-    env_step_per_training_step = batch_size * unroll_length * num_minibatches
-    num_evals_after_init = max(num_evals - 1, 1)
-    num_training_steps_per_epoch = int(
-        np.ceil(num_timesteps / (num_evals_after_init * env_step_per_training_step))
+    schedule = shared.Schedule.make(
+        num_timesteps, num_evals, num_envs, batch_size, num_minibatches,
+        unroll_length, resamples_per_epoch,
     )
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
-    key_env = jax.random.fold_in(key, 1)
-    key_eval = jax.random.fold_in(key, 2)
     design_rng = np.random.default_rng(seed)
 
-    jit_reset = jax.jit(
-        lambda rngs, model: acting.reset(environment, rngs, model)
-    )
-
-    reference_model = None  # treedef of the first stacked model; see build_grid
-    def build_grid(rng, n):
-        """Sample ``num_designs`` designs and tile them across ``n`` envs.
-        """
-        nonlocal reference_model
-        grid = Grid.from_design_sample(
-            environment, rng, num_designs, per_cell=n // num_designs
-        )
-        batched_model, designs_input, _ = grid.env_inputs(
-            environment, like=reference_model
-        )
-        reference_model = batched_model
-        return batched_model, designs_input
-    
-    obs_size = environment.observation_size
     normalize = (
         running_statistics.normalize if normalize_observations else (lambda x, y: x)
     )
     design_networks = network_factory(
-        observation_size=obs_size,
+        observation_size=environment.observation_size,
         action_size=environment.action_size,
         design_dim=design_dim,
         key=key_net,
         preprocess_observations_fn=normalize,
     )
     inference_fn = net_lib.make_design_inference_fn(design_networks)
+    # This hypernetwork is keyed on the design alone, so the trivial tradeoff the grid
+    # carries goes unused.
+    make_policy = lambda params, designs, tradeoffs, **kw: inference_fn(
+        params, designs, **kw
+    )
 
-    optimizer = optax.adam(learning_rate)
-    if max_grad_norm is not None:
-        optimizer = optax.chain(
-            optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
-        )
-
+    optimizer = shared.make_optimizer(learning_rate, max_grad_norm)
     loss_fn = functools.partial(
         compute_design_hypernet_loss,
-        design_networks=design_networks,
-        entropy_cost=entropy_cost,
-        discounting=discounting,
-        reward_scaling=reward_scaling,
-        gae_lambda=gae_lambda,
-        clipping_epsilon=clipping_epsilon,
-        normalize_advantage=normalize_advantage,
+        design_networks       = design_networks,
+        entropy_cost          = entropy_cost,
+        discounting           = discounting,
+        reward_scaling        = reward_scaling,
+        gae_lambda            = gae_lambda,
+        clipping_epsilon      = clipping_epsilon,
+        normalize_advantage   = normalize_advantage,
     )
-    gradient_update_fn = gradients.gradient_update_fn(
-        loss_fn, optimizer, pmap_axis_name=None, has_aux=True
+    chunk = shared.make_training_chunk(
+        environment, make_policy,
+        shared.make_sgd_step(loss_fn, optimizer, num_minibatches),
+        schedule, unroll_length, episode_length, num_updates_per_batch,
     )
+    rollout_returns = shared.make_rollout_returns(
+        environment, make_policy, episode_length, deterministic_eval
+    )
+    env_inputs = shared.make_env_inputs(environment)
 
-    def minibatch_step(carry, data, normalizer_params):
-        opt_state, params, key = carry
-        key, key_loss = jax.random.split(key)
-        (_, metrics), params, opt_state = gradient_update_fn(
-            params, normalizer_params, data, key_loss, optimizer_state=opt_state
-        )
-        return (opt_state, params, key), metrics
-
-    def sgd_step(carry, unused_t, data, normalizer_params):
-        opt_state, params, key = carry
-        key, key_perm, key_grad = jax.random.split(key, 3)
-
-        def convert(x):
-            x = jax.random.permutation(key_perm, x)
-            return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
-
-        shuffled = jax.tree_util.tree_map(convert, data)
-        (opt_state, params, _), metrics = jax.lax.scan(
-            functools.partial(minibatch_step, normalizer_params=normalizer_params),
-            (opt_state, params, key_grad),
-            shuffled,
-            length=num_minibatches,
-        )
-        return (opt_state, params, key), metrics
-
-    def training_step(carry, unused_t, batched_model, designs, first_state):
-        training_state, state, key = carry
-        key_sgd, key_unroll, new_key = jax.random.split(key, 3)
-        policy = inference_fn(
-            (training_state.normalizer_params, training_state.params.hypernetwork),
-            designs,
-        )
-
-        def scan_unroll(c, _):
-            cur_state, cur_key = c
-            cur_key, nk = jax.random.split(cur_key)
-            nstate, data = acting.generate_unroll(
-                environment,
-                cur_state,
-                batched_model,
-                policy,
-                designs,
-                cur_key,
-                unroll_length,
-                first_state,
-                episode_length,
-                extra_fields=(),
-            )
-            return (nstate, nk), data
-
-        (state, _), data = jax.lax.scan(
-            scan_unroll, (state, key_unroll), (), length=num_scans
-        )
-        # data: [num_scans, unroll_length, num_envs, ...] -> [B, T, ...].
-        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
-        data = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
-        )
-
-        normalizer_params = running_statistics.update(
-            training_state.normalizer_params, data.observation
-        )
-        (opt_state, params, _), metrics = jax.lax.scan(
-            functools.partial(
-                sgd_step, data=data, normalizer_params=normalizer_params
-            ),
-            (training_state.optimizer_state, training_state.params, key_sgd),
-            (),
-            length=num_updates_per_batch,
-        )
-        new_ts = TrainingState(
-            optimizer_state=opt_state,
-            params=params,
-            normalizer_params=normalizer_params,
-        )
-        return (new_ts, state, new_key), metrics
-
-    @jax.jit
-    def training_epoch(training_state, state, key, batched_model, designs, first_state):
-        step = functools.partial(
-            training_step,
-            batched_model=batched_model,
-            designs=designs,
-            first_state=first_state,
-        )
-        (training_state, state, _), metrics = jax.lax.scan(
-            step, (training_state, state, key), (), length=num_training_steps_per_epoch
-        )
-        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
-        return training_state, state, metrics
-
-    @jax.jit
-    def eval_unroll(normalizer_params, hypernet_params, designs, batched_model, rngs, key):
-        state = acting.reset(environment, rngs, batched_model)
-        policy = inference_fn(
-            (normalizer_params, hypernet_params), designs, deterministic=deterministic_eval
-        )
-
-        def body(carry, _):
-            st, k, alive, ret = carry
-            k, sub = jax.random.split(k)
-            act, _ = policy(st.obs, sub)
-            nst = jax.vmap(environment.step, in_axes=(0, 0, 0))(st, act, batched_model)
-            ret = ret + nst.reward * alive
-            alive = alive * (1.0 - nst.done)
-            return (nst, k, alive, ret), None
-
-        init = (state, key, jnp.ones(num_eval_envs), jnp.zeros(num_eval_envs))
-        (_, _, _, ret), _ = jax.lax.scan(body, init, (), length=episode_length)
-        return ret
+    def sample(it, extra_state, key):
+        """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
+        return Grid.from_design_sample(
+            environment, design_rng, num_designs, per_cell=num_envs // num_designs
+        ), None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
-    eval_model, eval_designs = build_grid(seed + 1000, num_eval_envs)
+    eval_grid = Grid.from_design_sample(
+        environment, seed + 1000, num_designs, per_cell=num_eval_envs // num_designs
+    )
+    eval_model, eval_designs, eval_tradeoffs = env_inputs(eval_grid)
 
-    def evaluate(training_state, key):
-        eval_rngs = jax.random.split(key, num_eval_envs)
-        ret = eval_unroll(
+    def evaluate(training_state, extra_state, key):
+        rewards = rollout_returns(
             training_state.normalizer_params,
             training_state.params.hypernetwork,
             eval_designs,
+            eval_tradeoffs,
             eval_model,
-            eval_rngs,
+            jax.random.split(key, num_eval_envs),
             key,
         )
-        ret = np.asarray(ret)
-        return {
-            "eval/episode_reward": float(np.mean(ret)),
-            "eval/episode_reward_std": float(np.std(ret)),
-        }
+        return shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
 
-    # Initialize training state.
-    init_params = DesignHypernetParams(
-        hypernetwork=design_networks.hypernetwork.init(key_net)
-    )
-    normalizer_params = running_statistics.init_state(
-        model_lib.observation_spec(obs_size)
-    )
-    training_state = TrainingState(
-        optimizer_state=optimizer.init(init_params),
-        params=init_params,
-        normalizer_params=normalizer_params,
-    )
+    params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)
 
+    training_state = shared.init_training_state(
+        design_networks.hypernetwork, optimizer, key_net, environment.observation_size
+    )
     if num_timesteps == 0:
-        return (
-            inference_fn,
-            (training_state.normalizer_params, training_state.params.hypernetwork),
-            {},
-        )
+        return inference_fn, params_of(training_state, None), {}
 
-    # Initial eval + checkpoint.
-    metrics = {}
-    if run_evals and num_evals > 1:
-        metrics = evaluate(training_state, key_eval)
-        progress_fn(0, metrics)
-    params = (training_state.normalizer_params, training_state.params.hypernetwork)
-    policy_params_fn(0, inference_fn, params)
-
-    walltime = 0.0
-    for it in range(num_evals_after_init):
-        batched_model, designs_input = build_grid(design_rng, num_envs)
-        key_env, sub = jax.random.split(key_env)
-        rngs = jax.random.split(sub, num_envs)
-        env_state = jit_reset(rngs, batched_model)
-        first_state = env_state
-
-        key, epoch_key = jax.random.split(key)
-        t0 = time.time()
-        training_state, env_state, train_metrics = training_epoch(
-            training_state, env_state, epoch_key, batched_model, designs_input, first_state
-        )
-        train_metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), train_metrics)
-        epoch_time = time.time() - t0
-        walltime += epoch_time
-        current_step = (it + 1) * num_training_steps_per_epoch * env_step_per_training_step
-
-        metrics = {
-            "training/sps": (num_training_steps_per_epoch * env_step_per_training_step)
-            / epoch_time,
-            "training/walltime": walltime,
-            **{f"training/{k}": float(v) for k, v in train_metrics.items()},
-        }
-        if run_evals:
-            key_eval, eval_subkey = jax.random.split(key_eval)
-            metrics.update(evaluate(training_state, eval_subkey))
-
-        params = (training_state.normalizer_params, training_state.params.hypernetwork)
-        policy_params_fn(current_step, inference_fn, params)
-        progress_fn(current_step, metrics)
-
+    params, metrics = shared.run_training(
+        shared.Algorithm(
+            sample=sample, chunk=chunk, evaluate=evaluate, params_of=params_of
+        ),
+        schedule,
+        training_state,
+        environment,
+        num_envs,
+        key,
+        inference_fn,
+        env_inputs,
+        num_evals=num_evals,
+        run_evals=run_evals,
+        progress_fn=progress_fn,
+        policy_params_fn=policy_params_fn,
+    )
     return inference_fn, params, metrics

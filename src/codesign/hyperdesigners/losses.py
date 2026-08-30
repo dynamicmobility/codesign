@@ -9,7 +9,7 @@ from brax.training.types import Params
 from brax.training.acme.types import NestedArray
 
 from codesign.hyperdesigners import networks
-from codesign.hyperdesigners.acting import DesignTransition, MODesignTransition
+from codesign.hyperdesigners.acting import DesignTransition
 
 
 @flax.struct.dataclass
@@ -132,7 +132,7 @@ def compute_design_hypernet_loss(
 def compute_mo_design_hypernet_loss(
     params: DesignHypernetParams,
     normalizer_params: Any,
-    data: MODesignTransition,
+    data: DesignTransition,
     rng: jnp.ndarray,
     design_networks: networks.DesignHypernetNetworks,
     entropy_cost: float = 1e-4,
@@ -147,7 +147,7 @@ def compute_mo_design_hypernet_loss(
     Args:
         params: trainable hypernetwork params.
         normalizer_params: observation normalizer params.
-        data: ``MODesignTransition`` with leading dims ``[B, T]``. ``reward``/``tradeoff``
+        data: ``DesignTransition`` with leading dims ``[B, T]``. ``reward``/``tradeoff``
             carry a trailing objective axis of size ``M``. Requires
             ``extras['state_extras']['truncation']``,
             ``extras['policy_extras']['raw_action']``,

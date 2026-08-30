@@ -59,7 +59,6 @@ from .hyperdesigners import (
     compute_mo_design_hypernet_loss,
     compute_grpo_loss,
     DesignTransition,
-    MODesignTransition,
 )
 
 # learning
@@ -161,7 +160,6 @@ __all__ = [
     "compute_mo_design_hypernet_loss",
     "compute_grpo_loss",
     "DesignTransition",
-    "MODesignTransition",
     # learning
     "load_design_hypernetwork",
     "load_mo_design_hypernetwork",

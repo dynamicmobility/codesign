@@ -33,9 +33,10 @@ def setup_design_hypernetwork(config):
 
     train_fn = functools.partial(
         train_design_hypernetwork,
-        network_factory   = network_factory,
-        design_dim        = len(design['low']),
-        num_designs       = design_sampling.get("num_designs", 8),
+        network_factory     = network_factory,
+        design_dim          = len(design['low']),
+        num_designs         = design_sampling.get("num_designs", 8),
+        resamples_per_epoch = design_sampling.get("resamples_per_epoch", 1),
         **ppo,
     )
     return train_fn, network_factory

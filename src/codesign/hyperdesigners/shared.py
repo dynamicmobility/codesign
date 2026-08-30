@@ -1,0 +1,431 @@
+"""Training scaffolding shared by the ``hyperdesigners`` algos.
+
+Each algo brings its own networks, loss, and sampling strategy; the PPO machinery around
+them -- schedule arithmetic, minibatched SGD, the unroll, the eval rollout, and the epoch
+loop -- is the same, and lives here.
+"""
+
+import dataclasses
+import functools
+import time
+from typing import Any, Callable, NamedTuple
+
+import flax
+import jax
+import jax.numpy as jnp
+import numpy as np
+import optax
+from brax.training import gradients
+from brax.training.acme import running_statistics
+
+from codesign.hyperdesigners import acting
+from codesign.hyperdesigners.losses import DesignHypernetParams
+from codesign.utils import model as model_lib
+
+
+@flax.struct.dataclass
+class TrainingState:
+    optimizer_state: optax.OptState
+    params: DesignHypernetParams
+    normalizer_params: running_statistics.RunningStatisticsState
+
+
+@dataclasses.dataclass
+class Schedule:
+    """The step budget, split into epochs (one eval each), resample chunks, and steps.
+    """
+
+    num_scans                    : int  # unrolls concatenated into one training batch
+    env_step_per_training_step   : int
+    num_training_steps_per_chunk : int
+    num_evals_after_init         : int
+    resamples_per_epoch          : int
+
+    @classmethod
+    def make(
+        cls,
+        num_timesteps: int,
+        num_evals: int,
+        num_envs: int,
+        batch_size: int,
+        num_minibatches: int,
+        unroll_length: int,
+        resamples_per_epoch: int = 1,
+    ) -> "Schedule":
+        assert (batch_size * num_minibatches) % num_envs == 0, (
+            "batch_size * num_minibatches must be divisible by num_envs"
+        )
+        assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
+        env_step_per_training_step = batch_size * unroll_length * num_minibatches
+        num_evals_after_init = max(num_evals - 1, 1)
+        return cls(
+            num_scans                    = batch_size * num_minibatches // num_envs,
+            env_step_per_training_step   = env_step_per_training_step,
+            num_training_steps_per_chunk = int(np.ceil(
+                num_timesteps
+                / (num_evals_after_init * resamples_per_epoch * env_step_per_training_step)
+            )),
+            num_evals_after_init         = num_evals_after_init,
+            resamples_per_epoch          = resamples_per_epoch,
+        )
+
+    @property
+    def num_training_steps_per_epoch(self) -> int:
+        return self.num_training_steps_per_chunk * self.resamples_per_epoch
+
+    @property
+    def env_step_per_epoch(self) -> int:
+        return self.num_training_steps_per_epoch * self.env_step_per_training_step
+
+
+def make_optimizer(learning_rate: float, max_grad_norm: float | None = None):
+    """Adam, preceded by global-norm gradient clipping when ``max_grad_norm`` is set."""
+    if max_grad_norm is None:
+        return optax.adam(learning_rate)
+    return optax.chain(
+        optax.clip_by_global_norm(max_grad_norm), optax.adam(learning_rate)
+    )
+
+
+def init_training_state(hypernetwork, optimizer, key, observation_size) -> TrainingState:
+    """Fresh hypernetwork params, observation normalizer, and optimizer state."""
+    params = DesignHypernetParams(hypernetwork=hypernetwork.init(key))
+    return TrainingState(
+        optimizer_state=optimizer.init(params),
+        params=params,
+        normalizer_params=running_statistics.init_state(
+            model_lib.observation_spec(observation_size)
+        ),
+    )
+
+
+def make_env_inputs(env) -> Callable:
+    """``grid -> (batched_model, designs, tradeoffs)`` on the flat env axis.
+
+    The first stacked model's treedef is pinned onto later ones so that resampling the
+    grid does not retrace the jitted training and rollout functions.
+    """
+    reference = None
+
+    def env_inputs(grid):
+        nonlocal reference
+        batched_model, designs, tradeoffs = grid.env_inputs(env, like=reference)
+        reference = batched_model
+        return batched_model, designs, tradeoffs
+
+    return env_inputs
+
+
+def make_sgd_step(loss_fn, optimizer, num_minibatches: int) -> Callable:
+    """``sgd_step(carry, _, data, normalizer_params)``: one shuffled pass of minibatched
+    gradient steps over ``data``, carrying ``(optimizer_state, params, key)``.
+    """
+    gradient_update_fn = gradients.gradient_update_fn(
+        loss_fn, optimizer, pmap_axis_name=None, has_aux=True
+    )
+
+    def minibatch_step(carry, data, normalizer_params):
+        opt_state, params, key = carry
+        key, key_loss = jax.random.split(key)
+        (_, metrics), params, opt_state = gradient_update_fn(
+            params, normalizer_params, data, key_loss, optimizer_state=opt_state
+        )
+        return (opt_state, params, key), metrics
+
+    def sgd_step(carry, unused_t, data, normalizer_params):
+        opt_state, params, key = carry
+        key, key_perm, key_grad = jax.random.split(key, 3)
+
+        def convert(x):
+            x = jax.random.permutation(key_perm, x)
+            return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
+
+        shuffled = jax.tree_util.tree_map(convert, data)
+        (opt_state, params, _), metrics = jax.lax.scan(
+            functools.partial(minibatch_step, normalizer_params=normalizer_params),
+            (opt_state, params, key_grad),
+            shuffled,
+            length=num_minibatches,
+        )
+        return (opt_state, params, key), metrics
+
+    return sgd_step
+
+
+def make_training_chunk(
+    env,
+    make_policy: Callable,
+    sgd_step: Callable,
+    schedule: Schedule,
+    unroll_length: int,
+    episode_length: int,
+    num_updates_per_batch: int,
+) -> Callable:
+    """Jitted training against one fixed design x tradeoff grid.
+
+    Returns ``training_chunk(training_state, state, key, batched_model, designs, tradeoffs,
+    first_state) -> (training_state, state, metrics)``, which collects rollouts under the
+    current hypernetwork, refreshes the observation normalizer, and takes PPO steps,
+    ``num_training_steps_per_chunk`` times over.
+    """
+
+    def training_step(carry, unused_t, batched_model, designs, tradeoffs, first_state):
+        training_state, state, key = carry
+        key_sgd, key_unroll, new_key = jax.random.split(key, 3)
+        policy = make_policy(
+            (training_state.normalizer_params, training_state.params.hypernetwork),
+            designs,
+            tradeoffs,
+        )
+
+        def scan_unroll(c, _):
+            cur_state, cur_key = c
+            cur_key, nk = jax.random.split(cur_key)
+            nstate, data = acting.generate_unroll(
+                env,
+                cur_state,
+                batched_model,
+                policy,
+                designs,
+                tradeoffs,
+                cur_key,
+                unroll_length,
+                first_state,
+                episode_length,
+                extra_fields=(),
+            )
+            return (nstate, nk), data
+
+        # Compute dataset of rollouts
+        (state, _), data = jax.lax.scan(
+            scan_unroll, (state, key_unroll), (), length=schedule.num_scans
+        )
+        # data: [num_scans, unroll_length, num_envs, ...] -> [B, T, ...].
+        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
+        data = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
+        )
+        # normalize observations based on current state distribution
+        normalizer_params = running_statistics.update(
+            training_state.normalizer_params, data.observation
+        )
+        # Take SGD steps to update policy params
+        (opt_state, params, _), metrics = jax.lax.scan(
+            functools.partial(
+                sgd_step, data=data, normalizer_params=normalizer_params
+            ),
+            (training_state.optimizer_state, training_state.params, key_sgd),
+            (),
+            length=num_updates_per_batch,
+        )
+        new_ts = TrainingState(
+            optimizer_state=opt_state,
+            params=params,
+            normalizer_params=normalizer_params,
+        )
+        return (new_ts, state, new_key), metrics
+
+    @jax.jit
+    def training_chunk(
+        training_state, state, key, batched_model, designs, tradeoffs, first_state
+    ):
+        step = functools.partial(
+            training_step,
+            batched_model=batched_model,
+            designs=designs,
+            tradeoffs=tradeoffs,
+            first_state=first_state,
+        )
+        (training_state, state, _), metrics = jax.lax.scan(
+            step,
+            (training_state, state, key),
+            (),
+            length=schedule.num_training_steps_per_chunk,
+        )
+        metrics = jax.tree_util.tree_map(jnp.mean, metrics)
+        return training_state, state, metrics
+
+    return training_chunk
+
+
+def make_rollout_returns(
+    env, make_policy: Callable, episode_length: int, deterministic: bool = True
+) -> Callable:
+    """Jitted per-step reward of one episode per env, zeroed after termination.
+
+    Returns ``rollout_returns(normalizer_params, hypernet_params, designs, tradeoffs,
+    batched_model, rngs, key) -> [episode_length, num_envs, *reward_shape]``. An env that
+    terminates early contributes zero from its termination step onward.
+    """
+
+    @jax.jit
+    def rollout_returns(
+        normalizer_params, hypernet_params, designs, tradeoffs, batched_model, rngs, key
+    ):
+        state = acting.reset(env, rngs, batched_model)
+        policy = make_policy(
+            (normalizer_params, hypernet_params),
+            designs,
+            tradeoffs,
+            deterministic=deterministic,
+        )
+
+        def body(carry, _):
+            st, k, alive = carry
+            k, sub = jax.random.split(k)
+            act, _ = policy(st.obs, sub)
+            nst = jax.vmap(env.step, in_axes=(0, 0, 0))(st, act, batched_model)
+            # Broadcast alive [num_envs] over a scalar or per-objective reward.
+            alive_b = alive.reshape(alive.shape + (1,) * (nst.reward.ndim - alive.ndim))
+            reward = nst.reward * alive_b
+            alive = alive * (1.0 - nst.done)
+            return (nst, k, alive), reward
+
+        init = (state, key, jnp.ones(rngs.shape[0]))
+        _, rewards = jax.lax.scan(body, init, (), length=episode_length)
+        return rewards
+
+    return rollout_returns
+
+
+def eval_metrics(returns, grid) -> dict:
+    """Eval metrics for a rolled-out grid.
+
+    ``returns`` is the episode return on the flat env axis, ``[num_envs]`` or
+    ``[num_envs, n_r]``. Reports the tradeoff-scalarized reward and its spread, a mean per
+    objective, and the grid itself (per-objective returns per cell) for Pareto plotting.
+    """
+    returns = np.asarray(returns).reshape(grid.num_envs, grid.n_r)
+    _, tradeoffs = grid.flatten()
+    scalarized = np.sum(tradeoffs * returns, axis=-1)
+    metrics = {
+        "eval/episode_reward": float(np.mean(scalarized)),
+        "eval/episode_reward_std": float(np.std(scalarized)),
+    }
+    for i in range(grid.n_r):
+        metrics[f"eval/episode_reward_obj{i}"] = float(np.mean(returns[:, i]))
+    metrics["eval_grid"] = dataclasses.replace(grid, rewards=grid.unflatten(returns))
+    return metrics
+
+
+class Sampled(NamedTuple):
+    """One resample chunk's grid and the rollout inputs built from it."""
+
+    grid      : Any
+    model     : Any
+    designs   : jax.Array
+    tradeoffs : jax.Array
+    aux       : Any
+
+
+@dataclasses.dataclass
+class Algorithm:
+    """The pieces of a training run that differ between algos.
+
+    - ``sample(it, extra_state, key) -> (Grid, aux)`` draws the chunk's design x tradeoff
+    grid; ``aux`` is passed on to ``post_chunk`` and otherwise unused. 
+    
+    - ``chunk`` comes from :func:`make_training_chunk`. 
+    
+    - ``evaluate(training_state, extra_state, key)``
+    
+    - ``params_of(training_state, extra_state)`` produces the epoch's metrics and its
+    checkpointed params. 
+    
+    - ``post_chunk(training_state, extra_state, sampled, key) -> (extra_state, metrics)`` 
+    runs after every chunk, for algos training a second model.
+    
+    - ``epoch_metrics(it)`` adds per-epoch bookkeeping.
+    """
+
+    sample        : Callable # sampling strategy fn
+    chunk         : Callable # training chunk fn
+    evaluate      : Callable # evaluation fn
+    params_of     : Callable # get network-specific params
+    post_chunk    : Callable = lambda ts, extra, sampled, key: (extra, {}) # runs after every chunk
+    epoch_metrics : Callable = lambda it: {} # per-epoch metrics
+
+
+def run_training(
+    algo: Algorithm,
+    schedule: Schedule,
+    training_state: TrainingState,
+    env,
+    num_envs: int,
+    key: jax.Array,
+    inference_fn: Callable,
+    env_inputs: Callable,
+    extra_state=None,
+    num_evals: int = 10,
+    run_evals: bool = True,
+    progress_fn: Callable = lambda *a: None,
+    policy_params_fn: Callable = lambda *a: None,
+):
+    """Resample, train, evaluate, checkpoint -- once per epoch.
+
+    Returns ``(params, metrics)``: the last checkpointed params and the last epoch's metrics.
+    """
+    jit_reset = jax.jit(lambda rngs, model: acting.reset(env, rngs, model))
+    key_env = jax.random.fold_in(key, 1)
+    key_eval = jax.random.fold_in(key, 2)
+    key_sample = jax.random.fold_in(key, 3)
+
+    # Initial eval + checkpoint.
+    metrics = {}
+    if run_evals and num_evals > 1:
+        metrics = algo.evaluate(training_state, extra_state, key_eval)
+        progress_fn(0, metrics)
+    params = algo.params_of(training_state, extra_state)
+    policy_params_fn(0, inference_fn, params)
+
+    walltime = 0.0
+    for it in range(schedule.num_evals_after_init):
+        t0 = time.time()
+        chunk_metrics = []
+        for _ in range(schedule.resamples_per_epoch):
+            # Redraw the grid, rebuild the per-env models, and restart the envs on them
+            # (the robot itself changed, so the carried state is stale).
+            key_sample, sub = jax.random.split(key_sample)
+            grid, aux = algo.sample(it, extra_state, sub)
+            sampled = Sampled(grid, *env_inputs(grid), aux)
+
+            key_env, sub = jax.random.split(key_env)
+            env_state = jit_reset(jax.random.split(sub, num_envs), sampled.model)
+
+            key, chunk_key = jax.random.split(key)
+            training_state, _, train_metrics = algo.chunk(
+                training_state, env_state, chunk_key, sampled.model,
+                sampled.designs, sampled.tradeoffs, env_state,
+            )
+
+            key_env, sub = jax.random.split(key_env)
+            extra_state, post_metrics = algo.post_chunk(
+                training_state, extra_state, sampled, sub
+            )
+            chunk_metrics.append({**train_metrics, **post_metrics})
+
+        train_metrics = jax.tree_util.tree_map(
+            lambda *xs: jnp.mean(jnp.stack(xs)), *chunk_metrics
+        )
+        train_metrics = jax.tree_util.tree_map(
+            lambda x: x.block_until_ready(), train_metrics
+        )
+        epoch_time = time.time() - t0
+        walltime += epoch_time
+        current_step = (it + 1) * schedule.env_step_per_epoch
+
+        metrics = {
+            "training/sps": schedule.env_step_per_epoch / epoch_time,
+            "training/walltime": walltime,
+            **algo.epoch_metrics(it),
+            **{f"training/{k}": float(v) for k, v in train_metrics.items()},
+        }
+        if run_evals:
+            key_eval, eval_subkey = jax.random.split(key_eval)
+            metrics.update(algo.evaluate(training_state, extra_state, eval_subkey))
+
+        params = algo.params_of(training_state, extra_state)
+        policy_params_fn(current_step, inference_fn, params)
+        progress_fn(current_step, metrics)
+
+    return params, metrics
