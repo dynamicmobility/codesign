@@ -39,6 +39,8 @@ def train_mo_design_hypernetwork(
     gae_lambda: float = 0.95,
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
+    value_loss_type: str = "mse",
+    huber_delta: float = 1.0,
     normalize_observations: bool = True,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
@@ -102,6 +104,8 @@ def train_mo_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
+        value_loss_type       = value_loss_type,
+        huber_delta           = huber_delta,
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,

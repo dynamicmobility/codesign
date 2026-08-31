@@ -16,6 +16,9 @@ from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_design_hypernet_loss,
 )
+from codesign.utils.model import (
+    sample_designs
+)
 
 
 def train_design_hypernetwork(
@@ -35,6 +38,8 @@ def train_design_hypernetwork(
     gae_lambda: float = 0.95,
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
+    value_loss_type: str = "mse",
+    huber_delta: float = 1.0,
     normalize_observations: bool = True,
     design_dim: int = 1,
     num_designs: int = 8,
@@ -94,6 +99,8 @@ def train_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
+        value_loss_type       = value_loss_type,
+        huber_delta           = huber_delta,
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,
@@ -107,9 +114,14 @@ def train_design_hypernetwork(
 
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
-        return Grid.from_design_sample(
-            environment, design_rng, num_designs, per_cell=num_envs // num_designs
-        ), None
+
+        # return Grid.from_design_sample(
+        #     environment, key, num_designs, per_cell=num_envs // num_designs
+        # ), None
+        low, high = np.asarray(environment.design_limits)
+        gen = np.random.default_rng()
+        design = sample_designs(gen, 1, low, high, dim=len(low))
+        return Grid.crossed(design, np.ones((1,1), np.float32), per_cell=num_envs), None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
     eval_grid = Grid.from_design_sample(

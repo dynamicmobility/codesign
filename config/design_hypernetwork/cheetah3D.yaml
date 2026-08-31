@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test-design-hypernetwork-3D
-save_dir: results/Aug29
+name: test
+save_dir: results/Aug31
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: design_hypernetwork
 env: "MOCodesignCheetahBackLegs"
@@ -34,9 +34,9 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 3000000000
+    num_timesteps: 1000000000
     episode_length: 500
-    num_envs: 4096
+    num_envs: 64
     unroll_length: 20
     batch_size: 128
     num_minibatches: 32

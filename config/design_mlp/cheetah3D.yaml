@@ -2,8 +2,8 @@
 #
 # H_\pi(d, w) = \pi(a | s)
 name: test
-save_dir: results/Aug28
-description: "Single-objective design-conditioned MLP network PPO over 3D CodesignCheetah."
+save_dir: results/Aug31
+description: "Single-objective design-conditioned MLP network PPO over 3D CodesignCheetah with new algorithm code"
 algorithm: "design_mlp"
 env: "MOCodesignCheetahBackLegs"
 backend: jnp # always jnp for training

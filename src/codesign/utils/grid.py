@@ -49,23 +49,27 @@ def sample_tradeoffs(
     return w.astype(np.float32)
 
 
-def _generator(seed) -> np.random.Generator:
+def _generator(seed: int | jax.Array | np.random.Generator) -> np.random.Generator:
     """A ``Generator`` from an int seed, or a ``Generator`` passed straight through.
 
     ``np.random.default_rng`` returns a ``Generator`` unaltered, so a caller may hand over
     either a fresh seed or a live stream that keeps advancing across resamples.
     """
-    return np.random.default_rng(seed)
+    return np.random.default_rng(int(seed) if isinstance(seed, jax.Array) else seed)
 
 
-def _box_designs(seed, env: CodesignBase, n_designs: int) -> np.ndarray:
+def _box_designs(seed, env: CodesignBase, n_designs: int, limits = None) -> np.ndarray:
     """Space-filling sample of ``n_designs`` over the env's design box.
 
     ``env.design_limits`` is ``(2, design_dim)`` -- lows then highs. Returns shape
     ``(n_designs, design_dim)`` in physical units.
     """
-    low, high = np.asarray(env.design_limits)
+    if(limits == None):
+        low, high = np.asarray(env.design_limits)
+    else:
+        low, high = limits
     return sample_designs(_generator(seed), n_designs, low=low, high=high, dim=len(low))
+
 
 
 @dataclasses.dataclass
@@ -132,12 +136,12 @@ class Grid:
 
     @classmethod
     def from_design_sample(
-        cls, env: CodesignBase, seed, n_designs: int, per_cell: int = 1
+        cls, env: CodesignBase, seed, n_designs: int, per_cell: int = 1, limits = None,
     ) -> "Grid":
         """Space-filling (sobol) designs against the single trivial tradeoff, ``(M, 1, C, 1)``.
         """
         return cls.crossed(
-            _box_designs(seed, env, n_designs), np.ones((1, 1), np.float32), per_cell
+            _box_designs(seed, env, n_designs, limits = None), np.ones((1, 1), np.float32), per_cell
         )
 
     @classmethod

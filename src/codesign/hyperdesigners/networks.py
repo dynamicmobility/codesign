@@ -581,6 +581,7 @@ def make_design_inference_fn(networks_: DesignHypernetNetworks):
         parametric_action_distribution = networks_.parametric_action_distribution
 
         # Policy params from the hypernetwork (value head is ignored at acting time).
+        print(hypernet_params.keys())
         policy_params, _ = networks_.hypernetwork.apply(hypernet_params, design)
 
         if len(design.shape) == 1:
