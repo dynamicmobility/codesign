@@ -15,10 +15,14 @@ from codesign.utils.grid import Grid
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_design_hypernet_loss,
+    mse_loss,
+    huber_loss
 )
 from codesign.utils.model import (
     sample_designs
 )
+
+from functools import partial
 
 
 def train_design_hypernetwork(
@@ -99,8 +103,7 @@ def train_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
-        value_loss_type       = value_loss_type,
-        huber_delta           = huber_delta,
+        value_loss_fn         = partial(huber_loss, huber_delta = huber_delta) if value_loss_type == 'huber' else mse_loss,
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,
@@ -115,13 +118,9 @@ def train_design_hypernetwork(
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
 
-        # return Grid.from_design_sample(
-        #     environment, key, num_designs, per_cell=num_envs // num_designs
-        # ), None
-        low, high = np.asarray(environment.design_limits)
-        gen = np.random.default_rng()
-        design = sample_designs(gen, 1, low, high, dim=len(low))
-        return Grid.crossed(design, np.ones((1,1), np.float32), per_cell=num_envs), None
+        return Grid.from_design_sample(
+            environment, design_rng, num_designs, per_cell=num_envs // num_designs
+        ), None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
     eval_grid = Grid.from_design_sample(

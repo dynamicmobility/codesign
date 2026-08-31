@@ -1,9 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test
+name: test-mse-design-batch
 save_dir: results/Aug31
-description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
+description: "Trying mse loss, Only sample "
 algorithm: design_hypernetwork
 env: "MOCodesignCheetahBackLegs"
 backend: jnp # always jnp for training
@@ -36,7 +36,7 @@ learning_params:
   ppo_params:
     num_timesteps: 1000000000
     episode_length: 500
-    num_envs: 64
+    num_envs: 4096
     unroll_length: 20
     batch_size: 128
     num_minibatches: 32
@@ -54,12 +54,14 @@ learning_params:
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
+    value_loss_type: mse
+    huber_delta: 1.0
   network_params:
     hypersize: [256, 256]
     num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
-    num_designs: 8 
+    num_designs: 8
     resamples_per_epoch: 1
     sampling: random

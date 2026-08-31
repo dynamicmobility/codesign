@@ -20,6 +20,7 @@ from brax.training.acme import running_statistics
 
 from codesign.hyperdesigners import acting
 from codesign.utils import model as model_lib
+from codesign.utils.grid import Grid
 
 
 @flax.struct.dataclass
@@ -109,7 +110,7 @@ def make_env_inputs(env) -> Callable:
     """
     reference = None
 
-    def env_inputs(grid):
+    def env_inputs(grid: Grid):
         nonlocal reference
         batched_model, designs, tradeoffs = grid.env_inputs(env, like=reference)
         reference = batched_model
@@ -392,6 +393,8 @@ def run_training(
         for _ in range(schedule.resamples_per_epoch):
             # Redraw the grid, rebuild the per-env models, and restart the envs on them
             # (the robot itself changed, so the carried state is stale).
+            # TODO: sub is generateed from jax split but algo.sample will use a numpy rng (as it is on the CPU side). 
+            # The sampler should be written to be consistent with that
             key_sample, sub = jax.random.split(key_sample)
             grid, aux = algo.sample(it, extra_state, sub)
             sampled = Sampled(grid, *env_inputs(grid), aux)

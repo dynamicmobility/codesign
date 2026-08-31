@@ -11,6 +11,8 @@ from brax.training.acme.types import NestedArray
 from codesign.hyperdesigners import networks
 from codesign.hyperdesigners.acting import DesignTransition
 
+from typing import Callable
+
 @flax.struct.dataclass
 class DesignMLPParams:
     """Trainable parameters: the design-conditioned policy and value MLPs."""
@@ -33,25 +35,23 @@ class DesignPredictorTransition(NamedTuple):
     design_log_prob : NestedArray # log f(raw_design | w) at sample time (n_tradeoffs, G)
 
 
-def _value_loss(
+def mse_loss(
     error: jnp.ndarray,
-    loss_type: str = "mse",
-    huber_delta: float = 1.0,
 ) -> jnp.ndarray:
     """PPO value loss, with the existing 0.5 value-loss coefficient."""
-    if loss_type == "mse":
-        loss = 0.5 * jnp.square(error)
-    elif loss_type == "huber":
-        if huber_delta <= 0:
-            raise ValueError("huber_delta must be positive")
-        abs_error = jnp.abs(error)
-        quadratic = jnp.minimum(abs_error, huber_delta)
-        linear = abs_error - quadratic
-        loss = 0.5 * jnp.square(quadratic) + huber_delta * linear
-    else:
-        raise ValueError(
-            f"Unknown value loss type {loss_type!r}; expected 'mse' or 'huber'"
-        )
+    loss = 0.5 * jnp.square(error)
+    return 0.5 * jnp.mean(loss)
+
+def huber_loss(
+    error: jnp.ndarray,
+    huber_delta: float = 1.0,
+) -> jnp.ndarray:
+    if huber_delta <= 0:
+        raise ValueError("huber_delta must be positive")
+    abs_error = jnp.abs(error)
+    quadratic = jnp.minimum(abs_error, huber_delta)
+    linear = abs_error - quadratic
+    loss = 0.5 * jnp.square(quadratic) + huber_delta * linear
     return 0.5 * jnp.mean(loss)
 
 def compute_design_mlp_loss(
@@ -175,8 +175,7 @@ def compute_design_hypernet_loss(
     gae_lambda: float = 0.95,
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
-    value_loss_type: str = "mse",
-    huber_delta: float = 1.0,
+    value_loss_fn: Callable = mse_loss,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
     """Computes the clipped-PPO loss for the design hypernetwork.
 
@@ -251,7 +250,7 @@ def compute_design_hypernet_loss(
 
     # Value function loss.
     v_error = vs - baseline
-    v_loss = _value_loss(v_error, value_loss_type, huber_delta)
+    v_loss = value_loss_fn(v_error)
 
     # Entropy bonus.
     entropy = jnp.mean(parametric_action_distribution.entropy(policy_logits, rng))
