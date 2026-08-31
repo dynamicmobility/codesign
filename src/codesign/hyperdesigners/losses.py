@@ -66,8 +66,7 @@ def compute_design_mlp_loss(
     gae_lambda: float = 0.95,
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
-    value_loss_type: str = "mse",
-    huber_delta: float = 1.0,
+    value_loss_fn: Callable = mse_loss,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
     """Computes the clipped-PPO loss for the design hypernetwork.
 
@@ -148,7 +147,7 @@ def compute_design_mlp_loss(
 
     # Value function loss.
     v_error = vs - baseline
-    v_loss = _value_loss(v_error, value_loss_type, huber_delta)
+    v_loss = value_loss_fn(v_error)
 
     # Entropy bonus.
     entropy = jnp.mean(parametric_action_distribution.entropy(policy_logits, rng))
@@ -278,8 +277,7 @@ def compute_mo_design_hypernet_loss(
     gae_lambda: float = 0.95,
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
-    value_loss_type: str = "mse",
-    huber_delta: float = 1.0,
+    value_loss_fn: Callable = mse_loss,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
     """Computes the clipped-PPO loss for the multi-objective design hypernetwork ``H(d, w)``.
 
@@ -371,7 +369,7 @@ def compute_mo_design_hypernet_loss(
 
     # Value function loss.
     v_error = vs - baseline
-    v_loss = _value_loss(v_error, value_loss_type, huber_delta)
+    v_loss = value_loss_fn(v_error)
 
     # Entropy bonus.
     entropy = jnp.mean(parametric_action_distribution.entropy(policy_logits, rng))
