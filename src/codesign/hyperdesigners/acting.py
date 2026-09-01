@@ -2,23 +2,13 @@
 Adapted from ``moplayground.moppo.acting``.
 """
 
-from typing import Any, NamedTuple, Sequence, Tuple
+from typing import Any, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
-from brax.training.acme.types import NestedArray
 from brax.training.types import PRNGKey
 
-
-class DesignTransition(NamedTuple):
-    """One environment step.  Grid-level conditioning lives on :class:`Grid`."""
-
-    observation: NestedArray
-    action: NestedArray
-    reward: NestedArray
-    discount: NestedArray
-    next_observation: NestedArray
-    extras: NestedArray = ()
+from codesign.utils.grid import DesignTransition
 
 
 def _where_done(done: jax.Array, x, y):

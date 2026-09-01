@@ -6,11 +6,12 @@ from __future__ import annotations
 import dataclasses
 import itertools
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from brax.training.acme.types import NestedArray
 from mujoco import mjx
 
 from codesign.envs.codesign_base import CodesignBase, MOCodesignBase
@@ -21,8 +22,16 @@ from codesign.utils.model import (
     unnormalize_design,
 )
 
-if TYPE_CHECKING:
-    from codesign.hyperdesigners.acting import DesignTransition
+
+class DesignTransition(NamedTuple):
+    """One environment step.  Grid-level conditioning lives on :class:`Grid`."""
+
+    observation: NestedArray
+    action: NestedArray
+    reward: NestedArray
+    discount: NestedArray
+    next_observation: NestedArray
+    extras: NestedArray = ()
 
 
 def sample_tradeoffs(
@@ -424,8 +433,6 @@ class Grid:
 
     @classmethod
     def load(cls, path: str | Path) -> "Grid":
-        from codesign.hyperdesigners.acting import DesignTransition
-
         npz = np.load(path, allow_pickle=True)
         cut = len(cls._DATA_PREFIX)
         return cls(
