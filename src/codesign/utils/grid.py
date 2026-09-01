@@ -1,9 +1,12 @@
 """The design x tradeoff grid shared by training, evaluation, and saved datasets.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import itertools
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -17,6 +20,9 @@ from codesign.utils.model import (
     sample_designs,
     unnormalize_design,
 )
+
+if TYPE_CHECKING:
+    from codesign.hyperdesigners.acting import DesignTransition
 
 
 def sample_tradeoffs(
@@ -96,6 +102,7 @@ class Grid:
     objectives : list | None = None        # per-objective names
     # per-step trajectories, (M, K, C, n_steps, ...); per-cell values omit the time axis
     data       : dict[str, np.ndarray] = dataclasses.field(default_factory=dict)
+    transitions: DesignTransition | None = None  # leaves: (M, K, C, unroll_length, ...)
 
     _DATA_PREFIX = "data/"  # npz namespace keeping ``data`` apart from the grid arrays
 
@@ -378,6 +385,10 @@ class Grid:
                 designs   = take(self.designs, idx),
                 tradeoffs = take(self.tradeoffs, idx),
                 rewards   = take(self.rewards, idx),
+                transitions = (
+                    None if self.transitions is None else
+                    jax.tree_util.tree_map(lambda x: take(x, idx), self.transitions)
+                ),
                 data      = {k: take(v, idx) for k, v in self.data.items()},
             )
             for idx in np.split(order, n_batches)
@@ -400,6 +411,12 @@ class Grid:
         )
         if self.rewards is not None:
             arrays["rewards"] = self.rewards
+        if self.transitions is not None:
+            # Transition fields can be nested pytrees (notably ``extras``), so keep the
+            # tuple as an explicitly one-dimensional object array in the npz archive.
+            packed = np.empty(len(self.transitions), dtype=object)
+            packed[:] = tuple(self.transitions)
+            arrays["transitions"] = packed
         if self.objectives is not None:
             arrays["objectives"] = np.asarray(self.objectives, dtype=object)
         arrays.update({self._DATA_PREFIX + k: v for k, v in self.data.items()})
@@ -407,6 +424,8 @@ class Grid:
 
     @classmethod
     def load(cls, path: str | Path) -> "Grid":
+        from codesign.hyperdesigners.acting import DesignTransition
+
         npz = np.load(path, allow_pickle=True)
         cut = len(cls._DATA_PREFIX)
         return cls(
@@ -414,6 +433,10 @@ class Grid:
             tradeoffs  = npz["tradeoffs"],
             per_cell   = int(npz["per_cell"]),
             rewards    = npz["rewards"] if "rewards" in npz else None,
+            transitions = (
+                DesignTransition(*npz["transitions"].tolist())
+                if "transitions" in npz else None
+            ),
             objectives = npz["objectives"].tolist() if "objectives" in npz else None,
             data       = {
                 k[cut:]: npz[k] for k in npz.files if k.startswith(cls._DATA_PREFIX)

@@ -1,4 +1,4 @@
-from typing import Any, Tuple, NamedTuple
+from typing import TYPE_CHECKING, Any, Tuple, NamedTuple
 
 import flax
 import jax
@@ -12,6 +12,9 @@ from codesign.hyperdesigners import networks
 from codesign.hyperdesigners.acting import DesignTransition
 
 from typing import Callable
+
+if TYPE_CHECKING:
+    from codesign.hyperdesigners.shared import TrainingBatch
 
 @flax.struct.dataclass
 class DesignMLPParams:
@@ -57,7 +60,7 @@ def huber_loss(
 def compute_design_mlp_loss(
     params: DesignMLPParams,
     normalizer_params: Any,
-    data: DesignTransition,
+    data: "TrainingBatch",
     rng: jnp.ndarray,
     design_networks: networks.DesignNetworks,
     entropy_cost: float = 1e-4,
@@ -73,9 +76,10 @@ def compute_design_mlp_loss(
     Args:
         params: trainable hypernetwork params.
         normalizer_params: observation normalizer params.
-        data: ``DesignTransition`` with leading dims ``[B, T]``. Requires
+        data: ``TrainingBatch`` containing per-environment ``designs`` and
+            ``transitions`` with leading dimensions ``[B, T]``. The transitions require
             ``extras['state_extras']['truncation']``,
-            ``extras['policy_extras']['raw_action']``,
+            ``extras['policy_extras']['raw_action']``, and
             ``extras['policy_extras']['log_prob']``.
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
@@ -91,6 +95,9 @@ def compute_design_mlp_loss(
         design_networks.value_network.apply, in_axes=(None, None, 0)
     )
 
+    designs = data.designs
+    data = data.transitions
+
     # Per-env policy/value params from the hypernetwork (design is constant over time).
     policy_params = params.policy_params
     value_params = params.value_params
@@ -99,7 +106,10 @@ def compute_design_mlp_loss(
     data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
 
     observation = jax.tree_util.tree_map(
-        lambda obs: jnp.concatenate([obs, data.design], axis=-1),
+        lambda obs: jnp.concatenate(
+            [obs, jnp.broadcast_to(designs[None], obs.shape[:-1] + designs.shape[-1:])],
+            axis=-1,
+        ),
         data.observation,
     )
     policy_logits = policy_apply(normalizer_params, policy_params, observation)
@@ -109,7 +119,7 @@ def compute_design_mlp_loss(
     baseline = jnp.swapaxes(baseline, 0, 1)
 
     terminal_obs = jax.tree_util.tree_map(
-        lambda obs: jnp.concatenate([obs[-1], data.design[-1]], axis=-1),
+        lambda obs: jnp.concatenate([obs[-1], designs], axis=-1),
         data.next_observation,
     )
     bootstrap_value = single_value_apply(
@@ -188,6 +198,8 @@ def compute_design_hypernet_loss(
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
     """
+    designs = data.designs
+    data = data.transitions
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
         design_networks.policy_network.apply, in_axes=(None, 0, 1)
@@ -201,7 +213,7 @@ def compute_design_hypernet_loss(
 
     # Per-env policy/value params from the hypernetwork (design is constant over time).
     policy_params, value_params = design_networks.hypernetwork.apply(
-        params.hypernetwork, data.design[:, 0]
+        params.hypernetwork, designs
     )
 
     # Put the time dimension first: [B, T, ...] -> [T, B, ...].
@@ -292,6 +304,8 @@ def compute_mo_design_hypernet_loss(
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
     """
+    designs, tradeoffs = data.designs, data.tradeoffs
+    data = data.transitions
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
         design_networks.policy_network.apply, in_axes=(None, 0, 1)
@@ -305,9 +319,7 @@ def compute_mo_design_hypernet_loss(
 
     # Per-env policy/value params from the hypernetwork. Design and tradeoff are constant
     # over time, so use their value at the first timestep.
-    cond = jnp.concatenate(
-        [data.design[:, 0], data.tradeoff[:, 0]], axis=-1
-    )
+    cond = jnp.concatenate([designs, tradeoffs], axis=-1)
     policy_params, value_params = design_networks.hypernetwork.apply(
         params.hypernetwork, cond
     )
@@ -357,7 +369,7 @@ def compute_mo_design_hypernet_loss(
         std = advantages.std(axis=(0, 1), keepdims=True)
         advantages = (advantages - mean) / (std + 1e-8)
 
-    scalar_advantages = jnp.sum(data.tradeoff * advantages, axis=2)
+    scalar_advantages = jnp.sum(tradeoffs[None] * advantages, axis=2)
 
     rho_s = jnp.exp(target_action_log_probs - behaviour_action_log_probs)
     surrogate_loss1 = rho_s * scalar_advantages

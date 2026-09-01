@@ -11,14 +11,11 @@ from brax.training.types import PRNGKey
 
 
 class DesignTransition(NamedTuple):
-    """A transition carrying the per-env robot ``design`` and ``tradeoff`` alongside the
-    usual fields. ``reward`` is a per-objective vector on a multi-objective env."""
+    """One environment step.  Grid-level conditioning lives on :class:`Grid`."""
 
     observation: NestedArray
     action: NestedArray
     reward: NestedArray
-    design: NestedArray
-    tradeoff: NestedArray
     discount: NestedArray
     next_observation: NestedArray
     extras: NestedArray = ()
@@ -73,8 +70,6 @@ def actor_step(
         observation=state.obs,
         action=actions,
         reward=nstate.reward,
-        design=designs,
-        tradeoff=tradeoffs,
         discount=1.0 - termination.astype(jnp.float32),
         next_observation=nstate.obs,
         extras={"policy_extras": policy_extras, "state_extras": state_extras},

@@ -86,7 +86,11 @@ def train_design_mlp(
 
     def append_design(data):
         return jax.tree_util.tree_map(
-            lambda obs: jnp.concatenate((obs, data.design), axis=-1), data.observation
+            lambda obs: jnp.concatenate(
+                (obs, jnp.broadcast_to(data.designs[:, None, :],
+                                       obs.shape[:-1] + data.designs.shape[-1:])), axis=-1
+            ),
+            data.transitions.observation,
         )
 
     normalize = (

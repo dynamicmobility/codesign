@@ -30,6 +30,14 @@ class TrainingState:
     normalizer_params: running_statistics.RunningStatisticsState
 
 
+class TrainingBatch(NamedTuple):
+    """Step transitions plus the per-environment conditioning owned by their grid."""
+
+    transitions: acting.DesignTransition
+    designs: jax.Array
+    tradeoffs: jax.Array
+
+
 @dataclasses.dataclass
 class Schedule:
     """The step budget, split into epochs (one eval each), resample chunks, and steps.
@@ -173,7 +181,7 @@ def make_training_chunk(
     ``num_training_steps_per_chunk`` times over. ``observation_fn`` pulls the observation
     the normalizer covers out of a batch of transitions.
     """
-    observation_fn = observation_fn or (lambda data: data.observation)
+    observation_fn = observation_fn or (lambda batch: batch.transitions.observation)
 
     def training_step(carry, unused_t, batched_model, designs, tradeoffs, first_state):
         training_state, state, key = carry
@@ -204,13 +212,20 @@ def make_training_chunk(
             return (nstate, nk), data
 
         # Compute dataset of rollouts
-        (state, _), data = jax.lax.scan(
+        (state, _), transitions = jax.lax.scan(
             scan_unroll, (state, key_unroll), (), length=schedule.num_scans
         )
         # data: [num_scans, unroll_length, num_envs, ...] -> [batch_size, unroll_length, ...].
-        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
-        data = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.swapaxes(x, 1, 2), transitions
+        )
+        transitions = jax.tree_util.tree_map(
+            lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), transitions
+        )
+        data = TrainingBatch(
+            transitions=transitions,
+            designs=jnp.tile(designs, (schedule.num_scans, 1)),
+            tradeoffs=jnp.tile(tradeoffs, (schedule.num_scans, 1)),
         )
         # normalize observations based on current state distribution
         normalizer_params = running_statistics.update(
