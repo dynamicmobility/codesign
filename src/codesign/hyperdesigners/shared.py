@@ -35,11 +35,11 @@ class Schedule:
     """The step budget, split into epochs (one eval each), resample chunks, and steps.
     """
 
-    num_scans                    : int  # unrolls concatenated into one training batch
-    env_step_per_training_step   : int
-    num_training_steps_per_chunk : int
-    num_evals_after_init         : int
-    resamples_per_epoch          : int
+    num_scans                       : int  # number of scans which eventually concatenate into one training dataset
+    env_step_per_training_step      : int
+    num_training_steps_per_resample : int
+    num_epochs                      : int
+    resamples_per_epoch             : int
 
     @classmethod
     def make(
@@ -57,21 +57,21 @@ class Schedule:
         )
         assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
         env_step_per_training_step = batch_size * unroll_length * num_minibatches
-        num_evals_after_init = max(num_evals - 1, 1)
+        num_epochs = max(num_evals - 1, 1)
         return cls(
             num_scans                    = batch_size * num_minibatches // num_envs,
             env_step_per_training_step   = env_step_per_training_step,
-            num_training_steps_per_chunk = int(np.ceil(
+            num_training_steps_per_resample = int(np.ceil(
                 num_timesteps
-                / (num_evals_after_init * resamples_per_epoch * env_step_per_training_step)
+                / (num_epochs * resamples_per_epoch * env_step_per_training_step)
             )),
-            num_evals_after_init         = num_evals_after_init,
+            num_epochs         = num_epochs,
             resamples_per_epoch          = resamples_per_epoch,
         )
 
     @property
     def num_training_steps_per_epoch(self) -> int:
-        return self.num_training_steps_per_chunk * self.resamples_per_epoch
+        return self.num_training_steps_per_resample * self.resamples_per_epoch
 
     @property
     def env_step_per_epoch(self) -> int:
@@ -127,7 +127,7 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int) -> Callable:
         loss_fn, optimizer, pmap_axis_name=None, has_aux=True
     )
 
-    def minibatch_step(carry, data, normalizer_params):
+    def batch_step(carry, data, normalizer_params):
         opt_state, params, key = carry
         key, key_loss = jax.random.split(key)
         (_, metrics), params, opt_state = gradient_update_fn(
@@ -145,7 +145,7 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int) -> Callable:
 
         shuffled = jax.tree_util.tree_map(convert, data)
         (opt_state, params, _), metrics = jax.lax.scan(
-            functools.partial(minibatch_step, normalizer_params=normalizer_params),
+            functools.partial(batch_step, normalizer_params=normalizer_params),
             (opt_state, params, key_grad),
             shuffled,
             length=num_minibatches,
@@ -207,7 +207,7 @@ def make_training_chunk(
         (state, _), data = jax.lax.scan(
             scan_unroll, (state, key_unroll), (), length=schedule.num_scans
         )
-        # data: [num_scans, unroll_length, num_envs, ...] -> [B, T, ...].
+        # data: [num_scans, unroll_length, num_envs, ...] -> [batch_size, unroll_length, ...].
         data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
         data = jax.tree_util.tree_map(
             lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
@@ -243,11 +243,12 @@ def make_training_chunk(
             tradeoffs=tradeoffs,
             first_state=first_state,
         )
+        # Does ``num_training_steps_per_resample`` rollouts -> sgd backprops
         (training_state, state, _), metrics = jax.lax.scan(
             step,
             (training_state, state, key),
             (),
-            length=schedule.num_training_steps_per_chunk,
+            length=schedule.num_training_steps_per_resample,
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, state, metrics
@@ -346,7 +347,7 @@ class Algorithm:
     - ``epoch_metrics(it)`` adds per-epoch bookkeeping.
     """
 
-    sample        : Callable # sampling strategy fn
+    sample        : Callable[..., tuple[Grid, dict]] # sampling strategy fn
     chunk         : Callable # training chunk fn
     evaluate      : Callable # evaluation fn
     params_of     : Callable # get network-specific params
@@ -359,12 +360,10 @@ def run_training(
     schedule: Schedule,
     training_state: TrainingState,
     env,
-    num_envs: int,
     key: jax.Array,
     inference_fn: Callable,
     env_inputs: Callable,
     extra_state=None,
-    num_evals: int = 10,
     run_evals: bool = True,
     progress_fn: Callable = lambda *a: None,
     policy_params_fn: Callable = lambda *a: None,
@@ -380,14 +379,13 @@ def run_training(
 
     # Initial eval + checkpoint.
     metrics = {}
-    if run_evals and num_evals > 1:
-        metrics = algo.evaluate(training_state, extra_state, key_eval)
-        progress_fn(0, metrics)
+    metrics = algo.evaluate(training_state, extra_state, key_eval)
+    progress_fn(0, metrics)
     params = algo.params_of(training_state, extra_state)
     policy_params_fn(0, inference_fn, params)
 
     walltime = 0.0
-    for it in range(schedule.num_evals_after_init):
+    for it in range(schedule.num_epochs):
         t0 = time.time()
         chunk_metrics = []
         for _ in range(schedule.resamples_per_epoch):
@@ -397,10 +395,10 @@ def run_training(
             # The sampler should be written to be consistent with that
             key_sample, sub = jax.random.split(key_sample)
             grid, aux = algo.sample(it, extra_state, sub)
-            sampled = Sampled(grid, *env_inputs(grid), aux)
+            sampled = Sampled(grid, *env_inputs(grid), aux) # TODO: can remove this and have algo.chunk operate directly on the grid
 
             key_env, sub = jax.random.split(key_env)
-            env_state = jit_reset(jax.random.split(sub, num_envs), sampled.model)
+            env_state = jit_reset(jax.random.split(sub, grid.num_envs), sampled.model)
 
             key, chunk_key = jax.random.split(key)
             training_state, _, train_metrics = algo.chunk(

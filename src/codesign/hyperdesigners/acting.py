@@ -55,7 +55,7 @@ def actor_step(
     episode_length: int,
     extra_fields: Sequence[str] = (),
 ) -> Tuple[Any, DesignTransition]:
-    """Step every env once (per-env model), build a transition, then auto-reset.
+    """Step every env once (per-env model), build a transition, then auto-resets if the environment is complete.
     """
     actions, policy_extras = policy(state.obs, key)
     nstate = jax.vmap(env.step, in_axes=(0, 0, 0))(state, actions, models)

@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test-mse-design-batch
-save_dir: results/Aug31
+name: test
+save_dir: results/Sep01
 description: "Trying mse loss, Only sample "
 algorithm: design_hypernetwork
 env: "MOCodesignCheetahBackLegs"
