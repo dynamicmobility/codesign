@@ -114,8 +114,8 @@ def filled(crossed):
     )
 
 
-def test_batch_by_design_is_contiguous_without_rng(filled):
-    batches = filled.batch_by_design(N_DESIGNS)
+def test_batch_by_design_is_contiguous_without_shuffle(filled):
+    batches = filled.batch_by_design(jax.random.PRNGKey(0), N_DESIGNS)
     for batch in batches:
         assert batch.shape == (1, N_TRADEOFFS, PER_CELL, N_OBJECTIVES)
         assert batch.data["qpos"].shape == (1, N_TRADEOFFS, PER_CELL, 5, 9)
@@ -124,16 +124,18 @@ def test_batch_by_design_is_contiguous_without_rng(filled):
     )
 
 
-def test_batch_by_design_with_rng_permutes(filled):
+def test_batch_by_design_with_shuffle_permutes(filled):
     """A shuffled split still partitions the grid, just not in order."""
     shuffled = np.concatenate(
-        [b.rewards for b in filled.batch_by_design(N_DESIGNS, rng=1)], axis=0
+        [np.asarray(b.rewards)
+         for b in filled.batch_by_design(jax.random.PRNGKey(1), N_DESIGNS, shuffle=True)],
+        axis=0,
     )
     assert sorted(shuffled.ravel().tolist()) == sorted(filled.rewards.ravel().tolist())
 
 
 def test_batch_by_tradeoff(filled):
-    for batch in filled.batch_by_tradeoff(2, rng=0):
+    for batch in filled.batch_by_tradeoff(jax.random.PRNGKey(0), 2, shuffle=True):
         assert batch.shape == (N_DESIGNS, N_TRADEOFFS // 2, PER_CELL, N_OBJECTIVES)
         assert batch.data["qpos"].shape == (N_DESIGNS, N_TRADEOFFS // 2, PER_CELL, 5, 9)
 

@@ -36,7 +36,7 @@ class DesignTransition(NamedTuple):
     extras: NestedArray = ()
 
 
-def sample_tradeoffs(
+def sample_tradeoffs_cpu(
     rng: np.random.Generator,
     num_tradeoffs: int,
     num_objectives: int,
@@ -75,14 +75,15 @@ def _generator(seed: int | jax.Array | np.random.Generator) -> np.random.Generat
     return np.random.default_rng(int(seed) if isinstance(seed, jax.Array) else seed)
 
 
-def _box_designs(seed, env: CodesignBase, n_designs: int, limits = None) -> np.ndarray:
-    """Space-filling sample of ``n_designs`` over the env's design box.
+def _box_designs_cpu(seed, env: CodesignBase, n_designs: int, limits = None) -> np.ndarray:
+    """Space-filling sample of ``n_designs`` over the env's design box. Cannot be run on GPU due to
+    Sobol. (There may exist a Sobol jax implementation, but it is not necessary)
 
     ``env.design_limits`` is ``(2, design_dim)`` -- lows then highs. Returns shape
     ``(n_designs, design_dim)`` in physical units.
     """
-    if(limits == None):
-        low, high = np.asarray(env.design_limits)
+    if limits is None:
+        low, high = jnp.asarray(env.design_limits)
     else:
         low, high = limits
     return sample_designs(_generator(seed), n_designs, low=low, high=high, dim=len(low))
@@ -182,7 +183,7 @@ class Grid:
         """Space-filling (sobol) designs against the single trivial tradeoff, ``(M, 1, C, 1)``.
         """
         return cls.crossed(
-            _box_designs(seed, env, n_designs, limits = None), np.ones((1, 1), np.float32), per_cell
+            _box_designs_cpu(seed, env, n_designs, limits=limits), np.ones((1, 1), np.float32), per_cell
         )
 
     @classmethod
@@ -199,11 +200,11 @@ class Grid:
         """Space-filling designs over the env's design box crossed with sampled tradeoffs.
         """
         rng = _generator(seed)
-        tradeoffs = sample_tradeoffs(
+        tradeoffs = sample_tradeoffs_cpu(
             rng, n_tradeoffs, len(env.objectives), sampling=sampling, alpha=alpha
         )
         return cls.crossed(
-            _box_designs(rng, env, n_designs), tradeoffs, per_cell,
+            _box_designs_cpu(rng, env, n_designs), tradeoffs, per_cell,
             objectives=env.objectives,
         )
 
@@ -213,7 +214,7 @@ class Grid:
     ) -> "Grid":
         """Space-filling designs crossed with the one-hot corners of the simplex."""
         return cls.crossed(
-            _box_designs(seed, env, n_designs),
+            _box_designs_cpu(seed, env, n_designs),
             np.eye(len(env.objectives), dtype=np.float32),
             per_cell,
             objectives=env.objectives,
@@ -240,7 +241,7 @@ class Grid:
             block[:, i], block[:, j] = x, 1.0 - x
             blocks.append(block)
         return cls.crossed(
-            _box_designs(seed, env, n_designs),
+            _box_designs_cpu(seed, env, n_designs),
             np.concatenate(blocks, axis=0),
             per_cell,
             objectives=env.objectives,
@@ -266,7 +267,7 @@ class Grid:
         """
         rng = _generator(seed)
         if tradeoffs is None:
-            tradeoffs = sample_tradeoffs(
+            tradeoffs = sample_tradeoffs_cpu(
                 rng, n_tradeoffs, len(env.objectives), sampling=sampling, alpha=alpha
             )
         tradeoffs = np.atleast_2d(np.asarray(tradeoffs, np.float32))
@@ -399,20 +400,20 @@ class Grid:
 
     # ------------------------------------------------------------------ batching
 
-    def _batch(self, axis: int, n_batches: int, rng=None) -> list["Grid"]:
+    def _batch(self, key: jax.Array, axis: int, n_batches: int, shuffle=False) -> list["Grid"]:
         """Split ``axis`` (0 designs, 1 tradeoffs) into ``n_batches`` equally sized grids.
 
-        ``rng`` permutes the axis first, so each batch mixes entries from across the grid;
-        without it the split is contiguous, keeping neighbouring grid entries together --
-        which is what a within-design batch needs.
+        ``shuffle`` permutes the axis under ``key`` first, so each batch mixes entries from
+        across the grid; without it the split is contiguous, keeping neighbouring grid
+        entries together -- which is what a within-design batch needs.
         """
         n = self.designs.shape[axis]
         if n % n_batches:
             raise ValueError(
                 f"axis {axis} has length {n}, which {n_batches} batches do not divide"
             )
-        order = _generator(rng).permutation(n) if rng is not None else np.arange(n)
-        take = lambda x, idx: None if x is None else np.take(x, idx, axis=axis)
+        order = jax.random.permutation(key, n) if shuffle else jnp.arange(n)
+        take = lambda x, idx: None if x is None else jnp.take(x, idx, axis=axis)
         return [
             dataclasses.replace(
                 self,
@@ -428,13 +429,13 @@ class Grid:
             for idx in jnp.split(order, n_batches)
         ]
 
-    def batch_by_design(self, n_batches: int, rng=None) -> list["Grid"]:
+    def batch_by_design(self, key: jnp.ndarray, n_batches: int, shuffle=False) -> list["Grid"]:
         """``n_batches`` grids of ``M / n_batches`` designs each; see :meth:`_batch`."""
-        return self._batch(0, n_batches, rng)
+        return self._batch(key, 0, n_batches, shuffle)
 
-    def batch_by_tradeoff(self, n_batches: int, rng=None) -> list["Grid"]:
+    def batch_by_tradeoff(self, key: jnp.ndarray, n_batches: int, shuffle=False) -> list["Grid"]:
         """``n_batches`` grids of ``K / n_batches`` tradeoffs each; see :meth:`_batch`."""
-        return self._batch(1, n_batches, rng)
+        return self._batch(key, 1, n_batches, shuffle)
 
     # ------------------------------------------------------------------ i/o
 

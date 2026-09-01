@@ -5,6 +5,8 @@ them -- schedule arithmetic, minibatched SGD, the unroll, the eval rollout, and 
 loop -- is the same, and lives here.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import functools
 import time
@@ -153,7 +155,7 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 
 
     # Pretty sure this doesn't work
     def batch_design(x:Grid, num_minibatches, key) -> DesignTransition:
-        design_grids = x.batch_by_design(num_minibatches, key)
+        design_grids = x.batch_by_design(key, num_minibatches)
         return jnp.stack([get_transitions_from_grid(grid) for grid in design_grids])
 
     batch_fn = batch_design if batching_strategy == 'design' else shuffle
