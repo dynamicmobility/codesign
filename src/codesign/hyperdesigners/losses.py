@@ -60,7 +60,7 @@ def huber_loss(
 def compute_design_mlp_loss(
     params: DesignMLPParams,
     normalizer_params: Any,
-    data: "TrainingBatch",
+    data: TrainingBatch,
     rng: jnp.ndarray,
     design_networks: networks.DesignNetworks,
     entropy_cost: float = 1e-4,
@@ -198,8 +198,9 @@ def compute_design_hypernet_loss(
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
     """
-    designs = data.designs
-    data = data.transitions
+    # Put the time dimension first: [B, T, ...] -> [T, B, ...].
+    data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
+    designs = data.design
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
         design_networks.policy_network.apply, in_axes=(None, 0, 1)
@@ -216,8 +217,6 @@ def compute_design_hypernet_loss(
         params.hypernetwork, designs
     )
 
-    # Put the time dimension first: [B, T, ...] -> [T, B, ...].
-    data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
 
     policy_logits = policy_apply(normalizer_params, policy_params, data.observation)
     policy_logits = jnp.swapaxes(policy_logits, 0, 1)

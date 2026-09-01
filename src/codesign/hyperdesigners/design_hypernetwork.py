@@ -29,7 +29,7 @@ def train_design_hypernetwork(
     environment,
     num_timesteps: int,
     episode_length: int,
-    num_envs: int = 128,
+    num_parallel_envs: int = 128,
     unroll_length: int = 20,
     batch_size: int = 64,
     num_minibatches: int = 2,
@@ -47,6 +47,7 @@ def train_design_hypernetwork(
     normalize_observations: bool = True,
     design_dim: int = 1,
     num_designs: int = 8,
+    per_cell: int = 16, # How many times each design should be trialed
     resamples_per_epoch: int = 1,
     network_factory: Callable = net_lib.make_design_hypernet_networks,
     num_evals: int = 10,
@@ -61,14 +62,14 @@ def train_design_hypernetwork(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    assert num_envs % num_designs == 0, (
-        "num_envs must be divisible by num_designs"
+    assert (num_designs * per_cell) % num_parallel_envs == 0, (
+        "total number of environments (num_designs*per_cell) must be divisible by num_parallel_envs"
     )
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
     schedule = shared.Schedule.make(
-        num_timesteps, num_evals, num_envs, batch_size, num_minibatches,
+        num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
 
@@ -118,9 +119,7 @@ def train_design_hypernetwork(
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
 
-        return Grid.from_design_sample(
-            environment, design_rng, num_designs, per_cell=num_envs // num_designs
-        ), None
+        return Grid.from_design_sample( environment, design_rng, num_designs, per_cell=per_cell), None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
     eval_grid = Grid.from_design_sample(

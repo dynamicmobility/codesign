@@ -24,11 +24,13 @@ from codesign.utils.model import (
 
 
 class DesignTransition(NamedTuple):
-    """One environment step.  Grid-level conditioning lives on :class:`Grid`."""
+    """Holds all information for one environment step."""
 
     observation: NestedArray
     action: NestedArray
     reward: NestedArray
+    design: NestedArray
+    tradeoff: NestedArray
     discount: NestedArray
     next_observation: NestedArray
     extras: NestedArray = ()
@@ -87,6 +89,7 @@ def _box_designs(seed, env: CodesignBase, n_designs: int, limits = None) -> np.n
 
 
 
+@jax.tree_util.register_pytree_node_class
 @dataclasses.dataclass
 class Grid:
     """``M`` designs x ``K`` tradeoffs, each cell rolled out ``per_cell`` times.
@@ -114,6 +117,28 @@ class Grid:
     transitions: DesignTransition | None = None  # leaves: (M, K, C, unroll_length, ...)
 
     _DATA_PREFIX = "data/"  # npz namespace keeping ``data`` apart from the grid arrays
+
+    def tree_flatten(self):
+        """Make rollout grids usable as JAX inputs while keeping metadata static."""
+        children = (
+            self.designs, self.tradeoffs, self.rewards, self.data, self.transitions
+        )
+        auxiliary = (self.per_cell, None if self.objectives is None else tuple(self.objectives))
+        return children, auxiliary
+
+    @classmethod
+    def tree_unflatten(cls, auxiliary, children):
+        per_cell, objectives = auxiliary
+        designs, tradeoffs, rewards, data, transitions = children
+        return cls(
+            designs=designs,
+            tradeoffs=tradeoffs,
+            per_cell=per_cell,
+            rewards=rewards,
+            objectives=None if objectives is None else list(objectives),
+            data=data,
+            transitions=transitions,
+        )
 
     # ------------------------------------------------------------------ constructors
 
@@ -400,7 +425,7 @@ class Grid:
                 ),
                 data      = {k: take(v, idx) for k, v in self.data.items()},
             )
-            for idx in np.split(order, n_batches)
+            for idx in jnp.split(order, n_batches)
         ]
 
     def batch_by_design(self, n_batches: int, rng=None) -> list["Grid"]:

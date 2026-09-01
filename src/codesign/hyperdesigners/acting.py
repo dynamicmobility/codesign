@@ -60,6 +60,8 @@ def actor_step(
         observation=state.obs,
         action=actions,
         reward=nstate.reward,
+        design=designs,
+        tradeoff=tradeoffs,
         discount=1.0 - termination.astype(jnp.float32),
         next_observation=nstate.obs,
         extras={"policy_extras": policy_extras, "state_extras": state_extras},
