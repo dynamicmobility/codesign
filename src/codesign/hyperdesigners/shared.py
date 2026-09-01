@@ -129,7 +129,7 @@ def make_env_inputs(env) -> Callable:
     return env_inputs
 
 
-def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 'shuffle') -> Callable:
+def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 'design') -> Callable:
     """``sgd_step(carry, _, data, normalizer_params)``: one shuffled pass of minibatched
     gradient steps over ``data``, carrying ``(optimizer_state, params, key)``.
     If batching_strategy is ``design`` then num_minibatches should be equal to grid num designs
@@ -156,7 +156,11 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 
     # Pretty sure this doesn't work
     def batch_design(x:Grid, num_minibatches, key) -> DesignTransition:
         design_grids = x.batch_by_design(key, num_minibatches)
-        return jnp.stack([get_transitions_from_grid(grid) for grid in design_grids])
+        def convert(x):
+            return jnp.swapaxes(x, 1, 2)
+        stacked = jax.tree.map(lambda *xs: jnp.stack(xs), *[get_transitions_from_grid(grid) for grid in design_grids])
+        shuffled_stacked = jax.tree_util.tree_map(functools.partial(convert), stacked)
+        return shuffled_stacked
 
     batch_fn = batch_design if batching_strategy == 'design' else shuffle
 
