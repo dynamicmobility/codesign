@@ -200,9 +200,6 @@ def compute_design_hypernet_loss(
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
     """
-    # Put the time dimension first: [B, T, ...] -> [T, B, ...].
-    data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
-    designs = data.design
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
         design_networks.policy_network.apply, in_axes=(None, 0, 1)
@@ -216,9 +213,11 @@ def compute_design_hypernet_loss(
 
     # Per-env policy/value params from the hypernetwork (design is constant over time).
     policy_params, value_params = design_networks.hypernetwork.apply(
-        params.hypernetwork, designs
+        params.hypernetwork, data.design[:, 0]
     )
 
+    # Put the time dimension first: [B, T, ...] -> [T, B, ...].
+    data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
 
     policy_logits = policy_apply(normalizer_params, policy_params, data.observation)
     policy_logits = jnp.swapaxes(policy_logits, 0, 1)
