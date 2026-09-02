@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test
+name: test-mo-design-batching
 save_dir: results/Sep02
 description: "Multi-objective design-conditioned hypernetwork PPO over 3D CodesignCheetah."
 algorithm: "mo_design_hypernetwork"
@@ -56,7 +56,7 @@ learning_params:
     seed: 0
     value_loss_type: mse
     huber_delta: 1.0
-    batching_strategy: "shuffle"
+    batching_strategy: "design"
   network_params:
     hypersize: [256, 256]
     num_features: 32

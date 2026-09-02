@@ -159,7 +159,8 @@ class TurboOptimizer:
         state = TurboState(self.dim, best_value=torch.max(Y_turbo).item())
         while not state.restart_triggered:  # Run until TuRBO converges
             # Fit a GP model
-            train_Y = (Y_turbo - Y_turbo.mean()) / Y_turbo.std()
+            train_Y = (Y_turbo - Y_turbo.mean()) / (Y_turbo.std() + 1e-8)
+            assert not torch.isnan(train_Y).any(), "train_Y contains NaNs after standardization"
             likelihood = GaussianLikelihood(noise_constraint=Interval(1e-8, 1e-3))
             covar_module = ScaleKernel(  # Use the same lengthscale prior as in the TuRBO paper
                 MaternKernel(nu=2.5, ard_num_dims=self.dim, lengthscale_constraint=Interval(0.005, 4.0))
