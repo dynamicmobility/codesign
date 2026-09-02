@@ -15,14 +15,21 @@ from codesign.utils.grid import Grid
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_design_hypernet_loss,
+    mse_loss,
+    huber_loss
 )
+from codesign.utils.model import (
+    sample_designs
+)
+
+from functools import partial
 
 
 def train_design_hypernetwork(
     environment,
     num_timesteps: int,
     episode_length: int,
-    num_envs: int = 128,
+    num_parallel_envs: int = 128,
     unroll_length: int = 20,
     batch_size: int = 64,
     num_minibatches: int = 2,
@@ -35,9 +42,12 @@ def train_design_hypernetwork(
     gae_lambda: float = 0.95,
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
+    value_loss_type: str = "mse",
+    huber_delta: float = 1.0,
     normalize_observations: bool = True,
     design_dim: int = 1,
     num_designs: int = 8,
+    per_cell: int = 16, # How many times each design should be trialed
     resamples_per_epoch: int = 1,
     network_factory: Callable = net_lib.make_design_hypernet_networks,
     num_evals: int = 10,
@@ -47,19 +57,24 @@ def train_design_hypernetwork(
     progress_fn: Callable = lambda *a: None,
     policy_params_fn: Callable = lambda *a: None,
     run_evals: bool = True,
+    batching_strategy: str = 'shuffle',
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    assert num_envs % num_designs == 0, (
-        "num_envs must be divisible by num_designs"
+    assert (num_designs * per_cell) % num_parallel_envs == 0, (
+        "total number of environments (num_designs*per_cell) must be divisible by num_parallel_envs"
     )
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
+    # Batching is by design, so a minibatch is one design's rollouts only at equality.
+    assert num_minibatches == num_designs, (
+        "num_minibatches must equal num_designs for one design per minibatch"
+    )
     schedule = shared.Schedule.make(
-        num_timesteps, num_evals, num_envs, batch_size, num_minibatches,
+        num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
 
@@ -94,10 +109,11 @@ def train_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
+        value_loss_fn         = partial(huber_loss, huber_delta = huber_delta) if value_loss_type == 'huber' else mse_loss,
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,
-        shared.make_sgd_step(loss_fn, optimizer, num_minibatches),
+        shared.make_sgd_step(loss_fn, optimizer, num_minibatches, batching_strategy),
         schedule, unroll_length, episode_length, num_updates_per_batch,
     )
     rollout_returns = shared.make_rollout_returns(
@@ -107,9 +123,8 @@ def train_design_hypernetwork(
 
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
-        return Grid.from_design_sample(
-            environment, design_rng, num_designs, per_cell=num_envs // num_designs
-        ), None
+
+        return Grid.from_design_sample( environment, design_rng, num_designs, per_cell=per_cell), None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
     eval_grid = Grid.from_design_sample(
@@ -145,11 +160,9 @@ def train_design_hypernetwork(
         schedule,
         training_state,
         environment,
-        num_envs,
         key,
         inference_fn,
         env_inputs,
-        num_evals=num_evals,
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,

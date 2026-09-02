@@ -2,26 +2,13 @@
 Adapted from ``moplayground.moppo.acting``.
 """
 
-from typing import Any, NamedTuple, Sequence, Tuple
+from typing import Any, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
-from brax.training.acme.types import NestedArray
 from brax.training.types import PRNGKey
 
-
-class DesignTransition(NamedTuple):
-    """A transition carrying the per-env robot ``design`` and ``tradeoff`` alongside the
-    usual fields. ``reward`` is a per-objective vector on a multi-objective env."""
-
-    observation: NestedArray
-    action: NestedArray
-    reward: NestedArray
-    design: NestedArray
-    tradeoff: NestedArray
-    discount: NestedArray
-    next_observation: NestedArray
-    extras: NestedArray = ()
+from codesign.utils.grid import DesignTransition
 
 
 def _where_done(done: jax.Array, x, y):
@@ -55,7 +42,7 @@ def actor_step(
     episode_length: int,
     extra_fields: Sequence[str] = (),
 ) -> Tuple[Any, DesignTransition]:
-    """Step every env once (per-env model), build a transition, then auto-reset.
+    """Step every env once (per-env model), build a transition, then auto-resets if the environment is complete.
     """
     actions, policy_extras = policy(state.obs, key)
     nstate = jax.vmap(env.step, in_axes=(0, 0, 0))(state, actions, models)

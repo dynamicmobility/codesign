@@ -1,13 +1,17 @@
 """The design x tradeoff grid shared by training, evaluation, and saved datasets.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import itertools
 from pathlib import Path
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from brax.training.acme.types import NestedArray
 from mujoco import mjx
 
 from codesign.envs.codesign_base import CodesignBase, MOCodesignBase
@@ -19,7 +23,20 @@ from codesign.utils.model import (
 )
 
 
-def sample_tradeoffs(
+class DesignTransition(NamedTuple):
+    """Holds all information for one environment step."""
+
+    observation: NestedArray
+    action: NestedArray
+    reward: NestedArray
+    design: NestedArray
+    tradeoff: NestedArray
+    discount: NestedArray
+    next_observation: NestedArray
+    extras: NestedArray = ()
+
+
+def sample_tradeoffs_cpu(
     rng: np.random.Generator,
     num_tradeoffs: int,
     num_objectives: int,
@@ -49,25 +66,31 @@ def sample_tradeoffs(
     return w.astype(np.float32)
 
 
-def _generator(seed) -> np.random.Generator:
+def _generator(seed: int | jax.Array | np.random.Generator) -> np.random.Generator:
     """A ``Generator`` from an int seed, or a ``Generator`` passed straight through.
 
     ``np.random.default_rng`` returns a ``Generator`` unaltered, so a caller may hand over
     either a fresh seed or a live stream that keeps advancing across resamples.
     """
-    return np.random.default_rng(seed)
+    return np.random.default_rng(int(seed) if isinstance(seed, jax.Array) else seed)
 
 
-def _box_designs(seed, env: CodesignBase, n_designs: int) -> np.ndarray:
-    """Space-filling sample of ``n_designs`` over the env's design box.
+def _box_designs_cpu(seed, env: CodesignBase, n_designs: int, limits = None) -> np.ndarray:
+    """Space-filling sample of ``n_designs`` over the env's design box. Cannot be run on GPU due to
+    Sobol. (There may exist a Sobol jax implementation, but it is not necessary)
 
     ``env.design_limits`` is ``(2, design_dim)`` -- lows then highs. Returns shape
     ``(n_designs, design_dim)`` in physical units.
     """
-    low, high = np.asarray(env.design_limits)
+    if limits is None:
+        low, high = jnp.asarray(env.design_limits)
+    else:
+        low, high = limits
     return sample_designs(_generator(seed), n_designs, low=low, high=high, dim=len(low))
 
 
+
+@jax.tree_util.register_pytree_node_class
 @dataclasses.dataclass
 class Grid:
     """``M`` designs x ``K`` tradeoffs, each cell rolled out ``per_cell`` times.
@@ -92,8 +115,31 @@ class Grid:
     objectives : list | None = None        # per-objective names
     # per-step trajectories, (M, K, C, n_steps, ...); per-cell values omit the time axis
     data       : dict[str, np.ndarray] = dataclasses.field(default_factory=dict)
+    transitions: DesignTransition | None = None  # leaves: (M, K, C, unroll_length, ...)
 
     _DATA_PREFIX = "data/"  # npz namespace keeping ``data`` apart from the grid arrays
+
+    def tree_flatten(self):
+        """Make rollout grids usable as JAX inputs while keeping metadata static."""
+        children = (
+            self.designs, self.tradeoffs, self.rewards, self.data, self.transitions
+        )
+        auxiliary = (self.per_cell, None if self.objectives is None else tuple(self.objectives))
+        return children, auxiliary
+
+    @classmethod
+    def tree_unflatten(cls, auxiliary, children):
+        per_cell, objectives = auxiliary
+        designs, tradeoffs, rewards, data, transitions = children
+        return cls(
+            designs=designs,
+            tradeoffs=tradeoffs,
+            per_cell=per_cell,
+            rewards=rewards,
+            objectives=None if objectives is None else list(objectives),
+            data=data,
+            transitions=transitions,
+        )
 
     # ------------------------------------------------------------------ constructors
 
@@ -132,12 +178,12 @@ class Grid:
 
     @classmethod
     def from_design_sample(
-        cls, env: CodesignBase, seed, n_designs: int, per_cell: int = 1
+        cls, env: CodesignBase, seed, n_designs: int, per_cell: int = 1, limits = None,
     ) -> "Grid":
         """Space-filling (sobol) designs against the single trivial tradeoff, ``(M, 1, C, 1)``.
         """
         return cls.crossed(
-            _box_designs(seed, env, n_designs), np.ones((1, 1), np.float32), per_cell
+            _box_designs_cpu(seed, env, n_designs, limits=limits), np.ones((1, 1), np.float32), per_cell
         )
 
     @classmethod
@@ -154,11 +200,11 @@ class Grid:
         """Space-filling designs over the env's design box crossed with sampled tradeoffs.
         """
         rng = _generator(seed)
-        tradeoffs = sample_tradeoffs(
+        tradeoffs = sample_tradeoffs_cpu(
             rng, n_tradeoffs, len(env.objectives), sampling=sampling, alpha=alpha
         )
         return cls.crossed(
-            _box_designs(rng, env, n_designs), tradeoffs, per_cell,
+            _box_designs_cpu(rng, env, n_designs), tradeoffs, per_cell,
             objectives=env.objectives,
         )
 
@@ -168,7 +214,7 @@ class Grid:
     ) -> "Grid":
         """Space-filling designs crossed with the one-hot corners of the simplex."""
         return cls.crossed(
-            _box_designs(seed, env, n_designs),
+            _box_designs_cpu(seed, env, n_designs),
             np.eye(len(env.objectives), dtype=np.float32),
             per_cell,
             objectives=env.objectives,
@@ -195,7 +241,7 @@ class Grid:
             block[:, i], block[:, j] = x, 1.0 - x
             blocks.append(block)
         return cls.crossed(
-            _box_designs(seed, env, n_designs),
+            _box_designs_cpu(seed, env, n_designs),
             np.concatenate(blocks, axis=0),
             per_cell,
             objectives=env.objectives,
@@ -221,7 +267,7 @@ class Grid:
         """
         rng = _generator(seed)
         if tradeoffs is None:
-            tradeoffs = sample_tradeoffs(
+            tradeoffs = sample_tradeoffs_cpu(
                 rng, n_tradeoffs, len(env.objectives), sampling=sampling, alpha=alpha
             )
         tradeoffs = np.atleast_2d(np.asarray(tradeoffs, np.float32))
@@ -354,38 +400,42 @@ class Grid:
 
     # ------------------------------------------------------------------ batching
 
-    def _batch(self, axis: int, n_batches: int, rng=None) -> list["Grid"]:
+    def _batch(self, key: jax.Array, axis: int, n_batches: int, shuffle=False) -> list["Grid"]:
         """Split ``axis`` (0 designs, 1 tradeoffs) into ``n_batches`` equally sized grids.
 
-        ``rng`` permutes the axis first, so each batch mixes entries from across the grid;
-        without it the split is contiguous, keeping neighbouring grid entries together --
-        which is what a within-design batch needs.
+        ``shuffle`` permutes the axis under ``key`` first, so each batch mixes entries from
+        across the grid; without it the split is contiguous, keeping neighbouring grid
+        entries together -- which is what a within-design batch needs.
         """
         n = self.designs.shape[axis]
         if n % n_batches:
             raise ValueError(
                 f"axis {axis} has length {n}, which {n_batches} batches do not divide"
             )
-        order = _generator(rng).permutation(n) if rng is not None else np.arange(n)
-        take = lambda x, idx: None if x is None else np.take(x, idx, axis=axis)
+        order = jax.random.permutation(key, n) if shuffle else jnp.arange(n)
+        take = lambda x, idx: None if x is None else jnp.take(x, idx, axis=axis)
         return [
             dataclasses.replace(
                 self,
                 designs   = take(self.designs, idx),
                 tradeoffs = take(self.tradeoffs, idx),
                 rewards   = take(self.rewards, idx),
+                transitions = (
+                    None if self.transitions is None else
+                    jax.tree_util.tree_map(lambda x: take(x, idx), self.transitions)
+                ),
                 data      = {k: take(v, idx) for k, v in self.data.items()},
             )
-            for idx in np.split(order, n_batches)
+            for idx in jnp.split(order, n_batches)
         ]
 
-    def batch_by_design(self, n_batches: int, rng=None) -> list["Grid"]:
+    def batch_by_design(self, key: jnp.ndarray, n_batches: int, shuffle=False) -> list["Grid"]:
         """``n_batches`` grids of ``M / n_batches`` designs each; see :meth:`_batch`."""
-        return self._batch(0, n_batches, rng)
+        return self._batch(key, 0, n_batches, shuffle)
 
-    def batch_by_tradeoff(self, n_batches: int, rng=None) -> list["Grid"]:
+    def batch_by_tradeoff(self, key: jnp.ndarray, n_batches: int, shuffle=False) -> list["Grid"]:
         """``n_batches`` grids of ``K / n_batches`` tradeoffs each; see :meth:`_batch`."""
-        return self._batch(1, n_batches, rng)
+        return self._batch(key, 1, n_batches, shuffle)
 
     # ------------------------------------------------------------------ i/o
 
@@ -396,6 +446,12 @@ class Grid:
         )
         if self.rewards is not None:
             arrays["rewards"] = self.rewards
+        if self.transitions is not None:
+            # Transition fields can be nested pytrees (notably ``extras``), so keep the
+            # tuple as an explicitly one-dimensional object array in the npz archive.
+            packed = np.empty(len(self.transitions), dtype=object)
+            packed[:] = tuple(self.transitions)
+            arrays["transitions"] = packed
         if self.objectives is not None:
             arrays["objectives"] = np.asarray(self.objectives, dtype=object)
         arrays.update({self._DATA_PREFIX + k: v for k, v in self.data.items()})
@@ -410,6 +466,10 @@ class Grid:
             tradeoffs  = npz["tradeoffs"],
             per_cell   = int(npz["per_cell"]),
             rewards    = npz["rewards"] if "rewards" in npz else None,
+            transitions = (
+                DesignTransition(*npz["transitions"].tolist())
+                if "transitions" in npz else None
+            ),
             objectives = npz["objectives"].tolist() if "objectives" in npz else None,
             data       = {
                 k[cut:]: npz[k] for k in npz.files if k.startswith(cls._DATA_PREFIX)

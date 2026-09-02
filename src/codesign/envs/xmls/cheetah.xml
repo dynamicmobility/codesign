@@ -62,6 +62,8 @@
       <joint name="rooty" type="hinge" axis="0 1 0" class="free"/>
       <geom name="torso" type="capsule" fromto="-.5 0 0 .5 0 0" size="0.046"/>
       <geom name="head" type="capsule" pos=".6 0 .1" euler="0 50 0" size="0.046 .15"/>
+      <site name="head_tip" size="0.06" rgba="1 0 0 1" pos="0.715 0 0.196"/>
+      <!-- <site name="body_center" size="0.06" rgba="1 0 0 1" pos="0 0 0"/> -->
       <body name="bthigh" pos="-.5 0 0">
         <joint name="bthigh" range="-60 60"/>
         <!-- <geom name="bthigh" type="capsule" pos=".2 0 -.26" euler="0 -218 0" size="0.046 .328 0"/>

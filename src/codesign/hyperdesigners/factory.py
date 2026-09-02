@@ -38,6 +38,7 @@ def setup_design_hypernetwork(config):
         network_factory     = network_factory,
         design_dim          = len(design['low']),
         num_designs         = design_sampling.get("num_designs", 8),
+        per_cell            = design_sampling.get("per_cell", 16),
         resamples_per_epoch = design_sampling.get("resamples_per_epoch", 1),
         **ppo,
     )

@@ -1,6 +1,6 @@
 """Shared helpers for ``codesign`` (design construction, model batching, plotting)."""
 
-from codesign.utils.grid import Grid, sample_tradeoffs
+from codesign.utils.grid import Grid, sample_tradeoffs_cpu
 from codesign.utils.model import (
     uniform_design_sweep,
     stack_models,
@@ -35,7 +35,7 @@ __all__ = [
     "stack_models",
     "build_batched_model",
     "sample_designs",
-    "sample_tradeoffs",
+    "sample_tradeoffs_cpu",
     "maximin_designs",
     "min_design_gap",
     "normalize_design",

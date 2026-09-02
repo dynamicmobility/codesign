@@ -16,7 +16,7 @@ from brax.training.types import Params
 from codesign.hyperdesigners import networks as net_lib
 from codesign.hyperdesigners import shared
 from codesign.utils import model as model_lib
-from codesign.utils.grid import Grid, sample_tradeoffs
+from codesign.utils.grid import Grid, sample_tradeoffs_cpu
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     DesignPredictorTransition,
@@ -54,6 +54,8 @@ def train_mo_design_predictor(
     gae_lambda: float = 0.95,
     max_grad_norm: float | None = 1.0,
     normalize_advantage: bool = True,
+    value_loss_type: str = "mse",
+    huber_delta: float = 1.0,
     normalize_observations: bool = True,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
@@ -132,6 +134,8 @@ def train_mo_design_predictor(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
+        value_loss_type       = value_loss_type,
+        huber_delta           = huber_delta,
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,
@@ -195,7 +199,7 @@ def train_mo_design_predictor(
         """Designs paired to their tradeoff: space-filling while ``f`` is frozen, else
         sampled from ``f(d | w)``."""
         if it < num_warmup_iters:
-            tradeoffs = sample_tradeoffs(
+            tradeoffs = sample_tradeoffs_cpu(
                 tradeoff_rng, num_tradeoffs, num_objectives,
                 sampling=sampling, alpha=alpha,
             )
@@ -258,7 +262,7 @@ def train_mo_design_predictor(
 
     # Tradeoffs are pinned across epochs so hypervolume stays comparable; only the
     # designs move, tracking the predictor.
-    eval_tradeoffs = sample_tradeoffs(
+    eval_tradeoffs = sample_tradeoffs_cpu(
         np.random.default_rng(seed + 1001), num_eval_tradeoffs, num_objectives,
         sampling=sampling, alpha=alpha,
     )

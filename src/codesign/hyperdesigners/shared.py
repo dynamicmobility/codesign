@@ -5,6 +5,8 @@ them -- schedule arithmetic, minibatched SGD, the unroll, the eval rollout, and 
 loop -- is the same, and lives here.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import functools
 import time
@@ -20,6 +22,7 @@ from brax.training.acme import running_statistics
 
 from codesign.hyperdesigners import acting
 from codesign.utils import model as model_lib
+from codesign.utils.grid import Grid, DesignTransition
 
 
 @flax.struct.dataclass
@@ -29,16 +32,24 @@ class TrainingState:
     normalizer_params: running_statistics.RunningStatisticsState
 
 
+class TrainingBatch(NamedTuple):
+    """Step transitions plus the per-environment conditioning owned by their grid."""
+
+    transitions: acting.DesignTransition
+    designs: jax.Array
+    tradeoffs: jax.Array
+
+
 @dataclasses.dataclass
 class Schedule:
     """The step budget, split into epochs (one eval each), resample chunks, and steps.
     """
 
-    num_scans                    : int  # unrolls concatenated into one training batch
-    env_step_per_training_step   : int
-    num_training_steps_per_chunk : int
-    num_evals_after_init         : int
-    resamples_per_epoch          : int
+    num_scans                       : int  # number of scans which eventually concatenate into one training dataset
+    env_step_per_training_step      : int
+    num_training_steps_per_resample : int
+    num_epochs                      : int
+    resamples_per_epoch             : int
 
     @classmethod
     def make(
@@ -50,27 +61,27 @@ class Schedule:
         num_minibatches: int,
         unroll_length: int,
         resamples_per_epoch: int = 1,
-    ) -> "Schedule":
+    ) -> Schedule:
         assert (batch_size * num_minibatches) % num_envs == 0, (
             "batch_size * num_minibatches must be divisible by num_envs"
         )
         assert resamples_per_epoch >= 1, "resamples_per_epoch must be >= 1"
         env_step_per_training_step = batch_size * unroll_length * num_minibatches
-        num_evals_after_init = max(num_evals - 1, 1)
+        num_epochs = max(num_evals - 1, 1)
         return cls(
             num_scans                    = batch_size * num_minibatches // num_envs,
             env_step_per_training_step   = env_step_per_training_step,
-            num_training_steps_per_chunk = int(np.ceil(
+            num_training_steps_per_resample = int(np.ceil(
                 num_timesteps
-                / (num_evals_after_init * resamples_per_epoch * env_step_per_training_step)
+                / (num_epochs * resamples_per_epoch * env_step_per_training_step)
             )),
-            num_evals_after_init         = num_evals_after_init,
+            num_epochs                   = num_epochs,
             resamples_per_epoch          = resamples_per_epoch,
         )
 
     @property
     def num_training_steps_per_epoch(self) -> int:
-        return self.num_training_steps_per_chunk * self.resamples_per_epoch
+        return self.num_training_steps_per_resample * self.resamples_per_epoch
 
     @property
     def env_step_per_epoch(self) -> int:
@@ -109,7 +120,7 @@ def make_env_inputs(env) -> Callable:
     """
     reference = None
 
-    def env_inputs(grid):
+    def env_inputs(grid: Grid):
         nonlocal reference
         batched_model, designs, tradeoffs = grid.env_inputs(env, like=reference)
         reference = batched_model
@@ -118,15 +129,43 @@ def make_env_inputs(env) -> Callable:
     return env_inputs
 
 
-def make_sgd_step(loss_fn, optimizer, num_minibatches: int) -> Callable:
+def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 'design') -> Callable:
     """``sgd_step(carry, _, data, normalizer_params)``: one shuffled pass of minibatched
     gradient steps over ``data``, carrying ``(optimizer_state, params, key)``.
+    If batching_strategy is ``design`` then num_minibatches should be equal to grid num designs
     """
     gradient_update_fn = gradients.gradient_update_fn(
         loss_fn, optimizer, pmap_axis_name=None, has_aux=True
     )
 
-    def minibatch_step(carry, data, normalizer_params):
+    def flatten_transitions(x):
+        # (M, K, C, T, ...) -> (M*K*C, T, ...): the [B, T] layout the losses expect.
+        return x.reshape((-1,) + x.shape[3:])
+
+    def get_transitions_from_grid(grid: Grid) -> DesignTransition:
+        return jax.tree_util.tree_map(flatten_transitions, grid.transitions)
+
+    def shuffle(g: Grid, num_minibatches, key) -> DesignTransition:
+        """Minibatches drawn uniformly across the grid; leaves: (num_minibatches, B, T, ...)."""
+
+        def convert(x):
+            # One key for every leaf, so a cell's fields stay on the same row.
+            x = jax.random.permutation(key, x)
+            return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
+
+        return jax.tree_util.tree_map(convert, get_transitions_from_grid(g))
+
+    def batch_design(x: Grid, num_minibatches, key) -> DesignTransition:
+        """One design per minibatch, ordered afresh each call; leaves: (num_minibatches, B, T, ...)."""
+        design_grids = x.batch_by_design(key, num_minibatches, shuffle=True)
+        return jax.tree.map(
+            lambda *xs: jnp.stack(xs),
+            *[get_transitions_from_grid(grid) for grid in design_grids],
+        )
+
+    batch_fn = batch_design if batching_strategy == 'design' else shuffle
+
+    def batch_step(carry, data: DesignTransition, normalizer_params):
         opt_state, params, key = carry
         key, key_loss = jax.random.split(key)
         (_, metrics), params, opt_state = gradient_update_fn(
@@ -134,17 +173,13 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int) -> Callable:
         )
         return (opt_state, params, key), metrics
 
-    def sgd_step(carry, unused_t, data, normalizer_params):
+    def sgd_step(carry, unused_t, data: Grid, normalizer_params):
         opt_state, params, key = carry
         key, key_perm, key_grad = jax.random.split(key, 3)
 
-        def convert(x):
-            x = jax.random.permutation(key_perm, x)
-            return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
-
-        shuffled = jax.tree_util.tree_map(convert, data)
+        shuffled = batch_fn(data, num_minibatches, key_perm)
         (opt_state, params, _), metrics = jax.lax.scan(
-            functools.partial(minibatch_step, normalizer_params=normalizer_params),
+            functools.partial(batch_step, normalizer_params=normalizer_params),
             (opt_state, params, key_grad),
             shuffled,
             length=num_minibatches,
@@ -172,9 +207,9 @@ def make_training_chunk(
     ``num_training_steps_per_chunk`` times over. ``observation_fn`` pulls the observation
     the normalizer covers out of a batch of transitions.
     """
-    observation_fn = observation_fn or (lambda data: data.observation)
+    observation_fn = observation_fn or (lambda grid: grid.transitions.observation)
 
-    def training_step(carry, unused_t, batched_model, designs, tradeoffs, first_state):
+    def training_step(carry, unused_t, batched_model, designs, tradeoffs, grid, first_state):
         training_state, state, key = carry
         key_sgd, key_unroll, new_key = jax.random.split(key, 3)
         policy = make_policy(
@@ -203,14 +238,32 @@ def make_training_chunk(
             return (nstate, nk), data
 
         # Compute dataset of rollouts
-        (state, _), data = jax.lax.scan(
+        (state, _), transitions = jax.lax.scan(
             scan_unroll, (state, key_unroll), (), length=schedule.num_scans
         )
-        # data: [num_scans, unroll_length, num_envs, ...] -> [B, T, ...].
-        data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 2), data)
-        data = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), data
+        # Instead of putting the transitions into a TrainingBatch, reshape the transition data and put it into a Grid.
+        # Make sure the leading 3 dimensions (M, K, C) correspond to the designs, tradeoffs, and per_cell properties of the grid.
+        # This information is given by the argument grid_shape
+        m, k, c = grid.cell_shape
+
+        def reshape_transitions(x):
+            # [S, T, M*K*C, ...] -> [M, K, C*S, T, ...].  Keeping C and S
+            # adjacent before merging them preserves every transition's grid cell.
+            x = x.reshape(
+                (schedule.num_scans, x.shape[1], m, k, c) + x.shape[3:]
+            )
+            x = jnp.transpose(x, (2, 3, 4, 0, 1) + tuple(range(5, x.ndim)))
+            return x.reshape(
+                (m, k, c * schedule.num_scans, x.shape[4]) + x.shape[5:]
+            )
+
+        data = Grid(
+            designs     = grid.designs,
+            tradeoffs   = grid.tradeoffs,
+            per_cell    = c * schedule.num_scans,
+            transitions = jax.tree_util.tree_map(reshape_transitions, transitions),
         )
+
         # normalize observations based on current state distribution
         normalizer_params = running_statistics.update(
             training_state.normalizer_params, observation_fn(data)
@@ -233,7 +286,7 @@ def make_training_chunk(
 
     @jax.jit
     def training_chunk(
-        training_state, state, key, batched_model, designs, tradeoffs, first_state
+        training_state, state, key, batched_model, designs, tradeoffs, grid, first_state
     ):
         step = functools.partial(
             training_step,
@@ -241,12 +294,14 @@ def make_training_chunk(
             designs=designs,
             tradeoffs=tradeoffs,
             first_state=first_state,
+            grid = grid
         )
+        # Does ``num_training_steps_per_resample`` rollouts -> sgd backprops
         (training_state, state, _), metrics = jax.lax.scan(
             step,
             (training_state, state, key),
             (),
-            length=schedule.num_training_steps_per_chunk,
+            length=schedule.num_training_steps_per_resample,
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, state, metrics
@@ -345,7 +400,7 @@ class Algorithm:
     - ``epoch_metrics(it)`` adds per-epoch bookkeeping.
     """
 
-    sample        : Callable # sampling strategy fn
+    sample        : Callable[..., tuple[Grid, dict]] # sampling strategy fn
     chunk         : Callable # training chunk fn
     evaluate      : Callable # evaluation fn
     params_of     : Callable # get network-specific params
@@ -358,12 +413,10 @@ def run_training(
     schedule: Schedule,
     training_state: TrainingState,
     env,
-    num_envs: int,
     key: jax.Array,
     inference_fn: Callable,
     env_inputs: Callable,
     extra_state=None,
-    num_evals: int = 10,
     run_evals: bool = True,
     progress_fn: Callable = lambda *a: None,
     policy_params_fn: Callable = lambda *a: None,
@@ -379,30 +432,32 @@ def run_training(
 
     # Initial eval + checkpoint.
     metrics = {}
-    if run_evals and num_evals > 1:
-        metrics = algo.evaluate(training_state, extra_state, key_eval)
-        progress_fn(0, metrics)
+    metrics = algo.evaluate(training_state, extra_state, key_eval)
+    progress_fn(0, metrics)
     params = algo.params_of(training_state, extra_state)
     policy_params_fn(0, inference_fn, params)
 
     walltime = 0.0
-    for it in range(schedule.num_evals_after_init):
+    for it in range(schedule.num_epochs):
         t0 = time.time()
         chunk_metrics = []
         for _ in range(schedule.resamples_per_epoch):
             # Redraw the grid, rebuild the per-env models, and restart the envs on them
             # (the robot itself changed, so the carried state is stale).
+            # TODO: sub is generateed from jax split but algo.sample will use a numpy rng (as it is on the CPU side). 
+            # The sampler should be written to be consistent with that
             key_sample, sub = jax.random.split(key_sample)
             grid, aux = algo.sample(it, extra_state, sub)
+            # Sampled holds flattened model, designs, tradeoffs, but are consistent with the grid shape
             sampled = Sampled(grid, *env_inputs(grid), aux)
 
             key_env, sub = jax.random.split(key_env)
-            env_state = jit_reset(jax.random.split(sub, num_envs), sampled.model)
+            env_state = jit_reset(jax.random.split(sub, grid.num_envs), sampled.model)
 
             key, chunk_key = jax.random.split(key)
             training_state, _, train_metrics = algo.chunk(
                 training_state, env_state, chunk_key, sampled.model,
-                sampled.designs, sampled.tradeoffs, env_state,
+                sampled.designs, sampled.tradeoffs, grid, env_state,
             )
 
             key_env, sub = jax.random.split(key_env)
