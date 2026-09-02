@@ -2,7 +2,7 @@
 #
 # H_\pi(d, w) = \pi(a | s)
 name: test
-save_dir: results/Aug28
+save_dir: results/Sep02
 description: "Multi-objective design-conditioned hypernetwork PPO over 3D CodesignCheetah."
 algorithm: "mo_design_hypernetwork"
 env: "MOCodesignCheetahBackLegs"
@@ -36,7 +36,7 @@ learning_params:
   ppo_params:
     num_timesteps: 3000000000
     episode_length: 500
-    num_envs: 4096
+    num_parallel_envs: 4096
     unroll_length: 20
     batch_size: 128
     num_minibatches: 32
@@ -54,6 +54,9 @@ learning_params:
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
+    value_loss_type: mse
+    huber_delta: 1.0
+    batching_strategy: "shuffle"
   network_params:
     hypersize: [256, 256]
     num_features: 32
@@ -66,6 +69,7 @@ learning_params:
     sampling: random
   tradeoff_sampling:
     num_tradeoffs: 8
+    per_cell: 16
     num_eval_tradeoffs: 8
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg

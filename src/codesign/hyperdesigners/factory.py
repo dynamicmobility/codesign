@@ -76,6 +76,7 @@ def setup_mo_design_hypernetwork(config):
         num_designs           = design_sampling["num_designs"],
         resamples_per_epoch   = design_sampling["resamples_per_epoch"],
         num_tradeoffs         = tradeoff_sampling["num_tradeoffs"],
+        per_cell              = tradeoff_sampling["per_cell"],
         alpha                 = tradeoff_sampling["alpha"],
         sampling              = tradeoff_sampling["sampling"],
         **optional_params,

@@ -304,8 +304,7 @@ def compute_mo_design_hypernet_loss(
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
     """
-    designs, tradeoffs = data.designs, data.tradeoffs
-    data = data.transitions
+    designs, tradeoffs = data.design, data.tradeoff
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
         design_networks.policy_network.apply, in_axes=(None, 0, 1)
@@ -321,7 +320,7 @@ def compute_mo_design_hypernet_loss(
     # over time, so use their value at the first timestep.
     cond = jnp.concatenate([designs, tradeoffs], axis=-1)
     policy_params, value_params = design_networks.hypernetwork.apply(
-        params.hypernetwork, cond
+        params.hypernetwork, cond[:, 0]
     )
 
     # Put the time dimension first: [B, T, ...] -> [T, B, ...].
@@ -369,7 +368,7 @@ def compute_mo_design_hypernet_loss(
         std = advantages.std(axis=(0, 1), keepdims=True)
         advantages = (advantages - mean) / (std + 1e-8)
 
-    scalar_advantages = jnp.sum(tradeoffs[None] * advantages, axis=2)
+    scalar_advantages = jnp.sum(data.tradeoff * advantages, axis=2)
 
     rho_s = jnp.exp(target_action_log_probs - behaviour_action_log_probs)
     surrogate_loss1 = rho_s * scalar_advantages

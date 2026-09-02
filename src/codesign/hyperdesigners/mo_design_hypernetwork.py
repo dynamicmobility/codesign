@@ -15,17 +15,22 @@ from codesign.utils.grid import Grid
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     compute_mo_design_hypernet_loss,
+    huber_loss, 
+    mse_loss
 )
+
+from functools import partial
 
 
 def train_mo_design_hypernetwork(
     environment,
     num_timesteps: int,
     episode_length: int,
-    num_envs: int = 1024,
+    num_parallel_envs: int = 1024,
     num_designs: int = 8,
     num_eval_designs: int = 8,
     num_tradeoffs: int = 8,
+    per_cell: int = 8,
     num_eval_tradeoffs: int = 8,
     unroll_length: int = 20,
     batch_size: int = 64,
@@ -44,6 +49,7 @@ def train_mo_design_hypernetwork(
     normalize_observations: bool = True,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
+    batching_strategy = 'design',
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
@@ -59,17 +65,18 @@ def train_mo_design_hypernetwork(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    num_cells = num_designs * num_tradeoffs
-    assert num_envs % num_cells == 0, (
-        "num_envs must be divisible by num_designs * num_tradeoffs"
+    num_envs = num_designs * num_tradeoffs * per_cell
+    assert (num_envs) % num_parallel_envs == 0, (
+        "total number of environments (num_designs*num_tradeoffs*per_cell) must be divisible by num_parallel_envs"
     )
+
     assert num_eval_envs % (num_eval_designs * num_eval_tradeoffs) == 0, (
         "num_eval_envs must be divisible by num_eval_designs * num_eval_tradeoffs"
     )
-    envs_per_cell = num_envs // num_cells
+
     eval_envs_per_cell = num_eval_envs // (num_eval_designs * num_eval_tradeoffs)
     schedule = shared.Schedule.make(
-        num_timesteps, num_evals, num_envs, batch_size, num_minibatches,
+        num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
 
@@ -104,12 +111,11 @@ def train_mo_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
-        value_loss_type       = value_loss_type,
-        huber_delta           = huber_delta,
+        value_loss_fn         = partial(huber_loss, huber_delta = huber_delta) if value_loss_type == 'huber' else mse_loss,
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,
-        shared.make_sgd_step(loss_fn, optimizer, num_minibatches),
+        shared.make_sgd_step(loss_fn, optimizer, num_minibatches, batching_strategy),
         schedule, unroll_length, episode_length, num_updates_per_batch,
     )
     rollout_returns = shared.make_rollout_returns(
@@ -120,7 +126,7 @@ def train_mo_design_hypernetwork(
     def sample(it, extra_state, key):
         """Space-filling designs crossed with freshly sampled tradeoffs."""
         return Grid.from_uniform_sample(
-            environment, grid_rng, num_tradeoffs, num_designs, envs_per_cell,
+            environment, grid_rng, num_tradeoffs, num_designs, per_cell,
             sampling=sampling, alpha=alpha,
         ), None
 
@@ -159,11 +165,9 @@ def train_mo_design_hypernetwork(
         schedule,
         training_state,
         environment,
-        num_envs,
         key,
         inference_fn,
         env_inputs,
-        num_evals=num_evals,
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,

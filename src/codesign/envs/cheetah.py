@@ -170,7 +170,6 @@ class MOCodesignCheetah(MOCodesignBase):
         too_low = self._np.array(
             info['head_height'] < 0.1
         )
-        print(info['head_height'])
         return too_low
 
     def _get_obs(self, data, info):
