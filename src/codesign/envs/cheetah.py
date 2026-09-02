@@ -59,6 +59,7 @@ class MOCodesignCheetah(MOCodesignBase):
 
         bsite_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "bfoot_tip")
         fsite_id = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "ffoot_tip")
+        head_id  = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "head_tip")
         probe = self._data_init_fn(
             model        = model,
             qpos         = qpos,
@@ -70,6 +71,7 @@ class MOCodesignCheetah(MOCodesignBase):
         ground_margin = 0.02
         btip_z = probe.site_xpos[bsite_id][2]
         ftip_z = probe.site_xpos[fsite_id][2]
+        head_z = probe.site_xpos[head_id][2]
         tip_z = self._np.min(self._np.asarray([btip_z, ftip_z]))
         qpos = self._set_val_fn(qpos, qpos[1] - tip_z + ground_margin, 1, 2)
         
@@ -86,6 +88,7 @@ class MOCodesignCheetah(MOCodesignBase):
         info['xposafter']  = 0.01
         info['ang']        = data.qpos[2]
         info['height']     = data.qpos[1]
+        info['head_height']= head_z
 
         done = self._np.array(0.0)
         rewards = self.reward_function(
@@ -110,9 +113,12 @@ class MOCodesignCheetah(MOCodesignBase):
             1.0
         )
         data = self._step_fn(state.data, action, model)
+        head_id  = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "head_tip")
+        head_z = data.site_xpos[head_id][2]
         state.info['xposafter'] = data.qpos[0]
         state.info['ang']       = data.qpos[2]
         state.info['height']    = data.qpos[1]
+        state.info['head_height']= head_z
         
         done = self.fall_termination(state.info)
         rewards = self.reward_function(
@@ -157,14 +163,15 @@ class MOCodesignCheetah(MOCodesignBase):
         self,  
         info: dict
     ):
-        upside_down = self._np.array(
-            ~(abs(info['ang']) < self._np.deg2rad(80))
-        )
+        # upside_down = self._np.array(
+        #     ~(abs(info['ang']) < self._np.deg2rad(80))
+        # )
 
         too_low = self._np.array(
-            info['height'] < -0.55
+            info['head_height'] < 0.1
         )
-        return upside_down | too_low
+        print(info['head_height'])
+        return too_low
 
     def _get_obs(self, data, info):
         return self.mo_backend._get_obs(data, info)
