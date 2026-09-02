@@ -162,7 +162,7 @@ class MOCodesignCheetah(MOCodesignBase):
         )
 
         too_low = self._np.array(
-            info['height'] < -0.35
+            info['height'] < -0.55
         )
         return upside_down | too_low
 

@@ -57,6 +57,7 @@ def train_design_hypernetwork(
     progress_fn: Callable = lambda *a: None,
     policy_params_fn: Callable = lambda *a: None,
     run_evals: bool = True,
+    batching_strategy: str = 'shuffle',
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
@@ -112,7 +113,7 @@ def train_design_hypernetwork(
     )
     chunk = shared.make_training_chunk(
         environment, make_policy,
-        shared.make_sgd_step(loss_fn, optimizer, num_minibatches),
+        shared.make_sgd_step(loss_fn, optimizer, num_minibatches, batching_strategy),
         schedule, unroll_length, episode_length, num_updates_per_batch,
     )
     rollout_returns = shared.make_rollout_returns(
