@@ -68,6 +68,10 @@ def train_design_hypernetwork(
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
+    # Batching is by design, so a minibatch is one design's rollouts only at equality.
+    assert num_minibatches == num_designs, (
+        "num_minibatches must equal num_designs for one design per minibatch"
+    )
     schedule = shared.Schedule.make(
         num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,

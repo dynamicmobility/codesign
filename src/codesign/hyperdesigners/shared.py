@@ -139,28 +139,29 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 
     )
 
     def flatten_transitions(x):
+        # (M, K, C, T, ...) -> (M*K*C, T, ...): the [B, T] layout the losses expect.
         return x.reshape((-1,) + x.shape[3:])
 
     def get_transitions_from_grid(grid: Grid) -> DesignTransition:
-        return jax.tree_util.tree_map(functools.partial(flatten_transitions), grid.transitions)
+        return jax.tree_util.tree_map(flatten_transitions, grid.transitions)
 
-    def shuffle(g: Grid, num_minibatches, key):
+    def shuffle(g: Grid, num_minibatches, key) -> DesignTransition:
+        """Minibatches drawn uniformly across the grid; leaves: (num_minibatches, B, T, ...)."""
+
         def convert(x):
+            # One key for every leaf, so a cell's fields stay on the same row.
             x = jax.random.permutation(key, x)
-            return jnp.swapaxes(jnp.reshape(x, (num_minibatches, -1) + x.shape[1:]), 1, 2)
-        transitions = get_transitions_from_grid(g)
-        print("Transitions before Shuffle: ",transitions.reward.shape)
-        data_shuffled = jax.tree_util.tree_map(functools.partial(convert), transitions)
-        return data_shuffled
+            return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
 
-    # Pretty sure this doesn't work
-    def batch_design(x:Grid, num_minibatches, key) -> DesignTransition:
-        design_grids = x.batch_by_design(key, num_minibatches)
-        def convert(x):
-            return jnp.swapaxes(x, 1, 2)
-        stacked = jax.tree.map(lambda *xs: jnp.stack(xs), *[get_transitions_from_grid(grid) for grid in design_grids])
-        shuffled_stacked = jax.tree_util.tree_map(functools.partial(convert), stacked)
-        return shuffled_stacked
+        return jax.tree_util.tree_map(convert, get_transitions_from_grid(g))
+
+    def batch_design(x: Grid, num_minibatches, key) -> DesignTransition:
+        """One design per minibatch, ordered afresh each call; leaves: (num_minibatches, B, T, ...)."""
+        design_grids = x.batch_by_design(key, num_minibatches, shuffle=True)
+        return jax.tree.map(
+            lambda *xs: jnp.stack(xs),
+            *[get_transitions_from_grid(grid) for grid in design_grids],
+        )
 
     batch_fn = batch_design if batching_strategy == 'design' else shuffle
 
@@ -176,10 +177,7 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 
         opt_state, params, key = carry
         key, key_perm, key_grad = jax.random.split(key, 3)
 
-        # The batching function should return a list of collections of transitions whose leading dimension is the 
-        # shuffled = jax.tree_util.tree_map(functools.partial(shuffle, num_minibatches=num_minibatches, key=key_perm), data)
         shuffled = batch_fn(data, num_minibatches, key_perm)
-        print("Transitions after Shuffle: ", shuffled.reward.shape)
         (opt_state, params, _), metrics = jax.lax.scan(
             functools.partial(batch_step, normalizer_params=normalizer_params),
             (opt_state, params, key_grad),
