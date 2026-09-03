@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=cheetah-1D-usup-seeds
+#SBATCH --job-name=design-hyper-6D
 #SBATCH --account=gts-mtucker34
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=6
 #SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
 #SBATCH --mem=64G
-#SBATCH --time=5:00:00
+#SBATCH --time=4:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
@@ -30,8 +30,4 @@ module load cuda
 export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
-python3 -m scripts.wandb_sweep \
---sweep config/mo_design_hypernetwork/sweeps/cheetah1D_seeds.yaml \
---config config/mo_design_hypernetwork/cheetah1D.yaml \
---num_trials 10 \
---pace True
+python3 -m scripts.train --config config/design_hypernetwork/cheetah6D_shuffle.yaml
