@@ -1,5 +1,6 @@
 import functools
 
+from brax.training import networks
 from codesign.hyperdesigners.design_mlp import train_design_mlp
 from codesign.hyperdesigners.design_hypernetwork import train_design_hypernetwork
 from codesign.hyperdesigners.mo_design_hypernetwork import (
@@ -31,6 +32,8 @@ def setup_design_hypernetwork(config):
         num_features                = net["num_features"],
         policy_hidden_layer_sizes   = tuple(net["policy_hidden_layer_sizes"]),
         value_hidden_layer_sizes    = tuple(net["value_hidden_layer_sizes"]),
+        initialization_strategy     = net["initialization_strategy"],
+        weight_initializer          = networks.KERNEL_INITIALIZER[net["weight_initializer"]]
     )
 
     train_fn = functools.partial(

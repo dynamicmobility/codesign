@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: height-reward-only
-save_dir: results/Sep02
+name: height-reward-kaiming
+save_dir: results/Sep03
 description: "Trying mse loss, Only sample "
 algorithm: design_hypernetwork
 env: "MOCodesignCheetahBackLegs"
@@ -62,6 +62,9 @@ learning_params:
     num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
+    initialization_strategy: bias
+    weight_initializer: kaiming_uniform
+
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed

@@ -161,6 +161,9 @@ def make_design_mlp_inference_fn(networks_: DesignNetworks):
 
     return design_mlp_inference_fn
 
+
+HypernetInitStrategy = Literal["bias", "weight", "load_network"]
+
 def make_design_hypernetwork(
     design_dim: int,
     obs_dim: int,
@@ -169,12 +172,17 @@ def make_design_hypernetwork(
     hypersize: tuple,
     num_features: int = 8,
     w_variance: float = 0.0,
+    initialization_strategy: HypernetInitStrategy = "bias",
+    weight_initializer: Initializer = jax.nn.initializers.kaiming_uniform,
 ) -> FeedForwardHypernetwork:
     """Wrap a ``DualA2CHypernet`` keyed on the design (no simplex normalization).
 
     ``apply(params, design) -> (policy_params, value_params)`` where each is a Flax
     ``{'params': ...}`` tree (batched along axis 0 when ``design`` is batched).
     """
+    if(initialization_strategy not in ("bias", "weight", "load_network")):
+        raise ValueError(f"Unsupported initialization_strategy: {initialization_strategy!r}")
+
     hypernet = DualA2CHypernet(
         target_policy_dict=target_policy_dict,
         target_value_dict=target_value_dict,
@@ -185,10 +193,30 @@ def make_design_hypernetwork(
         W_variance=w_variance,
     )
 
-    dummy_design = jnp.zeros(design_dim)
+    if(initialization_strategy == "weight"):
+        def init(key):
+            key_hypernet, key_policy_w, key_value_w = jax.random.split(key, 3)
+            params = flax.core.unfreeze(hypernet.init(key_hypernet, dummy_design))
+            params["params"]["policy_b"] = jnp.zeros_like(
+                params["params"]["policy_b"]
+            )
+            params["params"]["value_b"] = jnp.zeros_like(
+                params["params"]["value_b"]
+            )
+            policy_w = params["params"]["policy_W"]
+            value_w = params["params"]["value_W"]
+            params["params"]["policy_W"] = weight_initializer(
+                key_policy_w, policy_w.shape, policy_w.dtype
+            )
+            params["params"]["value_W"] = weight_initializer(
+                key_value_w, value_w.shape, value_w.dtype
+            )
+            return flax.core.freeze(params)
+    else:
+        def init(key):
+            return hypernet.init(key, dummy_design)
 
-    def init(key):
-        return hypernet.init(key, dummy_design)
+    dummy_design = jnp.zeros(design_dim)
 
     def apply(params, design):
         # Returns ((policy_params, value_params), (flat...), (features...)); take [0].
@@ -265,6 +293,8 @@ def make_design_hypernet_networks(
     num_features: int = 8,
     w_variance: float = 0.0,
     num_value_outputs: int = 1,
+    initialization_strategy: HypernetInitStrategy = 'bias',
+    weight_initializer: Initializer = jax.nn.initializers.kaiming_uniform
 ) -> DesignHypernetNetworks:
     """Build the target policy/value MLPs and the design-conditioned hypernetwork."""
     if distribution_type == "normal":
@@ -292,7 +322,7 @@ def make_design_hypernet_networks(
         noise_std_type=noise_std_type,
         init_noise_std=init_noise_std,
         state_dependent_std=state_dependent_std,
-        kernel_init=jax.nn.initializers.kaiming_uniform()
+        kernel_init=weight_initializer
     )
 
     value_network = make_vector_value_network(
@@ -302,7 +332,7 @@ def make_design_hypernet_networks(
         num_objectives=num_value_outputs,
         activation=activation,
         obs_key=value_obs_key,
-        kernel_init=jax.nn.initializers.kaiming_uniform()
+        kernel_init=weight_initializer
     )
 
     key_policy, key_value = jax.random.split(key)
@@ -318,6 +348,8 @@ def make_design_hypernet_networks(
         hypersize=hypersize,
         num_features=num_features,
         w_variance=w_variance,
+        initialization_strategy=initialization_strategy,
+        weight_initializer=weight_initializer,
     )
 
     return DesignHypernetNetworks(
