@@ -163,7 +163,12 @@ def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 
             *[get_transitions_from_grid(grid) for grid in design_grids],
         )
 
-    batch_fn = batch_design if batching_strategy == 'design' else shuffle
+    if batching_strategy == 'design':
+        batch_fn = batch_design
+    elif batching_strategy == 'shuffle':
+        batch_fn = shuffle
+    else:
+        raise ValueError("Invalid batching strategy")
 
     def batch_step(carry, data: DesignTransition, normalizer_params):
         opt_state, params, key = carry
