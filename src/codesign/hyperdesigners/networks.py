@@ -292,6 +292,7 @@ def make_design_hypernet_networks(
         noise_std_type=noise_std_type,
         init_noise_std=init_noise_std,
         state_dependent_std=state_dependent_std,
+        kernel_init=jax.nn.initializers.kaiming_uniform()
     )
 
     value_network = make_vector_value_network(
@@ -301,6 +302,7 @@ def make_design_hypernet_networks(
         num_objectives=num_value_outputs,
         activation=activation,
         obs_key=value_obs_key,
+        kernel_init=jax.nn.initializers.kaiming_uniform()
     )
 
     key_policy, key_value = jax.random.split(key)
