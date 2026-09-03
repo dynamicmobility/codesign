@@ -60,8 +60,8 @@ learning_params:
   network_params:
     hypersize: [512, 512]
     num_features: 64
-    policy_hidden_layer_sizes: [64, 64]
-    value_hidden_layer_sizes:  [64, 64]
+    policy_hidden_layer_sizes: [256, 256, 128]
+    value_hidden_layer_sizes:  [256, 256, 128]
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
