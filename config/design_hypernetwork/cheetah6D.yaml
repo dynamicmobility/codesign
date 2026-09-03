@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: 6d-height-only-design-test
+name: 6d-height-98discount-Wvar03
 save_dir: scratch/logs/codesign/results/Sep03
 description: "N/A"
 algorithm: design_hypernetwork
@@ -43,7 +43,7 @@ learning_params:
     num_updates_per_batch: 4
     learning_rate: 0.0001
     entropy_cost: 0.01
-    discounting: 0.99
+    discounting: 0.98
     reward_scaling: 1.0
     clipping_epsilon: 0.3
     gae_lambda: 0.95
