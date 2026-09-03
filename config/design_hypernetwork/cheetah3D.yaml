@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test-fixed-swap
+name: height-reward-only
 save_dir: results/Sep02
 description: "Trying mse loss, Only sample "
 algorithm: design_hypernetwork
@@ -23,7 +23,7 @@ env_config:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
-      default_scalarization: [1.0, 1.0, 1.0]
+      default_scalarization: [0, 0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
@@ -54,9 +54,9 @@ learning_params:
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
-    value_loss_type: mse
+    value_loss_type: huber
     huber_delta: 1.0
-    batching_strategy: "shuffle"
+    batching_strategy: design
   network_params:
     hypersize: [256, 256]
     num_features: 32

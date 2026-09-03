@@ -29,7 +29,7 @@ import time
 warnings.filterwarnings("ignore", category=BadInitialCandidatesWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-CONFIG_PATH = "config/design_hypernetwork/cheetah6D.yaml"
+CONFIG_PATH = "results/wandb-downloads/t6nb2x7p/config.yaml"
 config     = mm.utils.config.create_config_dict(mop.utils.read_config(CONFIG_PATH))
 # env        = codesign.cheetah(env_params=env_params, backend="jnp")
 env, env_params = codesign.load_env(config=config, backend="jnp")
@@ -38,8 +38,8 @@ lower_bounds = jnp.array([env_params.codesign.low])
 upper_bounds = jnp.array([env_params.codesign.high])
 
 batch_size=16
-dim = 6
-n_init = 2 * dim
+dim = 3
+n_init = 16
 max_cholesky_size = float("inf")  # Always use Cholesky
 
 
@@ -66,10 +66,10 @@ def rollout_fun(designs_normalized: torch.Tensor):
         mask_after_done=True,
         seed=0,
     )
+    # print(rewards.shape)
 
-    discount = config.learning_params.ppo_params.discounting
-    total_rewards_rollout = np.sum(rewards*np.pow(discount, np.arange(config.learning_params.ppo_params.episode_length))[:, np.newaxis], axis=0)
-    ret = torch.from_numpy(np.atleast_2d(total_rewards_rollout.sum(axis=0)).T.astype(np.double).copy())
+    ret = torch.from_numpy(np.atleast_2d(rewards.sum(axis=0)).T.astype(np.double).copy())
+    # print(ret.shape)
     return ret
 
 def get_initial_points(dim: int, n_pts: int, seed: int = 0) -> torch.Tensor:
@@ -105,7 +105,8 @@ best_design, best_value, X_turbo, Y_turbo = optim.optimize(initial_guess=designs
 
 print("Best Design: ", model_lib.unnormalize_design(best_design.numpy(), low=lower_bounds, high=upper_bounds))
 print("Best Value: ", best_value)
-
+print("Re-evaluated value:", rollout_fun(best_design.unsqueeze(0)))
+print("Re-evaluated again:", rollout_fun(best_design.unsqueeze(0)))
 # import numpy as np
 
 
