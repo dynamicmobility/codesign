@@ -34,7 +34,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 3000000000
+    num_timesteps: 5000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
@@ -58,12 +58,12 @@ learning_params:
     huber_delta: 1.0
     batching_strategy: design
   network_params:
-    hypersize: [256, 256]
-    num_features: 32
+    hypersize: [512, 512]
+    num_features: 64
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
-    resamples_per_epoch: 1
+    resamples_per_epoch: 8
     sampling: random
