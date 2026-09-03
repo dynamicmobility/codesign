@@ -4,7 +4,7 @@
 # ppo_params, so apply_sweep_params routes it there unambiguously. Nothing else is swept, so
 # no batching or eval-grid derivation fires and num_timesteps stays at the base config's 1.5e9.
 # Run with --num_trials 10 so the agent exhausts the grid.
-name: cheetah-1D-usup-seeds
+name: cheetah-1D-usup-seeds-vector-value
 method: grid
 metric:
   name: Mean Hypervolume.max # score each run by its best front, not its last
