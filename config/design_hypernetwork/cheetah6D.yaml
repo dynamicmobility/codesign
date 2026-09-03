@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: 6d-height-98discount-Wvar03
+name: 6d-height-kaiming
 save_dir: scratch/logs/codesign/results/Sep03
 description: "N/A"
 algorithm: design_hypernetwork
@@ -62,6 +62,8 @@ learning_params:
     num_features: 64
     policy_hidden_layer_sizes: [256, 256, 128]
     value_hidden_layer_sizes:  [256, 256, 128]
+    initialization_strategy: bias
+    weight_initializer: kaiming_uniform
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
