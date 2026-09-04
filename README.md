@@ -9,20 +9,38 @@ design vector `d` (link lengths, say) and a simplex tradeoff `w` over objectives
 weights of a policy/value MLP. MuJoCo MJX supplies one compiled model per design, and
 rollouts are `vmap`ped across them.
 
-Four algorithms live in `src/codesign/hyperdesigners/variants/`:
+Five algorithms live in `src/codesign/hyperdesigners/variants/`:
 
 | Algorithm | Conditioned on the design by | Designs come from | Objectives |
 |---|---|---|---|
 | `design_mlp` | appending it to the observation | a space-filling sample of the design box | one (scalarized) |
 | `design_hypernetwork` | generating the MLP weights | a space-filling sample of the design box | one (scalarized) |
+| `design_lookup_hypernetwork` | generating the MLP weights, from a one-hot lookup | `M` designs sampled once and never resampled | one (scalarized) |
 | `mo_design_hypernetwork` | generating the MLP weights | a space-filling sample, crossed with sampled tradeoffs | vector-valued critic |
 | `mo_design_predictor_hypernetwork` | generating the MLP weights | a learned predictor `f(d \| w)`, trained by GRPO | vector-valued critic |
 
 Each lives in one module (`hyperdesigners/variants/<algo>.py`) holding its own networks,
 loss, training loop and `setup_*` config wiring; what more than one algo reuses sits in
-`hyperdesigners/networks.py` and `losses.py`. All four share the PPO scaffolding in
+`hyperdesigners/networks.py` and `losses.py`. All five share the PPO scaffolding in
 `hyperdesigners/shared.py` and sample into a common `Grid` (`utils/grid.py`): `M` designs x `K` tradeoffs, each cell rolled out `per_cell`
 times, which is also the on-disk dataset format.
+
+`design_lookup_hypernetwork` is a warm-up stage for `design_hypernetwork`. Its feature map
+is hardcoded to a one-hot lookup over the `M` fixed designs, so `flat(d_i) = W[i] + b`:
+each row of `W` is one design's own policy, fed by that design's rollouts alone, and `b`
+is frozen. Point a later `design_hypernetwork` run at the result with
+
+```yaml
+network_params:
+  initialization_strategy: load_network
+  warmup_checkpoint: results/<run>/<step>
+```
+
+which copies `W`/`b` and the observation normalizer across and regresses the fresh feature
+MLPs onto `mlp(d_i) = e_i` so the run starts at the warm-up's policies. It needs
+`num_features == the warm-up's num_designs`. One design per minibatch means a row of `W`
+takes a gradient once every `M` steps, so Adam's effective step on it is ~`sqrt(M)` times
+larger than usual: scale the warm-up's `learning_rate` down accordingly.
 
 ```
 src/codesign/

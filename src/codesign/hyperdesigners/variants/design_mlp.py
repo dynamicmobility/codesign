@@ -280,7 +280,7 @@ def train_design_mlp(
     environment,
     num_timesteps: int,
     episode_length: int,
-    num_envs: int = 128,
+    num_parallel_envs: int = 128,
     unroll_length: int = 20,
     batch_size: int = 64,
     num_minibatches: int = 2,
@@ -312,14 +312,14 @@ def train_design_mlp(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    assert num_envs % num_designs == 0, (
-        "num_envs must be divisible by num_designs"
+    assert num_parallel_envs % num_designs == 0, (
+        "num_parallel_envs must be divisible by num_designs"
     )
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
     schedule = shared.Schedule.make(
-        num_timesteps, num_evals, num_envs, batch_size, num_minibatches,
+        num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
 
@@ -391,7 +391,7 @@ def train_design_mlp(
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
         return Grid.from_design_sample(
-            environment, design_rng, num_designs, per_cell=num_envs // num_designs
+            environment, design_rng, num_designs, per_cell=num_parallel_envs // num_designs
         ), None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.

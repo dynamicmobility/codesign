@@ -6,7 +6,6 @@ builders defined here.
 """
 
 import functools
-import inspect
 from functools import partial
 from typing import Any, Callable, Literal, Sequence, Tuple
 
@@ -14,14 +13,21 @@ import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
-from brax.training import distribution, networks, types
+import optax
+import yaml
+from brax.training import networks, types
 from brax.training.acme import running_statistics
-from brax.training.agents.ppo import losses as ppo_losses
+from brax.training.agents.ppo import checkpoint, losses as ppo_losses
 from brax.training.networks import Initializer
 from brax.training.types import PRNGKey
+from etils import epath
 from flax import linen
 
-from moplayground.moppo.networks import DualA2CHypernet
+from codesign.hyperdesigners.hypernetworks import (
+    MLP,
+    DualA2CHypernet,
+    sobol_design_table,
+)
 
 from codesign.hyperdesigners import shared
 from codesign.hyperdesigners.acting import DesignTransition
@@ -33,7 +39,8 @@ from codesign.hyperdesigners.losses import (
 from codesign.hyperdesigners.networks import (
     DesignHypernetNetworks,
     FeedForwardHypernetwork,
-    make_vector_value_network,
+    make_target_networks,
+    resolve_kernel_initializer,
 )
 from codesign.utils.grid import Grid
 
@@ -41,16 +48,6 @@ from codesign.utils.grid import Grid
 # --------------------------------------------------------------------------- networks
 HypernetInitStrategy = Literal["bias", "weight", "load_network"]
 
-
-def resolve_kernel_initializer(name: str) -> Initializer:
-    """Look up ``name`` in brax's registry and return a ready ``(key, shape, dtype)``
-    initializer. The registry mixes factories (``he_uniform``) with initializers that are
-    already in that form (``zeros``); only a factory needs calling, and one is told apart
-    by taking no ``shape`` argument."""
-    initializer = networks.KERNEL_INITIALIZER[name]
-    if "shape" in inspect.signature(initializer).parameters:
-        return initializer
-    return initializer()
 
 def make_design_hypernetwork(
     design_dim: int,
@@ -61,13 +58,14 @@ def make_design_hypernetwork(
     num_features: int = 8,
     w_variance: float = 0.0,
     initialization_strategy: HypernetInitStrategy = "bias",
-    weight_initializer: Initializer = jax.nn.initializers.kaiming_uniform(),
+    weight_initializer: str | Initializer = "kaiming_uniform",
 ) -> FeedForwardHypernetwork:
     """Wrap a ``DualA2CHypernet`` keyed on the design (no simplex normalization).
 
     ``apply(params, design) -> (policy_params, value_params)`` where each is a Flax
     ``{'params': ...}`` tree (batched along axis 0 when ``design`` is batched).
     """
+    weight_initializer = resolve_kernel_initializer(weight_initializer)
     if(initialization_strategy not in ("bias", "weight", "load_network")):
         raise ValueError(f"Unsupported initialization_strategy: {initialization_strategy!r}")
 
@@ -133,52 +131,34 @@ def make_design_hypernet_networks(
     w_variance: float = 0.0,
     num_value_outputs: int = 1,
     initialization_strategy: HypernetInitStrategy = 'bias',
-    weight_initializer: Initializer = jax.nn.initializers.kaiming_uniform()
+    weight_initializer: str | Initializer = "kaiming_uniform",
 ) -> DesignHypernetNetworks:
     """Build the target policy/value MLPs and the design-conditioned hypernetwork."""
-    if distribution_type == "normal":
-        parametric_action_distribution = distribution.NormalDistribution(
-            event_size=action_size
-        )
-    elif distribution_type == "tanh_normal":
-        parametric_action_distribution = distribution.NormalTanhDistribution(
-            event_size=action_size
-        )
-    else:
-        raise ValueError(
-            f'Unsupported distribution type: {distribution_type}. Must be one'
-            ' of "normal" or "tanh_normal".'
-        )
-
-    policy_network = networks.make_policy_network(
-        param_size=parametric_action_distribution.param_size,
-        obs_size=observation_size,
+    (
+        parametric_action_distribution,
+        policy_network,
+        value_network,
+        target_policy_params,
+        target_value_params,
+        obs_dim,
+    ) = make_target_networks( # TODO: make this return a named tuple?
+        observation_size=observation_size,
+        action_size=action_size,
+        key=key,
         preprocess_observations_fn=preprocess_observations_fn,
-        hidden_layer_sizes=policy_hidden_layer_sizes,
+        policy_hidden_layer_sizes=policy_hidden_layer_sizes,
+        value_hidden_layer_sizes=value_hidden_layer_sizes,
         activation=activation,
-        obs_key=policy_obs_key,
+        policy_obs_key=policy_obs_key,
+        value_obs_key=value_obs_key,
         distribution_type=distribution_type,
         noise_std_type=noise_std_type,
         init_noise_std=init_noise_std,
         state_dependent_std=state_dependent_std,
-        kernel_init=weight_initializer
+        num_value_outputs=num_value_outputs,
+        weight_initializer=weight_initializer,
     )
 
-    value_network = make_vector_value_network(
-        obs_size=observation_size,
-        preprocess_observations_fn=preprocess_observations_fn,
-        hidden_layer_sizes=value_hidden_layer_sizes,
-        num_objectives=num_value_outputs,
-        activation=activation,
-        obs_key=value_obs_key,
-        kernel_init=weight_initializer
-    )
-
-    key_policy, key_value = jax.random.split(key)
-    target_policy_params = policy_network.init(key_policy)
-    target_value_params = value_network.init(key_value)
-
-    obs_dim = networks._get_obs_state_size(observation_size, policy_obs_key)
     hypernetwork = make_design_hypernetwork(
         design_dim=design_dim,
         obs_dim=obs_dim,
@@ -349,6 +329,103 @@ def compute_design_hypernet_loss(
     }
 
 
+
+# ------------------------------------------------------------------------ handoff
+def _fit_features(mlp, params, designs, targets, steps: int, learning_rate: float):
+    """Least-squares fit of a feature MLP to ``targets`` at ``designs``.
+
+    Returns ``(params, final_mse)``.
+    """
+    optimizer = optax.adam(learning_rate)
+    loss = lambda p: jnp.mean((mlp.apply({"params": p}, designs) - targets) ** 2)
+
+    def step(carry, _):
+        p, state = carry
+        value, grad = jax.value_and_grad(loss)(p)
+        updates, state = optimizer.update(grad, state)
+        return (optax.apply_updates(p, updates), state), value
+
+    (params, _), losses = jax.jit(
+        lambda p: jax.lax.scan(step, (p, optimizer.init(p)), (), length=steps)
+    )(params)
+    return params, float(losses[-1])
+
+
+def load_warmup_params(
+    training_state,
+    checkpoint_path: str,
+    optimizer,
+    fit_steps: int = 2000,
+    fit_learning_rate: float = 1e-3,
+    quiet: bool = False,
+):
+    """Seed this run from a ``design_lookup_hypernetwork`` warm-up checkpoint.
+
+    The warm-up trained ``W``'s rows as ``M`` per-design policies under a one-hot feature
+    map, so ``flat(d_i) = W[i] + b``. Copying ``W`` and ``b`` alone would not carry that
+    over: this run's feature MLP is random, so ``mlp(d) @ W`` would be an arbitrary
+    combination of the ``M`` experts rather than any one of them. Both feature MLPs are
+    therefore regressed onto ``mlp(d_i) = e_i`` at the warm-up's anchor designs first, so
+    training resumes at the policies the warm-up ended on.
+
+    The anchors are rebuilt from the warm-up's own ``config.yaml``, which sits beside its
+    checkpoint, rather than assumed to match this run's. The observation normalizer is
+    restored too: the transferred policies trained against those statistics.
+
+    Args:
+        training_state: this run's freshly initialized state.
+        checkpoint_path: a warm-up checkpoint step directory.
+        optimizer: the optimizer whose state is re-initialized on the merged params.
+        fit_steps, fit_learning_rate: Adam budget for the one-hot regression.
+
+    Returns:
+        The updated ``TrainingState``.
+    """
+    path = epath.Path(checkpoint_path)
+    warmup = yaml.safe_load((path.parent / "config.yaml").read_text())
+    box = warmup["env_config"]["codesign"]
+    table = jnp.asarray(sobol_design_table(
+        warmup["learning_params"]["ppo_params"]["seed"],
+        warmup["learning_params"]["design_sampling"]["num_designs"],
+        box["low"], box["high"],
+    ))
+
+    params = flax.core.unfreeze(training_state.params.hypernetwork)["params"]
+    # Layer widths come off the fresh tree, so the warm-up needs no extra plumbing.
+    mlp_params = params["policy_mlp"]
+    widths = tuple(
+        mlp_params[f"Dense_{i}"]["bias"].shape[0] for i in range(len(mlp_params))
+    )
+    hypersize, num_features = widths[:-1], widths[-1]
+    if len(table) != num_features:
+        raise ValueError(
+            f"the warm-up has {len(table)} designs but this run has num_features="
+            f"{num_features}; a transfer needs num_features == the warm-up's num_designs"
+        )
+
+    normalizer_params, warm = checkpoint.load(str(path.resolve()))
+    warm = flax.core.unfreeze(warm)["params"]
+    for name in ("policy_W", "policy_b", "value_W", "value_b"):
+        params[name] = warm[name]
+
+    targets = jnp.eye(num_features)
+    mlp = MLP(obs_dim=table.shape[-1], hidden_sizes=hypersize, action_dim=num_features)
+    for name in ("policy_mlp", "value_mlp"):
+        params[name], mse = _fit_features(
+            mlp, params[name], table, targets, fit_steps, fit_learning_rate
+        )
+        if not quiet:
+            print(f"load_network: {name} one-hot fit MSE {mse:.3e}")
+
+    merged = DesignHypernetParams(hypernetwork=flax.core.freeze({"params": params}))
+    return training_state.replace(
+        params=merged,
+        normalizer_params=normalizer_params,
+        optimizer_state=optimizer.init(merged),
+    )
+
+
+
 # -------------------------------------------------------------------- training
 def train_design_hypernetwork(
     environment,
@@ -383,6 +460,7 @@ def train_design_hypernetwork(
     policy_params_fn: Callable = lambda *a: None,
     run_evals: bool = True,
     batching_strategy: str = 'shuffle',
+    warmup_checkpoint: str | None = None,
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
@@ -475,6 +553,10 @@ def train_design_hypernetwork(
         DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
         optimizer, environment.observation_size,
     )
+    if warmup_checkpoint is not None:
+        training_state = load_warmup_params(
+            training_state, warmup_checkpoint, optimizer
+        )
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}
 
@@ -505,14 +587,22 @@ def setup_design_hypernetwork(config):
     design = dict(config['env_config']['codesign'])
     design_sampling = dict(lp.get("design_sampling", {}))
 
+    strategy = net.get("initialization_strategy", "bias")
+    warmup_checkpoint = net.get("warmup_checkpoint")
+    if strategy == "load_network" and warmup_checkpoint is None:
+        raise ValueError(
+            "initialization_strategy 'load_network' needs a 'warmup_checkpoint' path in "
+            "network_params, pointing at a design_lookup_hypernetwork checkpoint"
+        )
+
     network_factory = functools.partial(
         make_design_hypernet_networks,
         hypersize                   = tuple(net["hypersize"]),
         num_features                = net["num_features"],
         policy_hidden_layer_sizes   = tuple(net["policy_hidden_layer_sizes"]),
         value_hidden_layer_sizes    = tuple(net["value_hidden_layer_sizes"]),
-        initialization_strategy     = net["initialization_strategy"],
-        weight_initializer          = resolve_kernel_initializer(net["weight_initializer"])
+        initialization_strategy     = strategy,
+        weight_initializer          = net.get("weight_initializer", "kaiming_uniform"),
     )
 
     train_fn = functools.partial(
@@ -522,6 +612,7 @@ def setup_design_hypernetwork(config):
         num_designs         = design_sampling.get("num_designs", 8),
         per_cell            = design_sampling.get("per_cell", 16),
         resamples_per_epoch = design_sampling.get("resamples_per_epoch", 1),
+        warmup_checkpoint   = warmup_checkpoint if strategy == "load_network" else None,
         **ppo,
     )
     return train_fn, network_factory

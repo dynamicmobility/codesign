@@ -340,6 +340,11 @@ class Grid:
         return self.rewards.mean(axis=2)
 
     @property
+    def scalarized_rewards(self) -> np.ndarray:
+        """Each rollout's return against its own cell's tradeoff, ``(M, K, C)``."""
+        return (self.rewards * self.tradeoffs[:, :, None, :]).sum(axis=-1)
+
+    @property
     def keys(self) -> list[str]:
         """Names of the recorded per-step quantities."""
         return sorted(self.data)

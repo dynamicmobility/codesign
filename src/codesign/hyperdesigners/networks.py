@@ -5,7 +5,8 @@ several of them reuse stays here.
 """
 
 import dataclasses
-from typing import Any, Callable, Sequence
+import inspect
+from typing import Any, Callable, Literal, Sequence
 
 import flax
 import jax
@@ -28,6 +29,25 @@ class DesignHypernetNetworks:
     policy_network: networks.FeedForwardNetwork
     value_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
+
+
+def resolve_kernel_initializer(initializer: str | Initializer) -> Initializer:
+    """A ready ``(key, shape, dtype)`` initializer from a name in brax's registry.
+
+    The registry mixes factories (``he_uniform``) with initializers that are already in that
+    form (``zeros``); only a factory needs calling, and one is told apart by taking no
+    ``shape`` argument. An initializer handed over directly comes back unchanged.
+
+    Names, rather than initializers, are what the builders take: brax's checkpoint writer
+    JSON-encodes a network factory's keyword arguments, and a function there is written out
+    as an unusable ``"function init"``.
+    """
+    if not isinstance(initializer, str):
+        return initializer
+    initializer = networks.KERNEL_INITIALIZER[initializer]
+    if "shape" in inspect.signature(initializer).parameters:
+        return initializer
+    return initializer()
 
 
 def make_vector_value_network(
@@ -77,6 +97,81 @@ def make_vector_value_network(
   return FeedForwardNetwork(
       init=lambda key: value_module.init(key, dummy_obs), apply=apply
   )
+
+
+
+def make_target_networks(
+    observation_size: types.ObservationSize,
+    action_size: int,
+    key: jax.Array,
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
+    activation: ActivationFn = linen.swish,
+    policy_obs_key: str = "state",
+    value_obs_key: str = "state",
+    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    noise_std_type: Literal["scalar", "log"] = "scalar",
+    init_noise_std: float = 1.0,
+    state_dependent_std: bool = False,
+    num_value_outputs: int = 1,
+    weight_initializer: str | Initializer = "kaiming_uniform",
+):
+    """The target policy/value MLPs whose weights a hypernetwork generates.
+
+    Returns ``(parametric_action_distribution, policy_network, value_network,
+    target_policy_params, target_value_params, obs_dim)``, where the two param trees are one
+    draw of the target nets' own initialization and ``obs_dim`` is the policy's flat
+    observation width.
+    """
+    weight_initializer = resolve_kernel_initializer(weight_initializer)
+    if distribution_type == "normal":
+        parametric_action_distribution = distribution.NormalDistribution(
+            event_size=action_size
+        )
+    elif distribution_type == "tanh_normal":
+        parametric_action_distribution = distribution.NormalTanhDistribution(
+            event_size=action_size
+        )
+    else:
+        raise ValueError(
+            f'Unsupported distribution type: {distribution_type}. Must be one'
+            ' of "normal" or "tanh_normal".'
+        )
+
+    policy_network = networks.make_policy_network(
+        param_size=parametric_action_distribution.param_size,
+        obs_size=observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=policy_hidden_layer_sizes,
+        activation=activation,
+        obs_key=policy_obs_key,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+        kernel_init=weight_initializer,
+    )
+
+    value_network = make_vector_value_network(
+        obs_size=observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=value_hidden_layer_sizes,
+        num_objectives=num_value_outputs,
+        activation=activation,
+        obs_key=value_obs_key,
+        kernel_init=weight_initializer,
+    )
+
+    key_policy, key_value = jax.random.split(key)
+    return (
+        parametric_action_distribution,
+        policy_network,
+        value_network,
+        policy_network.init(key_policy),
+        value_network.init(key_value),
+        _get_obs_state_size(observation_size, policy_obs_key),
+    )
 
 
 def make_value_fn(networks_: DesignHypernetNetworks):

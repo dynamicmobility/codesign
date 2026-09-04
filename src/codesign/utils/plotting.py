@@ -565,3 +565,87 @@ def plot_design_pareto_progress(
         )
         fig.savefig(save_dir / 'progress.svg')
         plt.close(fig)
+
+
+def plot_design_rewards(ax: plt.Axes, grid, colors=None) -> plt.Axes:
+    """Every rollout's return at its design, with each design's mean marked.
+
+    The x axis is the design itself when it is one-dimensional and the design's index
+    otherwise, there being no single axis to place a multi-dimensional design on.
+    """
+    returns = grid.scalarized_rewards.reshape(grid.n_designs, -1)  # (M, K * C)
+    designs = np.asarray(grid.designs)[:, 0]                       # (M, design_dim)
+    colors = design_colors(grid.n_designs) if colors is None else colors
+    one_d = designs.shape[-1] == 1
+    x = designs[:, 0] if one_d else np.arange(grid.n_designs)
+
+    for i, (xi, row) in enumerate(zip(x, returns)):
+        ax.plot(
+            np.full(row.size, xi), row, ".",
+            ms=4, alpha=0.35, color=colors[i], zorder=1,
+        )
+        ax.plot(xi, row.mean(), "*", ms=11, color=colors[i], zorder=2)
+    ax.plot([], [], ".", ms=4, color=MUTED, label="rollout")
+    ax.plot([], [], "*", ms=11, color=MUTED, label="design mean")
+    ax.legend(fontsize=8, frameon=False, labelcolor=MUTED)
+    ax.set_xlabel("design $d$" if one_d else "design index", color=MUTED, fontsize=9)
+    ax.set_ylabel("scalarized return $w \\cdot R$", color=MUTED, fontsize=9)
+    return dress_axis(ax)
+
+
+def plot_design_learning_curves(ax: plt.Axes, iterations, grids, colors=None) -> plt.Axes:
+    """Each design's mean return against the training step, one line per design."""
+    means = np.stack([
+        g.scalarized_rewards.reshape(g.n_designs, -1).mean(axis=1) for g in grids
+    ])  # (n_evals, M)
+    colors = design_colors(means.shape[1]) if colors is None else colors
+    for i, column in enumerate(means.T):
+        ax.plot(iterations, column, "-", lw=1.2, color=colors[i], zorder=2)
+    ax.set_xlabel("environment steps", color=MUTED, fontsize=9)
+    ax.set_ylabel("mean return", color=MUTED, fontsize=9)
+    return dress_axis(ax)
+
+
+def plot_design_rewards_progress(
+    num_steps: int,
+    metrics: dict,
+    training_data: MODesignTrainingPlottingInfo,
+    times: list,
+    save_dir: Path = None,
+    run: wandb.Run = None,
+    **kwargs,
+):
+    """Per-design evaluation, for algos whose designs each carry their own policy.
+
+    A pooled mean cannot say whether every design is training, so this draws the eval's
+    individual rollout returns against their design beside each design's learning curve.
+    """
+    print_training_update(num_steps)
+    times.append(time.time())
+    grid = metrics["eval_grid"]
+    training_data.update(num_steps=num_steps, grid=grid, time=time.time())
+
+    if run:
+        run.log(scalar_metrics(metrics), step=num_steps)
+
+    if save_dir:
+        training_data.save(save_dir / "design_rewards_progress.csv")
+        grid.save(save_dir / f"eval_grid_{num_steps}.npz")
+        # The anchors in physical units: the designs a rollout of this run may ask for.
+        pd.DataFrame(
+            np.asarray(grid.designs)[:, 0],
+            columns=[f"d{i}" for i in range(grid.design_dim)],
+        ).rename_axis("index").to_csv(save_dir / "designs.csv")
+        fig, (latest, curves) = plt.subplots(1, 2, figsize=(11, 4))
+        plot_design_rewards(latest, grid)
+        plot_design_learning_curves(curves, training_data.iterations, training_data.grids)
+        latest.set_title(f"per-design return, step {num_steps}", color=INK, fontsize=10)
+        curves.set_title("per-design mean return", color=INK, fontsize=10)
+        fig.tight_layout()
+        fig.savefig(save_dir / "progress.svg")
+        plt.close(fig)
+        if run:
+            run.log(
+                {"design_rewards": wandb.Html((save_dir / "progress.svg").read_text())},
+                step=num_steps,
+            )

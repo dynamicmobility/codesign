@@ -16,6 +16,7 @@ from codesign.envs import CodesignBase, MOCodesignBase, CodesignMO2SO, load_env
 from minimal_mjx.eval import policy as policy_lib
 from codesign.learning.inference import (
     load_design_hypernetwork,
+    load_design_lookup_hypernetwork,
     load_mo_design_hypernetwork,
     load_mo_design_predictor_hypernetwork,
 )
@@ -112,6 +113,7 @@ def rollout_design_hypernetwork_video(
     height: int | None = None,
     gen_video: bool = True,
     eval_design = None,
+    load_fn = None,
 ):
     """Render a trained design-hypernetwork policy on a single design.
 
@@ -127,7 +129,8 @@ def rollout_design_hypernetwork_video(
     design_input = normalize_design(jnp.asarray(design), config=config)
 
     # Trained, design-conditioned policy for this single design (1-D design -> unbatched).
-    inference_fn, params = load_design_hypernetwork(config, path=checkpoint_path)
+    load_fn = load_design_hypernetwork if load_fn is None else load_fn
+    inference_fn, params = load_fn(config, path=checkpoint_path)
     base_policy          = inference_fn(params, design_input, deterministic=deterministic)
     policy               = mm.from_inference_fn(base_policy)
 
@@ -442,6 +445,18 @@ def rollout_policy_video(
             camera=camera, width=width, height=height,
         )
 
+    elif algorithm == "design_lookup_hypernetwork":
+        # An arbitrary design snaps to its nearest anchor, so this shows that anchor's
+        # expert rather than a policy interpolated for the design asked for.
+        design, eval_design       = _default_designs(config, design, eval_design)
+        tradeoff, design_tradeoff = None, None
+        rollout = rollout_design_hypernetwork_video(
+            env, config, design=design, eval_design=eval_design, n_steps=n_steps,
+            checkpoint_path=checkpoint_path, seed=seed,
+            camera=camera, width=width, height=height,
+            load_fn=load_design_lookup_hypernetwork,
+        )
+
     elif algorithm == "mo_design_hypernetwork":
         design, eval_design       = _default_designs(config, design, eval_design)
         tradeoff, design_tradeoff = _simplex(tradeoff, _num_objectives(config)), None
@@ -470,7 +485,8 @@ def rollout_policy_video(
     else:
         raise ValueError(
             f"unsupported algorithm {algorithm!r}; expected 'ppo', 'design_hypernetwork', "
-            "'mo_design_hypernetwork' or 'mo_design_predictor_hypernetwork'."
+            "'design_lookup_hypernetwork', 'mo_design_hypernetwork' or "
+            "'mo_design_predictor_hypernetwork'."
         )
 
     frames, traj, reward_plotter, data_plotter, info_plotter = rollout

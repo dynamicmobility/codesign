@@ -24,10 +24,20 @@ from codesign.hyperdesigners.variants.design_mlp import (
 from codesign.hyperdesigners.variants.design_hypernetwork import (
     compute_design_hypernet_loss,
     make_design_hypernet_networks,
+    load_warmup_params,
     make_design_hypernetwork,
     make_design_inference_fn,
     setup_design_hypernetwork,
     train_design_hypernetwork,
+)
+from codesign.hyperdesigners.variants.design_lookup_hypernetwork import (
+    make_lookup_hypernet_networks,
+    make_lookup_hypernetwork,
+    paired_eval_keys,
+    warn_off_table,
+    per_design_metrics,
+    setup_design_lookup_hypernetwork,
+    train_design_lookup_hypernetwork,
 )
 from codesign.hyperdesigners.variants.mo_design_hypernetwork import (
     compute_mo_design_hypernet_loss,
@@ -44,6 +54,11 @@ from codesign.hyperdesigners.variants.mo_design_predictor_hypernetwork import (
     make_mo_design_predictor_hypernet_networks,
     setup_mo_design_predictor_hypernetwork,
     train_mo_design_predictor,
+)
+from codesign.hyperdesigners.hypernetworks import (
+    DualA2CHypernet,
+    LookupA2CHypernet,
+    sobol_design_table,
 )
 from codesign.hyperdesigners.networks import (
     DesignHypernetNetworks,
@@ -74,6 +89,15 @@ __all__ = [
     "make_design_hypernet_networks",
     "make_design_inference_fn",
     "compute_design_hypernet_loss",
+    "load_warmup_params",
+    # design_lookup_hypernetwork
+    "train_design_lookup_hypernetwork",
+    "setup_design_lookup_hypernetwork",
+    "make_lookup_hypernet_networks",
+    "make_lookup_hypernetwork",
+    "paired_eval_keys",
+    "warn_off_table",
+    "per_design_metrics",
     # mo_design_hypernetwork
     "train_mo_design_hypernetwork",
     "setup_mo_design_hypernetwork",
@@ -89,6 +113,9 @@ __all__ = [
     "DesignPredictorTransition",
     "compute_grpo_loss",
     # shared
+    "DualA2CHypernet",
+    "LookupA2CHypernet",
+    "sobol_design_table",
     "DesignHypernetNetworks",
     "FeedForwardHypernetwork",
     "make_value_fn",

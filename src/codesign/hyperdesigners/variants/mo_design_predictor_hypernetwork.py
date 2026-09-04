@@ -270,7 +270,7 @@ def train_mo_design_predictor(
     environment,
     num_timesteps: int,
     episode_length: int,
-    num_envs: int = 1024,
+    num_parallel_envs: int = 1024,
     num_designs: int = 8,  # GRPO group size: designs drawn per tradeoff
     num_eval_designs: int = 8,
     num_tradeoffs: int = 8,
@@ -314,16 +314,16 @@ def train_mo_design_predictor(
     eval_env=None,
 ):
     num_cells = num_tradeoffs * num_designs
-    assert num_envs % num_cells == 0, (
-        "num_envs must be divisible by num_tradeoffs * num_designs"
+    assert num_parallel_envs % num_cells == 0, (
+        "num_parallel_envs must be divisible by num_tradeoffs * num_designs"
     )
     assert num_eval_envs % (num_eval_tradeoffs * num_eval_designs) == 0, (
         "num_eval_envs must be divisible by num_eval_tradeoffs * num_eval_designs"
     )
-    envs_per_cell = num_envs // num_cells
+    envs_per_cell = num_parallel_envs // num_cells
     eval_envs_per_cell = num_eval_envs // (num_eval_designs * num_eval_tradeoffs)
     schedule = shared.Schedule.make(
-        num_timesteps, num_evals, num_envs, batch_size, num_minibatches,
+        num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
     assert 0 <= num_warmup_iters <= schedule.num_epochs, (
@@ -466,7 +466,7 @@ def train_mo_design_predictor(
                 training_state.normalizer_params,
                 training_state.params,
                 sampled.designs, sampled.tradeoffs, sampled.model,
-                jax.random.split(key_value, num_envs), key_value,
+                jax.random.split(key_value, num_parallel_envs), key_value,
             ),
             sampled.tradeoffs,
         )
