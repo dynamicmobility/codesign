@@ -16,5 +16,5 @@ parameters:
     distribution: int_uniform
     min: 20
     max: 40
-  num_envs:
+  num_parallel_envs:
     value: 8192 # pinned, not an axis
