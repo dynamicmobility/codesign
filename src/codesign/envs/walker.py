@@ -1,4 +1,4 @@
-"""Cheetah environment."""
+"""Walker environment."""
 
 from typing import Any
 
@@ -114,7 +114,6 @@ class MOCodesignWalker(MOCodesignBase):
             -1.0,
              1.0
         )
-        model.opt.timestep = self.sim_dt
         data = self._step_fn(state.data, action, model)
         state.info['posafter'] = data.qpos[0]
         head_id  = mj.mj_name2id(self.mj_model, mj.mjtObj.mjOBJ_SITE, "head")
@@ -167,12 +166,9 @@ class MOCodesignWalker(MOCodesignBase):
         data,
         info: dict
     ):
-        # upside_down = self._np.array(
-        #     ~(abs(info['ang']) < self._np.deg2rad(80))
-        # )
 
         terminate = self._np.array(
-            info['head_height'] < 0.1 or info['butt_height'] < 0.1
+            (info['head_height'] < 0.1) | (info['butt_height'] < 0.1)
         )
         return terminate
 
@@ -290,6 +286,5 @@ class MOCodesignWalker(MOCodesignBase):
 class MOCodesignWalkerSymmetric(MOCodesignWalker):
     def generate_model(cls, d, textures: bool = True):
         d_symm = np.concat((d, d), axis=None)
-        print(d_symm)
         return MOCodesignWalker.generate_model(d_symm, textures)
 

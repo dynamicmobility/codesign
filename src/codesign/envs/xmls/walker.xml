@@ -1,7 +1,7 @@
 <mujoco model="planar walker">
   <include file="materials.xml"/>
 
-  <option timestep="0.005" iterations="2" ls_iterations="5">
+  <option timestep="0.01" iterations="2" ls_iterations="5">
     <flag eulerdamp="disable"/>
   </option>
 

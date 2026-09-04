@@ -1,9 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: height-reward-kaiming
-save_dir: results/Sep03
-description: "Trying mse loss, Only sample "
+name: walker
+save_dir: results/Sep04
+description: "Trying something"
 algorithm: design_hypernetwork
 env: "MOCodesignWalkerSymmetric"
 backend: jnp # always jnp for training
