@@ -38,7 +38,8 @@ def rollout_single_video(
     height: int | None = None,
     gen_video: bool = True,
     show_progress: bool = True,
-    scene_option = mm.get_mj_scene_option(contacts=False, com=False)
+    scene_option = mm.get_mj_scene_option(contacts=False, com=False),
+    enable_termination: bool = True,
 ):
     """Roll a single Codesign env (one design) forward under ``policy`` and render it.
 
@@ -86,7 +87,7 @@ def rollout_single_video(
         reward_plotter.add_row(state.metrics, state.reward)
         info_plotter.add_row(state.data.time, state.info)
         traj.append(state)
-        if bool(state.done):
+        if bool(state.done) and enable_termination:
             break
 
     frames = None

@@ -2,6 +2,7 @@ from codesign.envs.codesign_base import CodesignBase, CodesignMO2SO
 from codesign.envs.cheetah import *
 from codesign.envs.TwoAxis import TwoAxis
 from codesign.envs.RHex import RHex
+from codesign.envs.walker import *
 import minimal_mjx as mm
 
 def load_env(config: dict, backend: str | None = None) -> tuple[CodesignBase, dict]:
@@ -20,6 +21,10 @@ def load_env(config: dict, backend: str | None = None) -> tuple[CodesignBase, di
         env = MOCodesignCheetahBackLegs(env_params=env_params, backend=backend)
     elif(env_name == "TwoAxis"):
         env = TwoAxis(env_params=env_params, backend=backend)
+    elif(env_name == "MOCodesignWalker"):
+        env = MOCodesignWalker(env_params=env_params, backend=backend)
+    elif(env_name == "MOCodesignWalkerSymmetric"):
+        env = MOCodesignWalkerSymmetric(env_params=env_params, backend=backend)
     elif(env_name == "RHex"):
         env = RHex(env_params=env_params, backend=backend)
     else:

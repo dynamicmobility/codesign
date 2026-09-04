@@ -9,6 +9,10 @@ from codesign.envs.cheetah import (
     MOCodesignCheetahBackLegs,
     MOCodesignCheetahFrontLegs,
 )
+from codesign.envs.walker import (
+    MOCodesignWalker,
+    MOCodesignWalkerSymmetric,
+)
 from codesign.envs.RHex import RHex as RHex
 
 __all__ = [
@@ -24,4 +28,6 @@ __all__ = [
     "MOCodesignCheetah1D",
     "MOCodesignCheetahBackLegs",
     "MOCodesignCheetahFrontLegs",
+    "MOCodesignWalker",
+    "MOCodesignWalkerSymmetric",
 ]

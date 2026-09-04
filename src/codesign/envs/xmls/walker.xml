@@ -1,0 +1,110 @@
+<mujoco model="planar walker">
+  <include file="materials.xml"/>
+
+  <option timestep="0.005" iterations="2" ls_iterations="5">
+    <flag eulerdamp="disable"/>
+  </option>
+
+  <custom>
+    <numeric data="4" name="max_contact_points"/>
+    <numeric data="4" name="max_geom_pairs"/>
+  </custom>
+
+  <statistic extent="2" center="0 0 1"/>
+
+  <default>
+    <joint damping=".1" armature="0.01" limited="true" solimplimit="0 .99 .01"/>
+    <geom contype="0" conaffinity="0" friction=".7 .1 .1"/>
+    <motor ctrllimited="false"/>
+    <site size="0.01"/>
+    <default class="walker">
+      <geom material="self" type="capsule"/>
+      <joint axis="0 -1 0"/>
+    </default>
+  </default>
+
+  <asset>
+    <!-- <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/> -->
+    <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="1 1 1" rgb2="1 1 1"
+      markrgb="0 0 0" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0"/>
+  </asset>
+
+  <visual>
+    <headlight diffuse=".8 .8 .8" ambient=".2 .2 .2" specular="1 1 1"/>
+    <rgba force="1 0 0 1"/>
+    <global azimuth="140" elevation="-20" offwidth="2560" offheight="2560"/>
+    <map force="0.01"/>
+    <scale forcewidth="0.3" contactwidth="0.5" contactheight="0.2"/>
+    <quality shadowsize="8192"/>
+    <!-- <quality shadowsize="2048"/> -->
+  </visual>
+
+  <worldbody>
+    <geom name="floor" type="plane" conaffinity="1" pos="248 0 0" size="250 .8 .2" material="groundplane" zaxis="0 0 1"/>
+    <!-- <camera name="side_fixed" pos="3.0 -4.5 2.5" euler="70 0 0"/>
+    <light name="light_overhead" pos="2 0 20" dir="0 0 -10" mode="fixed" specular="0.02 0.02 0.02" diffuse=".4 .4 .4" ambient=".1 .1 .1"/>
+    <light name="light" pos="13 0 10" dir="-1 0 -10" mode="fixed" specular="1 1 1" diffuse=".8 .8 .8" ambient=".2 .2 .2"/> -->
+    <camera name="side_fixed" pos="2.0 -4.5 2.5" euler="70 0 0"/>
+    <!-- <light name="light_overhead" pos="2 0 20" dir="0 0 -10" mode="fixed" specular="0.02 0.02 0.02" diffuse=".4 .4 .4" ambient=".1 .1 .1"/> -->
+    <!-- <light name="light" pos="10 0 10" dir="-1 0 -10" mode="fixed" specular="1 1 1" diffuse=".8 .8 .8" ambient=".2 .2 .2"/> -->
+    <light name="light" pos="0 0 4" dir="0 0 -1" specular=".2 .2 .2" diffuse=".5 .5 .5" exponent="0.5" ambient="0.2 0.2 0.2" mode="trackcom"/>
+
+    <body name="torso" pos="0 0 0.0" childclass="walker">
+      <!-- <light name="light" pos="0 0 2" mode="trackcom"/> -->
+      <camera name="track" pos="0 -2.6 0.6" euler="70 0 0" mode="trackcom"/>
+      <camera name="back" pos="-2 0 .5" xyaxes="0 -1 0 1 0 3" mode="trackcom"/>
+      <joint name="rootx" axis="1 0 0" type="slide" limited="false" armature="0" damping="0"/>
+      <joint name="rootz" axis="0 0 1" type="slide" limited="false" armature="0" damping="0"/>
+      <joint name="rooty" axis="0 1 0" type="hinge" limited="false" armature="0" damping="0"/>
+      <geom name="torso" size="0.07 0.3"/>
+      <site name="head" size="0.06" rgba="1 0 0 1" pos="0 0 0.3"/>
+      <site name="butt" size="0.06" rgba="1 0 0 1" pos="0 0 -0.3"/>
+      <body name="right_thigh" pos="0 -.05 -0.3">
+        <joint name="right_hip" range="-20 100"/>
+        <geom name="right_thigh" pos="0 0 -0.225" size="0.05 0.225"/>
+        <body name="right_leg" pos="0 0 -0.45">
+          <joint name="right_knee" range="-150 0"/>
+          <geom name="right_leg" pos="0 0 -0.25" size="0.04 0.25"/>
+          <body name="right_foot" pos="0 0 -0.5">
+            <joint name="right_ankle" range="-45 45"/>
+            <geom name="right_foot" pos="0.06 0 0" zaxis="1 0 0" size="0.05 0.1"/>
+            <site name="rfoot" size="0.06" rgba="1 0 0 1" pos="0.06 0 0"/>
+          </body>
+        </body>
+      </body>
+      <body name="left_thigh" pos="0 .05 -0.3" >
+        <joint name="left_hip" range="-20 100"/>
+        <geom name="left_thigh" pos="0 0 -0.225" size="0.05 0.225"/>
+        <body name="left_leg" pos="0 0 -0.45">
+          <joint name="left_knee" range="-150 0"/>
+          <geom name="left_leg" pos="0 0 -0.25" size="0.04 0.25"/>
+          <body name="left_foot" pos="0 0 -0.5">
+            <joint name="left_ankle" range="-45 45"/>
+            <geom name="left_foot" pos="0.06 0 0" zaxis="1 0 0" size="0.05 0.1"/>
+            <site name="lfoot" size="0.06" rgba="1 0 0 1" pos="0.06 0 0"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <contact>
+    <pair name="lf_floor" geom1="right_foot" geom2="floor" condim="3" friction="0.7 0.7"/>
+    <pair name="rf_floor" geom1="left_foot"  geom2="floor" condim="3" friction="0.7 0.7"/>
+  </contact>
+
+  <sensor>
+    <subtreelinvel name="torso_subtreelinvel" body="torso"/>
+  </sensor>
+
+  <actuator>
+    <motor name="right_hip" joint="right_hip" gear="100"/>
+    <motor name="right_knee" joint="right_knee" gear="50"/>
+    <motor name="right_ankle" joint="right_ankle" gear="20"/>
+    <motor name="left_hip" joint="left_hip" gear="100"/>
+    <motor name="left_knee" joint="left_knee" gear="50"/>
+    <motor name="left_ankle" joint="left_ankle" gear="20"/>
+  </actuator>
+</mujoco>
