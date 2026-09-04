@@ -2,7 +2,7 @@
 #
 # H_\pi(d, w) = \pi(a | s)
 name: height-reward-lookup-warmup
-save_dir: results/Sep03
+save_dir: results/Sep04
 description: "Trying mse loss, Only sample "
 algorithm: design_hypernetwork
 env: "MOCodesignCheetahBackLegs"
