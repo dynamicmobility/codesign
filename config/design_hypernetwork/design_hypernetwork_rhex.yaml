@@ -47,7 +47,7 @@ learning_params:
   ppo_params:
     num_timesteps: 50000000
     episode_length: 500
-    num_envs: 128
+    num_parallel_envs: 128
     unroll_length: 20
     batch_size: 64
     num_minibatches: 2

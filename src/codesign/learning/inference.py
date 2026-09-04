@@ -15,15 +15,22 @@ from brax.training.checkpoint import get_network
 from brax.training.agents.ppo import checkpoint
 import minimal_mjx as mm
 
-from codesign.hyperdesigners.networks import (
+from codesign.hyperdesigners.networks import make_value_fn
+from codesign.hyperdesigners.variants.design_hypernetwork import (
     make_design_inference_fn,
-    make_mo_design_inference_fn,
-    make_design_predictor_inference_fn,
-    make_value_fn
-)
-from codesign.hyperdesigners.factory import (
     setup_design_hypernetwork,
+)
+from codesign.hyperdesigners.hypernetworks import sobol_design_table
+from codesign.hyperdesigners.variants.design_lookup_hypernetwork import (
+    setup_design_lookup_hypernetwork,
+    warn_off_table,
+)
+from codesign.hyperdesigners.variants.mo_design_hypernetwork import (
+    make_mo_design_inference_fn,
     setup_mo_design_hypernetwork,
+)
+from codesign.hyperdesigners.variants.mo_design_predictor_hypernetwork import (
+    make_design_predictor_inference_fn,
     setup_mo_design_predictor_hypernetwork,
 )
 
@@ -70,6 +77,46 @@ def load_design_hypernetwork(
     design_networks = get_network(params_config, network_factory)
     inference_fn = make_design_inference_fn(design_networks)
     return inference_fn, params
+
+
+def load_design_lookup_hypernetwork(
+    config,
+    network_factory=None,
+    path=None,
+    quiet=True,
+):
+    """Load the lookup (warm-up) hypernetwork's inference fn + saved params.
+
+    ``(num_designs, design_seed, design_low, design_high)`` ride along in the checkpoint's
+    network config, which fixes the Sobol draw exactly, so only the design width and a
+    dummy key are supplied here.
+    """
+    if network_factory is None:
+        _, network_factory = setup_design_lookup_hypernetwork(config)
+    params_config, params = _load_checkpoint(config, path, quiet)
+
+    network_factory = functools.partial(
+        network_factory,
+        design_dim=len(config["env_config"]["codesign"]["low"]),
+        key=jax.random.PRNGKey(0),
+    )
+    design_networks = get_network(params_config, network_factory)
+    inference_fn = make_design_inference_fn(design_networks)
+
+    # The lookup snaps a design it does not hold to the nearest one it does, so say so
+    # rather than hand back a neighbour's policy for a robot it never saw.
+    anchors = params_config.network_factory_kwargs
+    table = sobol_design_table(
+        anchors["design_seed"], anchors["num_designs"],
+        anchors["design_low"], anchors["design_high"],
+    )
+
+    def checked_inference_fn(params, design, deterministic: bool = False):
+        warn_off_table(design, table)
+        return inference_fn(params, design, deterministic=deterministic)
+
+    return checked_inference_fn, params
+
 
 def load_design_value_hypernetwork(
     config,

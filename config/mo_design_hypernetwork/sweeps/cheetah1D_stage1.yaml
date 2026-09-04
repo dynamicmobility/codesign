@@ -25,11 +25,11 @@ parameters:
     distribution: int_uniform
     min: 20
     max: 40
-  num_minibatches: # powers of two: batch_size is derived through gcd(num_envs, this)
+  num_minibatches: # powers of two: batch_size is derived through gcd(num_parallel_envs, this)
     values: [8, 16, 32]
   rollouts_per_step: # unroll scans per training step; batch_size follows
     values: [1, 2]
-  num_envs:
+  num_parallel_envs:
     value: 8192 # pinned, not an axis
   num_timesteps:
     value: 300000000 # search budget; rerun the winners at the full 1.5e9

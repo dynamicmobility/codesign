@@ -21,6 +21,8 @@ def get_handle_params(config):
             return codesign.hyperdesigners.setup_design_mlp
         case 'design_hypernetwork':
             return codesign.hyperdesigners.setup_design_hypernetwork
+        case 'design_lookup_hypernetwork':
+            return codesign.hyperdesigners.setup_design_lookup_hypernetwork
         case 'mo_design_hypernetwork':
             return codesign.hyperdesigners.setup_mo_design_hypernetwork
         case 'mo_design_predictor_hypernetwork':
@@ -43,6 +45,15 @@ def get_progress_fn(config, env: codesign.CodesignBase):
         # return functools.partial(plot_mo_design_progress, training_data=training_data)
         # return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
         return functools.partial(codesign.plot_design_pareto_progress, training_data=training_data)
+    elif config.algorithm == 'design_lookup_hypernetwork':
+        # Every design carries its own policy here, so the eval is reported per design.
+        training_data = codesign.MODesignTrainingPlottingInfo(
+            start_time = time.time(),
+            labels     = getattr(env, 'objectives', None) or [],
+        )
+        return functools.partial(
+            codesign.plot_design_rewards_progress, training_data=training_data
+        )
     elif config.algorithm in ['design_hypernetwork', 'ppo', 'design_mlp']:
         return None
     else:
@@ -60,7 +71,7 @@ def wrap_env(config, env):
                 env = env,
                 design = config.env_config.codesign.default_design
             )
-        case 'design_hypernetwork':
+        case 'design_hypernetwork' | 'design_lookup_hypernetwork':
             env = codesign.CodesignMO2SO(
                 env       = env,
                 weighting = config.env_config.reward.optimization.default_scalarization

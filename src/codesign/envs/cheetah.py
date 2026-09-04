@@ -210,7 +210,25 @@ class MOCodesignCheetah(MOCodesignBase):
             )
         
         return spec.compile()
-    
+
+class MOCodesignCheetah2DBothLegs(MOCodesignCheetah):
+
+    @classmethod
+    def generate_model(cls, d, textures: bool = True):
+        spec = cls.default_spec()
+        if not textures:
+            cls.shrink_textures(spec)
+        
+        for pair, d_dim in zip(cls.GEOM_BODY_PAIRS, d, strict=True):
+            parent_geom, child_body = pair
+            spec = cls.change_link_length(
+                spec,
+                parent_geom_name = parent_geom,
+                child_body_name  = child_body,
+                scale_factor     = d_dim
+            )
+        
+        return spec.compile()
 
 class MOCodesignCheetah1D(MOCodesignCheetah):
 
