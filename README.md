@@ -9,7 +9,7 @@ design vector `d` (link lengths, say) and a simplex tradeoff `w` over objectives
 weights of a policy/value MLP. MuJoCo MJX supplies one compiled model per design, and
 rollouts are `vmap`ped across them.
 
-Four algorithms live in `src/codesign/hyperdesigners/`:
+Four algorithms live in `src/codesign/hyperdesigners/variants/`:
 
 | Algorithm | Conditioned on the design by | Designs come from | Objectives |
 |---|---|---|---|
@@ -18,14 +18,17 @@ Four algorithms live in `src/codesign/hyperdesigners/`:
 | `mo_design_hypernetwork` | generating the MLP weights | a space-filling sample, crossed with sampled tradeoffs | vector-valued critic |
 | `mo_design_predictor_hypernetwork` | generating the MLP weights | a learned predictor `f(d \| w)`, trained by GRPO | vector-valued critic |
 
-All four share the PPO scaffolding in `hyperdesigners/shared.py` and sample into a common
-`Grid` (`utils/grid.py`): `M` designs x `K` tradeoffs, each cell rolled out `per_cell`
+Each lives in one module (`hyperdesigners/variants/<algo>.py`) holding its own networks,
+loss, training loop and `setup_*` config wiring; what more than one algo reuses sits in
+`hyperdesigners/networks.py` and `losses.py`. All four share the PPO scaffolding in
+`hyperdesigners/shared.py` and sample into a common `Grid` (`utils/grid.py`): `M` designs x `K` tradeoffs, each cell rolled out `per_cell`
 times, which is also the on-disk dataset format.
 
 ```
 src/codesign/
   envs/           model-as-input MuJoCo envs (cheetah, RHex, TwoAxis) + wrappers
-  hyperdesigners/ the three training algos, their networks, losses, and shared PPO parts
+  hyperdesigners/ the shared PPO parts, plus variants/, one module per training algo
+                  with its own networks, loss, training loop and config wiring
   eval/           batched rollouts of a trained checkpoint; rollout video
   learning/       rebuild networks from a brax checkpoint, without a live env
   optimizers/     TuRBO, for design search against a trained hypernetwork

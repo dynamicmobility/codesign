@@ -209,7 +209,7 @@ def make_training_chunk(
     Returns ``training_chunk(training_state, state, key, batched_model, designs, tradeoffs,
     first_state) -> (training_state, state, metrics)``, which collects rollouts under the
     current networks, refreshes the observation normalizer, and takes PPO steps,
-    ``num_training_steps_per_chunk`` times over. ``observation_fn`` pulls the observation
+    ``num_training_steps_per_resample`` times over. ``observation_fn`` pulls the observation
     the normalizer covers out of a batch of transitions.
     """
     observation_fn = observation_fn or (lambda grid: grid.transitions.observation)

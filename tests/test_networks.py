@@ -4,7 +4,12 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from codesign.hyperdesigners import networks as net
+from codesign.hyperdesigners import (
+    make_design_hypernet_networks,
+    make_design_inference_fn,
+    make_mo_design_hypernet_networks,
+    make_mo_design_predictor_hypernet_networks,
+)
 
 OBS, ACT, DESIGN_DIM, NUM_OBJECTIVES, BATCH = 24, 6, 1, 3, 5
 
@@ -24,14 +29,14 @@ def critic_shape(bundle, cond_dim, key):
 
 @pytest.fixture(scope="module")
 def single_objective(key):
-    return net.make_design_hypernet_networks(
+    return make_design_hypernet_networks(
         observation_size=OBS, action_size=ACT, design_dim=DESIGN_DIM, key=key
     )
 
 
 @pytest.fixture(scope="module")
 def mo(key):
-    return net.make_mo_design_hypernet_networks(
+    return make_mo_design_hypernet_networks(
         observation_size=OBS, action_size=ACT, design_dim=DESIGN_DIM,
         num_objectives=NUM_OBJECTIVES, key=key,
     )
@@ -39,7 +44,7 @@ def mo(key):
 
 @pytest.fixture(scope="module")
 def mo_predictor(key):
-    return net.make_mo_design_predictor_hypernet_networks(
+    return make_mo_design_predictor_hypernet_networks(
         observation_size=OBS, action_size=ACT, design_dim=DESIGN_DIM,
         num_objectives=NUM_OBJECTIVES, key=key,
     )
@@ -62,7 +67,7 @@ def test_predictor_critic_matches_mo(mo, mo_predictor, key):
 
 def test_design_inference_returns_raw_action(single_objective, key):
     """The PPO loss reads ``policy_extras['raw_action']``, so sampling must emit it."""
-    inference_fn = net.make_design_inference_fn(single_objective)
+    inference_fn = make_design_inference_fn(single_objective)
     policy = inference_fn(
         (None, single_objective.hypernetwork.init(key)), jnp.zeros((BATCH, DESIGN_DIM))
     )
@@ -71,7 +76,7 @@ def test_design_inference_returns_raw_action(single_objective, key):
 
 
 def test_deterministic_design_inference_has_no_extras(single_objective, key):
-    inference_fn = net.make_design_inference_fn(single_objective)
+    inference_fn = make_design_inference_fn(single_objective)
     policy = inference_fn(
         (None, single_objective.hypernetwork.init(key)),
         jnp.zeros((BATCH, DESIGN_DIM)),

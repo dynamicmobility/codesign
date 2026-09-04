@@ -66,7 +66,7 @@ def test_schedule_splits_the_step_budget():
         num_minibatches=2, unroll_length=20,
     )
     assert schedule.env_step_per_training_step == 64 * 20 * 2
-    assert schedule.num_evals_after_init == 4
+    assert schedule.num_epochs == 4
     # ceil(100000 / (4 epochs * 2560 steps)) = 10 training steps per epoch.
     assert schedule.num_training_steps_per_epoch == 10
     assert schedule.env_step_per_epoch == 10 * 2560
@@ -80,8 +80,8 @@ def test_schedule_divides_an_epoch_among_resamples():
     """
     one = Schedule.make(100_000, 5, 128, 64, 2, 20, resamples_per_epoch=1)
     four = Schedule.make(100_000, 5, 128, 64, 2, 20, resamples_per_epoch=4)
-    assert four.num_training_steps_per_chunk == math.ceil(
-        one.num_training_steps_per_chunk / 4
+    assert four.num_training_steps_per_resample == math.ceil(
+        one.num_training_steps_per_resample / 4
     )
     assert one.num_training_steps_per_epoch <= four.num_training_steps_per_epoch
     assert four.num_training_steps_per_epoch < one.num_training_steps_per_epoch + 4

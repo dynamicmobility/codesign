@@ -15,15 +15,17 @@ from brax.training.checkpoint import get_network
 from brax.training.agents.ppo import checkpoint
 import minimal_mjx as mm
 
-from codesign.hyperdesigners.networks import (
+from codesign.hyperdesigners.networks import make_value_fn
+from codesign.hyperdesigners.variants.design_hypernetwork import (
     make_design_inference_fn,
-    make_mo_design_inference_fn,
-    make_design_predictor_inference_fn,
-    make_value_fn
-)
-from codesign.hyperdesigners.factory import (
     setup_design_hypernetwork,
+)
+from codesign.hyperdesigners.variants.mo_design_hypernetwork import (
+    make_mo_design_inference_fn,
     setup_mo_design_hypernetwork,
+)
+from codesign.hyperdesigners.variants.mo_design_predictor_hypernetwork import (
+    make_design_predictor_inference_fn,
     setup_mo_design_predictor_hypernetwork,
 )
 
