@@ -355,27 +355,22 @@ def load_warmup_params(
     training_state,
     checkpoint_path: str,
     optimizer,
+    design_limits,
     fit_steps: int = 2000,
     fit_learning_rate: float = 1e-3,
     quiet: bool = False,
 ):
     """Seed this run from a ``design_lookup_hypernetwork`` warm-up checkpoint.
 
-    The warm-up trained ``W``'s rows as ``M`` per-design policies under a one-hot feature
-    map, so ``flat(d_i) = W[i] + b``. Copying ``W`` and ``b`` alone would not carry that
-    over: this run's feature MLP is random, so ``mlp(d) @ W`` would be an arbitrary
-    combination of the ``M`` experts rather than any one of them. Both feature MLPs are
-    therefore regressed onto ``mlp(d_i) = e_i`` at the warm-up's anchor designs first, so
-    training resumes at the policies the warm-up ended on.
-
-    The anchors are rebuilt from the warm-up's own ``config.yaml``, which sits beside its
-    checkpoint, rather than assumed to match this run's. The observation normalizer is
-    restored too: the transferred policies trained against those statistics.
+    Uses the warm-up W and distills the one hot encoding into the task encoder
+    MLP so that behavior is replicated at the original sampled designs from
+    the lookup table in design_lookup_hypernetwork.
 
     Args:
         training_state: this run's freshly initialized state.
         checkpoint_path: a warm-up checkpoint step directory.
         optimizer: the optimizer whose state is re-initialized on the merged params.
+        design_limits: this run's design box, ``(2, design_dim)`` lows then highs.
         fit_steps, fit_learning_rate: Adam budget for the one-hot regression.
 
     Returns:
@@ -384,6 +379,17 @@ def load_warmup_params(
     path = epath.Path(checkpoint_path)
     warmup = yaml.safe_load((path.parent / "config.yaml").read_text())
     box = warmup["env_config"]["codesign"]
+    # The anchors are normalized by the warm-up's box and this run feeds normalized
+    # designs, so a different box points the same coordinate at a different robot.
+    limits, warm_limits = (
+        np.asarray(design_limits, np.float32),
+        np.asarray([box["low"], box["high"]], np.float32),
+    )
+    if limits.shape != warm_limits.shape or not np.allclose(limits, warm_limits):
+        raise ValueError(
+            f"the warm-up's design box is {warm_limits.tolist()} but this run's is "
+            f"{limits.tolist()}; the same normalized design would be a different robot"
+        )
     table = jnp.asarray(sobol_design_table(
         warmup["learning_params"]["ppo_params"]["seed"],
         warmup["learning_params"]["design_sampling"]["num_designs"],
@@ -405,7 +411,16 @@ def load_warmup_params(
 
     normalizer_params, warm = checkpoint.load(str(path.resolve()))
     warm = flax.core.unfreeze(warm)["params"]
+    warm_net = warmup["learning_params"]["network_params"]
     for name in ("policy_W", "policy_b", "value_W", "value_b"):
+        # A row of W is a flattened policy, so its width encodes the hidden sizes.
+        if params[name].shape != warm[name].shape:
+            raise ValueError(
+                f"{name} is {warm[name].shape} in the warm-up but {params[name].shape} "
+                f"here; this run must use the warm-up's hidden sizes, policy "
+                f"{warm_net['policy_hidden_layer_sizes']} and value "
+                f"{warm_net['value_hidden_layer_sizes']}"
+            )
         params[name] = warm[name]
 
     targets = jnp.eye(num_features)
@@ -555,7 +570,7 @@ def train_design_hypernetwork(
     )
     if warmup_checkpoint is not None:
         training_state = load_warmup_params(
-            training_state, warmup_checkpoint, optimizer
+            training_state, warmup_checkpoint, optimizer, environment.design_limits
         )
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}

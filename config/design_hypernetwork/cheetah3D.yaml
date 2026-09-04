@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: height-reward-kaiming
+name: height-reward-lookup-warmup
 save_dir: results/Sep03
 description: "Trying mse loss, Only sample "
 algorithm: design_hypernetwork
@@ -41,11 +41,11 @@ learning_params:
     batch_size: 128
     num_minibatches: 32
     num_updates_per_batch: 4
-    learning_rate: 0.0001
+    learning_rate: 0.00001
     entropy_cost: 0.01
-    discounting: 0.99
+    discounting: 0.98
     reward_scaling: 1.0
-    clipping_epsilon: 0.3
+    clipping_epsilon: 0.2
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
@@ -54,7 +54,7 @@ learning_params:
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
-    value_loss_type: huber
+    value_loss_type: mse
     huber_delta: 1.0
     batching_strategy: design
   network_params:
@@ -62,8 +62,10 @@ learning_params:
     num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-    initialization_strategy: bias
-    weight_initializer: kaiming_uniform
+    # initialization_strategy: bias
+    # weight_initializer: kaiming_uniform
+    initialization_strategy: load_network          # was: bias
+    warmup_checkpoint: results/Sep04/design-lookup-warmup-3D-longer-ppo-params/010001612800
 
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch

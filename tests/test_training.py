@@ -281,6 +281,10 @@ def warmup_checkpoint(tmp_path, bundle, params):
         "learning_params": {
             "ppo_params": {"seed": 0},
             "design_sampling": {"num_designs": LOOKUP["designs"]},
+            "network_params": {
+                "policy_hidden_layer_sizes": [64, 64],
+                "value_hidden_layer_sizes": [64, 64],
+            },
         },
     }))
     return tmp_path / f"{42:012d}", normalizer
@@ -307,7 +311,8 @@ def test_load_network_transfers_the_warm_up_policies(tmp_path):
         codesign.DesignHypernetParams(hypernetwork=full.hypernetwork.init(jax.random.PRNGKey(1))),
         optimizer, LOOKUP["obs"],
     )
-    merged = codesign.load_warmup_params(fresh, str(path), optimizer, quiet=True)
+    limits = np.array([LOOKUP["low"], LOOKUP["high"]], np.float32)
+    merged = codesign.load_warmup_params(fresh, str(path), optimizer, limits, quiet=True)
 
     # W and b come across untouched.
     got, want = merged.params.hypernetwork["params"], warm_params["params"]
@@ -384,3 +389,45 @@ def test_design_rewards_progress_writes_a_figure(tmp_path, design_dim):
     assert (tmp_path / "progress.svg").stat().st_size > 0
     assert (tmp_path / "design_rewards_progress.csv").exists()
     assert len(training_data.grids) == 2
+
+
+def fresh_transfer_state(hidden=(64, 64)):
+    """A freshly initialized ``design_hypernetwork`` state plus its optimizer."""
+    full = codesign.make_design_hypernet_networks(
+        observation_size=LOOKUP["obs"], action_size=LOOKUP["act"], design_dim=1,
+        key=jax.random.PRNGKey(0), hypersize=(32, 32), num_features=LOOKUP["designs"],
+        policy_hidden_layer_sizes=hidden, value_hidden_layer_sizes=hidden,
+    )
+    optimizer = codesign.hyperdesigners.shared.make_optimizer(1e-3)
+    state = codesign.hyperdesigners.shared.init_training_state(
+        codesign.DesignHypernetParams(hypernetwork=full.hypernetwork.init(jax.random.PRNGKey(1))),
+        optimizer, LOOKUP["obs"],
+    )
+    return state, optimizer
+
+
+def test_load_network_rejects_a_different_design_box(tmp_path):
+    """A wider box would silently rescale the anchors onto different robots.
+
+    The table is normalized by the warm-up's own box and the hypernetwork is fed
+    normalized designs, so the same coordinate means a different robot under a different
+    box; nothing downstream would notice.
+    """
+    bundle = lookup_bundle()
+    path, _ = warmup_checkpoint(tmp_path, bundle, bundle.hypernetwork.init(jax.random.PRNGKey(3)))
+    state, optimizer = fresh_transfer_state()
+
+    wider = np.array([LOOKUP["low"], (4.0,)], np.float32)
+    with pytest.raises(ValueError, match="design box"):
+        codesign.load_warmup_params(state, str(path), optimizer, wider, quiet=True)
+
+
+def test_load_network_rejects_mismatched_hidden_sizes(tmp_path):
+    """A row of ``W`` is a flattened policy, so the hidden sizes have to agree."""
+    bundle = lookup_bundle()
+    path, _ = warmup_checkpoint(tmp_path, bundle, bundle.hypernetwork.init(jax.random.PRNGKey(3)))
+    state, optimizer = fresh_transfer_state(hidden=(32, 32))
+
+    limits = np.array([LOOKUP["low"], LOOKUP["high"]], np.float32)
+    with pytest.raises(ValueError, match="hidden sizes"):
+        codesign.load_warmup_params(state, str(path), optimizer, limits, quiet=True)
