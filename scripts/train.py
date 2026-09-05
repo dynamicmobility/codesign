@@ -45,8 +45,12 @@ def get_progress_fn(config, env: codesign.CodesignBase):
         # return functools.partial(plot_mo_design_progress, training_data=training_data)
         # return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
         return functools.partial(codesign.plot_design_pareto_progress, training_data=training_data)
-    elif config.algorithm == 'design_lookup_hypernetwork':
-        # Every design carries its own policy here, so the eval is reported per design.
+    elif config.algorithm == 'design_lookup_hypernetwork' or (
+        config.algorithm == 'design_hypernetwork'
+        and config.learning_params.get('design_sampling', {}).get('sampling') == 'fixed'
+    ):
+        # A fixed design set is trained and evaluated design by design, so report it that
+        # way and write the anchors to designs.csv.
         training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = getattr(env, 'objectives', None) or [],
@@ -54,7 +58,7 @@ def get_progress_fn(config, env: codesign.CodesignBase):
         return functools.partial(
             codesign.plot_design_rewards_progress, training_data=training_data
         )
-    elif config.algorithm in ['design_hypernetwork', 'ppo', 'design_mlp']:
+    elif config.algorithm in ('design_hypernetwork', 'ppo', 'design_mlp'):
         return None
     else:
         raise Exception(f'Unknown algorithm {config.algorithm}')

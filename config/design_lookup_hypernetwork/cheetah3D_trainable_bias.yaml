@@ -1,10 +1,10 @@
-# Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
+# Training config for the `design_lookup_hypernetwork` warm-up on CodesignCheetah.
 #
-# H_\pi(d, w) = \pi(a | s)
-name: warmup-with-fixed
+# M designs fixed by Sobol; one-hot features, so row i of W is design i's own policy.
+name: design-lookup-warmup-3D-trainable-bias
 save_dir: results/Sep04
-description: "Trying mse loss, Only sample "
-algorithm: design_hypernetwork
+description: "Lookup warm-up with W starting at zero and a trainable bias, so the M policies share a backbone."
+algorithm: design_lookup_hypernetwork
 env: "MOCodesignCheetahBackLegs"
 backend: jnp # always jnp for training
 
@@ -34,14 +34,15 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 1000000000
+    num_timesteps: 10000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_parallel_envs: 4096 # num_designs * per_cell
     unroll_length: 20
     batch_size: 128
-    num_minibatches: 32
+    num_minibatches: 32 # must equal num_designs: one design per minibatch
     num_updates_per_batch: 4
-    learning_rate: 0.00001
+    # learning_rate: 0.0000177 # 1e-4 / sqrt(num_designs); see the module docstring
+    learning_rate: 0.0002 # 1e-4 / sqrt(num_designs); see the module docstring
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
@@ -50,25 +51,19 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 30
-    num_eval_envs: 256
-    deterministic_eval: true
-    seed: 0
     value_loss_type: mse
     huber_delta: 1.0
-    batching_strategy: design
+    num_evals: 30
+    num_eval_envs: 256 # must divide by num_designs
+    deterministic_eval: true
+    seed: 0
   network_params:
-    hypersize: [256, 256]
-    num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-    # initialization_strategy: bias
-    # weight_initializer: kaiming_uniform
-    initialization_strategy: load_network          # was: bias
-    warmup_checkpoint: results/Sep04/design-hypernetwork-3D-fixed-designs-fresh/001000161280
-
+    weight_initializer: kaiming_uniform
+    # W starts at zero, so every design starts on the single kaiming policy in b.
+    initialization_strategy: bias
+    # b is a shared backbone here, so its gradient summing over designs is the intent.
+    freeze_bias: false
   design_sampling:
-    num_designs: 32 # How many different designs to sample in each epoch
-    per_cell: 128 # How many times each design should be trialed
-    resamples_per_epoch: 1
-    sampling: random
+    num_designs: 32 # designs sampled once at the start, one row of W each

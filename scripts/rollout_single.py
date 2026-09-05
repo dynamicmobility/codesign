@@ -7,11 +7,13 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import argparse
 from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import minimal_mjx as mm
 import matplotlib.pyplot as plt
 import moplayground as mop
 import codesign
+from codesign.utils.model import normalize_design
 
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 OUT_DIR = Path("scripts/outputs")
@@ -100,6 +102,33 @@ def save_reward_plot(rollout: codesign.RolloutVideo) -> Path:
     return out
 
 
+def report_features(config, design, checkpoint_path: str | None) -> None:
+    """Print the hypernetwork's feature row for ``design``, if it has one.
+
+    ``flat(d) = features(d) @ W + b``, so the row is the mix of the ``num_features``
+    experts this policy is built from: exactly one-hot for the lookup, and for a full
+    hypernetwork whatever its MLP learned -- near one-hot at a warm-up anchor if the
+    transfer took, spread out otherwise. Nothing constrains the MLP's output to be
+    positive, and a large negative weight subtracts an expert just as strongly as a
+    positive one adds it, so entries are ranked by magnitude rather than by value.
+    """
+    features, params = codesign.load_design_features(config, path=checkpoint_path)
+    if features is None:
+        return
+
+    row = np.asarray(
+        features(params[1], normalize_design(jnp.asarray(design), config=config))
+    ).reshape(-1)
+    order = np.argsort(np.abs(row))[::-1][:5]
+    print(f"feature row ({row.size} experts), largest magnitude first:")
+    for i in order:
+        print(f"  expert {i:3d}: {row[i]:+.4f}")
+    print(f"  sum {row.sum():+.4f}, argmax {int(np.argmax(row))}, "
+          f"min {row.min():+.4f} (expert {int(np.argmin(row))}), max {row.max():+.4f}")
+    print(f"  total abs mass {np.abs(row).sum():.4f}, "
+          f"outside the {len(order)} listed {np.abs(row).sum() - np.abs(row[order]).sum():.4f}")
+
+
 def report_value(rollout: codesign.RolloutVideo, config) -> None:
     """Print the rollout's undiscounted and discounted return, per objective."""
     discount = config.learning_params.ppo_params.discounting
@@ -129,6 +158,8 @@ def main(
 
     design, eval_design       = resolve_design_args(design, eval_design, config)
     tradeoff, design_tradeoff = resolve_tradeoffs_args(tradeoff, design_tradeoff, config)
+
+    report_features(config, design if design is not None else eval_design, checkpoint_path)
 
     rollout = codesign.save_policy_rollout_video(
         config,

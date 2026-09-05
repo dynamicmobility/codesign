@@ -108,7 +108,10 @@ def make_design_hypernetwork(
         # Returns ((policy_params, value_params), (flat...), (features...)); take [0].
         return hypernet.apply(params, design)[0]
 
-    return FeedForwardHypernetwork(init=init, apply=apply)
+    def features(params, design):
+        return hypernet.apply(params, design)[2][0]
+
+    return FeedForwardHypernetwork(init=init, apply=apply, features=features)
 
 
 def make_design_hypernet_networks(
@@ -466,6 +469,7 @@ def train_design_hypernetwork(
     num_designs: int = 8,
     per_cell: int = 16, # How many times each design should be trialed
     resamples_per_epoch: int = 1,
+    sampling: str = 'random',
     network_factory: Callable = make_design_hypernet_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
@@ -491,6 +495,12 @@ def train_design_hypernetwork(
     assert num_minibatches == num_designs, (
         "num_minibatches must equal num_designs for one design per minibatch"
     )
+    if sampling not in ("random", "fixed"):
+        raise ValueError(f"Unsupported sampling: {sampling!r}; expected 'random' or 'fixed'")
+    if sampling == "fixed" and resamples_per_epoch != 1:
+        raise ValueError(
+            "sampling 'fixed' redraws nothing, so resamples_per_epoch must be 1"
+        )
     schedule = shared.Schedule.make(
         num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
@@ -539,14 +549,25 @@ def train_design_hypernetwork(
     )
     env_inputs = shared.make_env_inputs(environment)
 
+    # 'fixed' draws once off the bare seed rather than the advancing stream, so the anchors
+    # are the same Sobol points a lookup warm-up on this seed trains, and every epoch sees
+    # them again instead of a fresh draw.
+    fixed_grid = (
+        Grid.from_design_sample(environment, seed, num_designs, per_cell=per_cell)
+        if sampling == "fixed" else None
+    )
+
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
-
+        if fixed_grid is not None:
+            return fixed_grid, None
         return Grid.from_design_sample( environment, design_rng, num_designs, per_cell=per_cell), None
 
-    # Held fixed across evals, so returns are comparable epoch to epoch.
+    # Held fixed across evals, so returns are comparable epoch to epoch. 'fixed' evaluates
+    # the designs it trains, so its returns are per-anchor rather than held-out.
     eval_grid = Grid.from_design_sample(
-        environment, seed + 1000, num_designs, per_cell=num_eval_envs // num_designs
+        environment, seed if sampling == "fixed" else seed + 1000,
+        num_designs, per_cell=num_eval_envs // num_designs
     )
     eval_model, eval_designs, eval_tradeoffs = env_inputs(eval_grid)
 
@@ -627,6 +648,7 @@ def setup_design_hypernetwork(config):
         num_designs         = design_sampling.get("num_designs", 8),
         per_cell            = design_sampling.get("per_cell", 16),
         resamples_per_epoch = design_sampling.get("resamples_per_epoch", 1),
+        sampling            = design_sampling.get("sampling", "random"),
         warmup_checkpoint   = warmup_checkpoint if strategy == "load_network" else None,
         **ppo,
     )
