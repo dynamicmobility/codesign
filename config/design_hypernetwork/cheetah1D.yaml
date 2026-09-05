@@ -62,4 +62,4 @@ learning_params:
   design_sampling:
     num_designs: 8 
     resamples_per_epoch: 1
-    sampling: random
+    strategy: random

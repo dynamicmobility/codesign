@@ -71,4 +71,4 @@ learning_params:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
     resamples_per_epoch: 1
-    sampling: random
+    strategy: random

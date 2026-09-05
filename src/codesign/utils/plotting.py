@@ -631,10 +631,12 @@ def plot_design_rewards_progress(
     if save_dir:
         training_data.save(save_dir / "design_rewards_progress.csv")
         grid.save(save_dir / f"eval_grid_{num_steps}.npz")
-        # The anchors in physical units: the designs a rollout of this run may ask for.
+        
+        # save the designs
+        designs = metrics.get("train_designs")
+        designs = np.asarray(grid.designs)[:, 0] if designs is None else designs
         pd.DataFrame(
-            np.asarray(grid.designs)[:, 0],
-            columns=[f"d{i}" for i in range(grid.design_dim)],
+            designs, columns=[f"d{i}" for i in range(np.shape(designs)[-1])],
         ).rename_axis("index").to_csv(save_dir / "designs.csv")
         fig, (latest, curves) = plt.subplots(1, 2, figsize=(11, 4))
         plot_design_rewards(latest, grid)

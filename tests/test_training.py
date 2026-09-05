@@ -1,5 +1,6 @@
 """The training algos end to end, plus the schedule arithmetic they share."""
 
+import dataclasses
 import functools
 import json
 import math
@@ -13,6 +14,7 @@ from brax.training import checkpoint as brax_checkpoint
 from brax.training.acme import running_statistics
 
 import codesign
+from codesign.hyperdesigners import shared
 from codesign.hyperdesigners.shared import Schedule
 from codesign.utils.grid import DesignTransition, Grid
 from codesign.utils.model import observation_spec
@@ -136,6 +138,90 @@ def test_design_hypernetwork_resamples_per_epoch(case, resamples):
         TINY["num_minibatches"], TINY["unroll_length"], resamples,
     )
     assert steps == [0, schedule.env_step_per_epoch, 2 * schedule.env_step_per_epoch]
+
+
+def _record_sampled_designs(monkeypatch):
+    """Collect every resample's designs, ``(num_designs, design_dim)`` in physical units."""
+    real = shared.run_training
+    designs = []
+
+    def patched(algo, *args, **kwargs):
+        def sample(it, extra_state, key):
+            grid, aux = algo.sample(it, extra_state, key)
+            designs.append(np.asarray(grid.designs)[:, 0])
+            return grid, aux
+
+        return real(dataclasses.replace(algo, sample=sample), *args, **kwargs)
+
+    monkeypatch.setattr(shared, "run_training", patched)
+    return designs
+
+
+@pytest.mark.slow
+def test_design_hypernetwork_warmup_strategy_hands_off(case, monkeypatch):
+    """``warmup_strategy`` owns the first ``warmup_epochs`` epochs, then ``strategy`` does.
+
+    'noisy-fixed' measures its std from the handoff, so its first draw is the anchors
+    themselves and later draws spread around them without leaving the design box.
+    """
+    designs = _record_sampled_designs(monkeypatch)
+    metrics, _ = train(case, "design_hypernetwork", num_evals=5, strategy="noisy-fixed",
+                       warmup_strategy="fixed", warmup_epochs=2, rate=0.05)
+
+    _, env = case("design_hypernetwork")
+    low, high = np.asarray(env.design_limits)
+    assert len(designs) == 4  # num_evals - 1 epochs, one resample each
+    # Epochs 0-1 are the warm-up's anchors, and epoch 2 is the handoff at std 0.
+    for epoch in (1, 2):
+        np.testing.assert_array_equal(designs[epoch], designs[0])
+    assert np.any(designs[3] != designs[0])
+    assert np.all(designs[3] >= low) and np.all(designs[3] <= high)
+
+    # designs.csv reports the anchors an anchored run trains, not the held-out eval draw.
+    np.testing.assert_array_equal(metrics["train_designs"], designs[0])
+    eval_designs = np.asarray(metrics["eval_grid"].designs)[:, 0]
+    assert not np.array_equal(metrics["train_designs"], eval_designs)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "overrides, message",
+    [
+        (dict(strategy="noisy"), "Unsupported strategy"),
+        (dict(warmup_strategy="noisy"), "Unsupported warmup_strategy"),
+        (dict(strategy="noisy-fixed", rate=0.0), "needs rate > 0"),
+        (dict(strategy="fixed", resamples_per_epoch=2), "resamples_per_epoch must be 1"),
+        (dict(warmup_strategy="fixed", warmup_epochs=0), "warm-up never runs"),
+        (dict(warmup_strategy="fixed", warmup_epochs=99), "never runs"),
+    ],
+)
+def test_design_hypernetwork_rejects_inconsistent_strategies(case, overrides, message):
+    with pytest.raises(ValueError, match=message):
+        train(case, "design_hypernetwork", **overrides)
+
+
+def test_design_hypernetwork_rejects_the_old_sampling_key():
+    """``design_sampling: sampling`` was renamed, so an old config must not run silently."""
+    config = {
+        "env_config": {"codesign": {"low": [0.5], "high": [2.0]}},
+        "learning_params": {
+            "ppo_params": {},
+            "network_params": {
+                "hypersize": [8], "num_features": 2,
+                "policy_hidden_layer_sizes": [4], "value_hidden_layer_sizes": [4],
+            },
+            "design_sampling": {"num_designs": 2, "sampling": "fixed"},
+        },
+    }
+    with pytest.raises(ValueError, match="'sampling' is now 'strategy'"):
+        codesign.setup_design_hypernetwork(config)
+
+
+@pytest.mark.slow
+def test_design_hypernetwork_random_reports_no_training_designs(case):
+    """'random' trains a fresh draw every resample, so it has no design set to report."""
+    metrics, _ = train(case, "design_hypernetwork", strategy="random")
+    assert "train_designs" not in metrics
 
 
 @pytest.mark.slow

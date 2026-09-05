@@ -71,6 +71,7 @@ learning_params:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
     resamples_per_epoch: 1
-    # One Sobol draw off `seed`, reused every epoch and written to designs.csv. Matches a
-    # design_lookup_hypernetwork warm-up's anchors when the seeds and the box agree.
-    sampling: fixed
+    strategy: random         # random | fixed | noisy-fixed
+    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
+    warmup_epochs: 5         # number of epochs (num_evals - 1 in total)
+    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box units

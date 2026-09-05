@@ -42,15 +42,14 @@ def get_progress_fn(config, env: codesign.CodesignBase):
             labels     = env.objectives,
             ref_point  = optimization.get('reference_point', None),
         )
-        # return functools.partial(plot_mo_design_progress, training_data=training_data)
-        # return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
         return functools.partial(codesign.plot_design_pareto_progress, training_data=training_data)
+    
     elif config.algorithm == 'design_lookup_hypernetwork' or (
         config.algorithm == 'design_hypernetwork'
-        and config.learning_params.get('design_sampling', {}).get('sampling') == 'fixed'
+        and config.learning_params.get('design_sampling', {}).get('strategy')
+        in ('fixed', 'noisy-fixed')
     ):
-        # A fixed design set is trained and evaluated design by design, so report it that
-        # way and write the anchors to designs.csv.
+        # save to designs.csv
         training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = getattr(env, 'objectives', None) or [],

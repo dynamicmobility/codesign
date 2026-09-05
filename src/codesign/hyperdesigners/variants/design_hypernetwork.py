@@ -445,6 +445,9 @@ def load_warmup_params(
 
 
 # -------------------------------------------------------------------- training
+DESIGN_STRATEGIES = ("random", "fixed", "noisy-fixed")
+
+
 def train_design_hypernetwork(
     environment,
     num_timesteps: int,
@@ -469,7 +472,10 @@ def train_design_hypernetwork(
     num_designs: int = 8,
     per_cell: int = 16, # How many times each design should be trialed
     resamples_per_epoch: int = 1,
-    sampling: str = 'random',
+    strategy: str = 'random',
+    warmup_strategy: str | None = None,
+    warmup_epochs: int = 0,
+    rate: float = 0.0,
     network_factory: Callable = make_design_hypernet_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
@@ -495,16 +501,36 @@ def train_design_hypernetwork(
     assert num_minibatches == num_designs, (
         "num_minibatches must equal num_designs for one design per minibatch"
     )
-    if sampling not in ("random", "fixed"):
-        raise ValueError(f"Unsupported sampling: {sampling!r}; expected 'random' or 'fixed'")
-    if sampling == "fixed" and resamples_per_epoch != 1:
+    # check constraints
+    warmup_strategy = strategy if warmup_strategy is None else warmup_strategy
+    for name, value in (("strategy", strategy), ("warmup_strategy", warmup_strategy)):
+        if value not in DESIGN_STRATEGIES:
+            raise ValueError(
+                f"Unsupported {name}: {value!r}; expected one of {DESIGN_STRATEGIES}"
+            )
+    if strategy == "fixed" and resamples_per_epoch != 1:
         raise ValueError(
-            "sampling 'fixed' redraws nothing, so resamples_per_epoch must be 1"
+            "strategy 'fixed' redraws nothing, so resamples_per_epoch must be 1"
+        )
+    if "noisy-fixed" in (strategy, warmup_strategy) and rate <= 0.0:
+        raise ValueError(
+            f"'noisy-fixed' needs rate > 0, got {rate}; at rate 0 the std never leaves "
+            "zero and the strategy is just 'fixed'"
+        )
+    if warmup_strategy != strategy and warmup_epochs <= 0:
+        raise ValueError(
+            f"warmup_strategy {warmup_strategy!r} differs from strategy {strategy!r} but "
+            f"warmup_epochs is {warmup_epochs}, so the warm-up never runs"
         )
     schedule = shared.Schedule.make(
         num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
+    if warmup_strategy != strategy and warmup_epochs >= schedule.num_epochs:
+        raise ValueError(
+            f"warmup_epochs {warmup_epochs} covers all {schedule.num_epochs} epochs "
+            f"(num_evals - 1), so strategy {strategy!r} never runs"
+        )
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
@@ -549,27 +575,56 @@ def train_design_hypernetwork(
     )
     env_inputs = shared.make_env_inputs(environment)
 
-    # 'fixed' draws once off the bare seed rather than the advancing stream, so the anchors
-    # are the same Sobol points a lookup warm-up on this seed trains, and every epoch sees
-    # them again instead of a fresh draw.
-    fixed_grid = (
-        Grid.from_design_sample(environment, seed, num_designs, per_cell=per_cell)
-        if sampling == "fixed" else None
+    # draw the 'anchor sample', or the initial sample
+    anchor_grid = Grid.from_design_sample(
+        environment, seed, num_designs, per_cell=per_cell
     )
+    anchors = anchor_grid.designs[:, 0]  # (num_designs, design_dim), physical units
+    design_low, design_high = np.asarray(environment.design_limits, np.float32)
+    design_span = design_high - design_low
+
+    def draw(name: str, iteration: int) -> Grid:
+        """The grid ``name`` produces ``iteration`` resamples into its own phase."""
+        if name == "fixed":
+            return anchor_grid
+        if name == "random":
+            return Grid.from_design_sample(
+                environment, design_rng, num_designs, per_cell=per_cell
+            )
+        noise = design_rng.normal(0.0, 1.0, anchors.shape) * (
+            rate * iteration * design_span
+        )
+        return Grid.crossed(
+            np.clip(anchors + noise, design_low, design_high),
+            np.ones((1, 1), np.float32),
+            per_cell,
+        )
+
+    phase, iteration = None, 0
 
     def sample(it, extra_state, key):
         """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
-        if fixed_grid is not None:
-            return fixed_grid, None
-        return Grid.from_design_sample( environment, design_rng, num_designs, per_cell=per_cell), None
+        nonlocal phase, iteration
+        # iterations start counting when sampling strategy begins
+        current = warmup_strategy if it < warmup_epochs else strategy
+        if current != phase:
+            phase, iteration = current, 0
+        grid = draw(current, iteration)
+        iteration += 1
+        return grid, None
 
-    # Held fixed across evals, so returns are comparable epoch to epoch. 'fixed' evaluates
-    # the designs it trains, so its returns are per-anchor rather than held-out.
+    # Held fixed across evals, so returns are comparable epoch to epoch
     eval_grid = Grid.from_design_sample(
-        environment, seed if sampling == "fixed" else seed + 1000,
-        num_designs, per_cell=num_eval_envs // num_designs
+        environment, seed + 1000, num_designs, per_cell=num_eval_envs // num_designs
     )
     eval_model, eval_designs, eval_tradeoffs = env_inputs(eval_grid)
+
+    # An anchored run trains one design set all through -- the anchors themselves under
+    # 'fixed', the means the jitter spreads around under 'noisy-fixed' -- so report it for
+    # designs.csv. 'random' redraws every resample and has no such set.
+    train_designs = (
+        np.asarray(anchors) if strategy in ("fixed", "noisy-fixed") else None
+    )
 
     def evaluate(training_state, extra_state, key):
         rewards = rollout_returns(
@@ -581,7 +636,10 @@ def train_design_hypernetwork(
             jax.random.split(key, num_eval_envs),
             key,
         )
-        return shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
+        metrics = shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
+        if train_designs is not None:
+            metrics["train_designs"] = train_designs
+        return metrics
 
     params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)
 
@@ -623,9 +681,15 @@ def setup_design_hypernetwork(config):
     design = dict(config['env_config']['codesign'])
     design_sampling = dict(lp.get("design_sampling", {}))
 
-    strategy = net.get("initialization_strategy", "bias")
+    if "sampling" in design_sampling:
+        raise ValueError(
+            "design_sampling 'sampling' is now 'strategy', optionally preceded by a "
+            "'warmup_strategy' for the first 'warmup_epochs' epochs"
+        )
+
+    init_strategy = net.get("initialization_strategy", "bias")
     warmup_checkpoint = net.get("warmup_checkpoint")
-    if strategy == "load_network" and warmup_checkpoint is None:
+    if init_strategy == "load_network" and warmup_checkpoint is None:
         raise ValueError(
             "initialization_strategy 'load_network' needs a 'warmup_checkpoint' path in "
             "network_params, pointing at a design_lookup_hypernetwork checkpoint"
@@ -637,7 +701,7 @@ def setup_design_hypernetwork(config):
         num_features                = net["num_features"],
         policy_hidden_layer_sizes   = tuple(net["policy_hidden_layer_sizes"]),
         value_hidden_layer_sizes    = tuple(net["value_hidden_layer_sizes"]),
-        initialization_strategy     = strategy,
+        initialization_strategy     = init_strategy,
         weight_initializer          = net.get("weight_initializer", "kaiming_uniform"),
     )
 
@@ -648,8 +712,11 @@ def setup_design_hypernetwork(config):
         num_designs         = design_sampling.get("num_designs", 8),
         per_cell            = design_sampling.get("per_cell", 16),
         resamples_per_epoch = design_sampling.get("resamples_per_epoch", 1),
-        sampling            = design_sampling.get("sampling", "random"),
-        warmup_checkpoint   = warmup_checkpoint if strategy == "load_network" else None,
+        strategy            = design_sampling.get("strategy", "random"),
+        warmup_strategy     = design_sampling.get("warmup_strategy"),
+        warmup_epochs       = design_sampling.get("warmup_epochs", 0),
+        rate                = design_sampling.get("rate", 0.0),
+        warmup_checkpoint   = warmup_checkpoint if init_strategy == "load_network" else None,
         **ppo,
     )
     return train_fn, network_factory
