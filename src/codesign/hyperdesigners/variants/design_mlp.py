@@ -21,7 +21,7 @@ from flax import linen
 from codesign.hyperdesigners.networks import make_vector_value_network
 from codesign.hyperdesigners import shared
 from codesign.hyperdesigners.losses import huber_loss, mse_loss
-from codesign.utils.grid import Grid
+from codesign.utils.grid import DesignTransition, Grid
 
 
 # --------------------------------------------------------------------------- networks
@@ -31,6 +31,21 @@ class DesignNetworks:
     policy_network: networks.FeedForwardNetwork
     value_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
+
+
+def augment_observation_size(
+    observation_size: types.ObservationSize, design_dim: int
+) -> types.ObservationSize:
+    """Add the appended design width to every observation leaf's feature axis."""
+    return jax.tree_util.tree_map(
+        lambda size: (
+            size[:-1] + (size[-1] + design_dim,)
+            if isinstance(size, tuple)
+            else size + design_dim
+        ),
+        observation_size,
+        is_leaf=lambda size: isinstance(size, tuple),
+    )
 
 
 def make_design_mlp_networks(
@@ -162,7 +177,7 @@ class DesignMLPParams:
 def compute_design_mlp_loss(
     params: DesignMLPParams,
     normalizer_params: Any,
-    data: shared.TrainingBatch,
+    data: DesignTransition,
     rng: jnp.ndarray,
     design_networks: DesignNetworks,
     entropy_cost: float = 1e-4,
@@ -178,8 +193,9 @@ def compute_design_mlp_loss(
     Args:
         params: trainable hypernetwork params.
         normalizer_params: observation normalizer params.
-        data: ``TrainingBatch`` containing per-environment ``designs`` and
-            ``transitions`` with leading dimensions ``[B, T]``. The transitions require
+        data: ``DesignTransition`` with leading dimensions ``[B, T]``. Its ``design``
+            field contains the normalized per-environment design repeated over time and
+            requires
             ``extras['state_extras']['truncation']``,
             ``extras['policy_extras']['raw_action']``, and
             ``extras['policy_extras']['log_prob']``.
@@ -197,10 +213,6 @@ def compute_design_mlp_loss(
         design_networks.value_network.apply, in_axes=(None, None, 0)
     )
 
-    designs = data.designs
-    data = data.transitions
-
-    # Per-env policy/value params from the hypernetwork (design is constant over time).
     policy_params = params.policy_params
     value_params = params.value_params
 
@@ -208,10 +220,7 @@ def compute_design_mlp_loss(
     data = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), data)
 
     observation = jax.tree_util.tree_map(
-        lambda obs: jnp.concatenate(
-            [obs, jnp.broadcast_to(designs[None], obs.shape[:-1] + designs.shape[-1:])],
-            axis=-1,
-        ),
+        lambda obs: jnp.concatenate((obs, data.design), axis=-1),
         data.observation,
     )
     policy_logits = policy_apply(normalizer_params, policy_params, observation)
@@ -221,7 +230,7 @@ def compute_design_mlp_loss(
     baseline = jnp.swapaxes(baseline, 0, 1)
 
     terminal_obs = jax.tree_util.tree_map(
-        lambda obs: jnp.concatenate([obs[-1], designs], axis=-1),
+        lambda obs: jnp.concatenate((obs[-1], data.design[-1]), axis=-1),
         data.next_observation,
     )
     bootstrap_value = single_value_apply(
@@ -276,6 +285,9 @@ def compute_design_mlp_loss(
 
 
 # -------------------------------------------------------------------- training
+DESIGN_STRATEGIES = ("random", "fixed", "noisy-fixed")
+
+
 def train_design_mlp(
     environment,
     num_timesteps: int,
@@ -299,6 +311,10 @@ def train_design_mlp(
     design_dim: int = 1,
     num_designs: int = 8,
     resamples_per_epoch: int = 1,
+    strategy: str = "random",
+    warmup_strategy: str | None = None,
+    warmup_epochs: int = 0,
+    rate: float = 0.0,
     network_factory: Callable = make_design_mlp_networks,
     num_evals: int = 10,
     num_eval_envs: int = 64,
@@ -318,10 +334,35 @@ def train_design_mlp(
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
+    warmup_strategy = strategy if warmup_strategy is None else warmup_strategy
+    for name, value in (("strategy", strategy), ("warmup_strategy", warmup_strategy)):
+        if value not in DESIGN_STRATEGIES:
+            raise ValueError(
+                f"Unsupported {name}: {value!r}; expected one of {DESIGN_STRATEGIES}"
+            )
+    if strategy == "fixed" and resamples_per_epoch != 1:
+        raise ValueError(
+            "strategy 'fixed' redraws nothing, so resamples_per_epoch must be 1"
+        )
+    if "noisy-fixed" in (strategy, warmup_strategy) and rate <= 0.0:
+        raise ValueError(
+            f"'noisy-fixed' needs rate > 0, got {rate}; at rate 0 the std never "
+            "leaves zero and the strategy is just 'fixed'"
+        )
+    if warmup_strategy != strategy and warmup_epochs <= 0:
+        raise ValueError(
+            f"warmup_strategy {warmup_strategy!r} differs from strategy {strategy!r} "
+            f"but warmup_epochs is {warmup_epochs}, so the warm-up never runs"
+        )
     schedule = shared.Schedule.make(
         num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
+    if warmup_strategy != strategy and warmup_epochs >= schedule.num_epochs:
+        raise ValueError(
+            f"warmup_epochs {warmup_epochs} covers all {schedule.num_epochs} epochs "
+            f"(num_evals - 1), so strategy {strategy!r} never runs"
+        )
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
@@ -329,22 +370,11 @@ def train_design_mlp(
 
     # The design rides along in the observation, so every observation the networks and the
     # normalizer see is design_dim wider than the env's own.
-    obs_size = jax.tree_util.tree_map(
-        lambda size: (
-            size[:-1] + (size[-1] + design_dim,)
-            if isinstance(size, tuple)
-            else size + design_dim
-        ),
-        environment.observation_size,
-        is_leaf=lambda size: isinstance(size, tuple),
-    )
+    obs_size = augment_observation_size(environment.observation_size, design_dim)
 
-    def append_design(data):
+    def append_design(data: Grid):
         return jax.tree_util.tree_map(
-            lambda obs: jnp.concatenate(
-                (obs, jnp.broadcast_to(data.designs[:, None, :],
-                                       obs.shape[:-1] + data.designs.shape[-1:])), axis=-1
-            ),
+            lambda obs: jnp.concatenate((obs, data.transitions.design), axis=-1),
             data.transitions.observation,
         )
 
@@ -388,11 +418,42 @@ def train_design_mlp(
     )
     env_inputs = shared.make_env_inputs(environment)
 
+    per_cell = num_parallel_envs // num_designs
+    anchor_grid = Grid.from_design_sample(
+        environment, seed, num_designs, per_cell=per_cell
+    )
+    anchors = anchor_grid.designs[:, 0]  # (num_designs, design_dim), physical units
+    design_low, design_high = np.asarray(environment.design_limits, np.float32)
+    design_span = design_high - design_low
+
+    def draw(name: str, iteration: int) -> Grid:
+        """Draw one design grid for the named strategy."""
+        if name == "fixed":
+            return anchor_grid
+        if name == "random":
+            return Grid.from_design_sample(
+                environment, design_rng, num_designs, per_cell=per_cell
+            )
+        noise = design_rng.normal(0.0, 1.0, anchors.shape) * (
+            rate * iteration * design_span
+        )
+        return Grid.crossed(
+            np.clip(anchors + noise, design_low, design_high),
+            np.ones((1, 1), np.float32),
+            per_cell,
+        )
+
+    phase, iteration = None, 0
+
     def sample(it, extra_state, key):
-        """``num_designs`` designs, tiled across the envs, against the trivial tradeoff."""
-        return Grid.from_design_sample(
-            environment, design_rng, num_designs, per_cell=num_parallel_envs // num_designs
-        ), None
+        """Sample designs using the warm-up or main strategy for this epoch."""
+        nonlocal phase, iteration
+        current = warmup_strategy if it < warmup_epochs else strategy
+        if current != phase:
+            phase, iteration = current, 0
+        grid = draw(current, iteration)
+        iteration += 1
+        return grid, None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
     eval_grid = Grid.from_design_sample(
@@ -450,7 +511,13 @@ def setup_design_mlp(config):
     ppo               = dict(lp["ppo_params"])
     net               = dict(lp["network_params"])
     codesign          = dict(config['env_config']['codesign'])
-    design_sampling   = dict(lp['design_sampling'])
+    design_sampling   = dict(lp.get('design_sampling', {}))
+
+    if "sampling" in design_sampling:
+        raise ValueError(
+            "design_sampling 'sampling' is now 'strategy', optionally preceded by a "
+            "'warmup_strategy' for the first 'warmup_epochs' epochs"
+        )
 
     network_factory = functools.partial(
         make_design_mlp_networks,
@@ -462,9 +529,12 @@ def setup_design_mlp(config):
         train_design_mlp,
         network_factory       = network_factory,
         design_dim            = len(codesign["low"]),
-        num_designs           = design_sampling["num_designs"],
-        resamples_per_epoch   = design_sampling["resamples_per_epoch"],
+        num_designs           = design_sampling.get("num_designs", 8),
+        resamples_per_epoch   = design_sampling.get("resamples_per_epoch", 1),
+        strategy              = design_sampling.get("strategy", "random"),
+        warmup_strategy       = design_sampling.get("warmup_strategy"),
+        warmup_epochs         = design_sampling.get("warmup_epochs", 0),
+        rate                  = design_sampling.get("rate", 0.0),
         **ppo,
     )
     return train_fn, network_factory
-

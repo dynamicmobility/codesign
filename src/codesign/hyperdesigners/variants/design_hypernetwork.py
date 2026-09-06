@@ -587,18 +587,19 @@ def train_design_hypernetwork(
         """The grid ``name`` produces ``iteration`` resamples into its own phase."""
         if name == "fixed":
             return anchor_grid
-        if name == "random":
+        elif name == "random":
             return Grid.from_design_sample(
                 environment, design_rng, num_designs, per_cell=per_cell
             )
-        noise = design_rng.normal(0.0, 1.0, anchors.shape) * (
-            rate * iteration * design_span
-        )
-        return Grid.crossed(
-            np.clip(anchors + noise, design_low, design_high),
-            np.ones((1, 1), np.float32),
-            per_cell,
-        )
+        elif name == "noisy-fixed":
+            noise = design_rng.normal(0.0, 1.0, anchors.shape) * (
+                rate * iteration * design_span
+            )
+            return Grid.crossed(
+                np.clip(anchors + noise, design_low, design_high),
+                np.ones((1, 1), np.float32),
+                per_cell,
+            )
 
     phase, iteration = None, 0
 
