@@ -33,9 +33,7 @@ from codesign.hyperdesigners.variants.design_hypernetwork import (
 from codesign.hyperdesigners.variants.design_lookup_hypernetwork import (
     make_lookup_hypernet_networks,
     make_lookup_hypernetwork,
-    paired_eval_keys,
     warn_off_table,
-    per_design_metrics,
     setup_design_lookup_hypernetwork,
     train_design_lookup_hypernetwork,
 )
@@ -71,6 +69,10 @@ from codesign.hyperdesigners.losses import (
     huber_loss,
     mse_loss,
 )
+from codesign.hyperdesigners.shared import (
+    paired_eval_keys,
+    per_design_metrics,
+)
 from codesign.hyperdesigners.acting import DesignTransition
 
 __all__ = [
@@ -95,9 +97,7 @@ __all__ = [
     "setup_design_lookup_hypernetwork",
     "make_lookup_hypernet_networks",
     "make_lookup_hypernetwork",
-    "paired_eval_keys",
     "warn_off_table",
-    "per_design_metrics",
     # mo_design_hypernetwork
     "train_mo_design_hypernetwork",
     "setup_mo_design_hypernetwork",
@@ -123,5 +123,7 @@ __all__ = [
     "DesignHypernetParams",
     "mse_loss",
     "huber_loss",
+    "paired_eval_keys",
+    "per_design_metrics",
     "DesignTransition",
 ]

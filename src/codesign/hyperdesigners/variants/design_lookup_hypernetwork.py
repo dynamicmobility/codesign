@@ -255,31 +255,6 @@ def warn_off_table(design, table) -> None:
         )
 
 
-def paired_eval_keys(key: jax.Array, num_designs: int, per_cell: int) -> jax.Array:
-    """One key per eval env, repeating each design's ``per_cell`` trial keys.
-
-    Trial ``c`` then starts from the same state under every design, so comparing two
-    designs is a paired comparison rather than two independent noisy draws. Laid out
-    design-major, matching ``Grid.flatten``.
-    """
-    trials = jax.random.split(key, per_cell)
-    return jnp.tile(trials, (num_designs,) + (1,) * (trials.ndim - 1))
-
-
-def per_design_metrics(grid) -> dict:
-    """One mean return per design, plus the worst and best of them.
-
-    Each row of ``W`` is one design's own policy, so the return pooled over designs says
-    nothing about whether every one of them is training; the worst is what stalls first.
-    """
-    means = grid.scalarized_rewards.reshape(grid.n_designs, -1).mean(axis=1)
-    return {
-        **{f"eval/design{i}/episode_reward": float(v) for i, v in enumerate(means)},
-        "eval/worst_design_reward": float(means.min()),
-        "eval/best_design_reward": float(means.max()),
-    }
-
-
 # -------------------------------------------------------------------- training
 def train_design_lookup_hypernetwork(
     environment,
@@ -410,11 +385,11 @@ def train_design_lookup_hypernetwork(
             eval_designs,
             eval_tradeoffs,
             eval_model,
-            paired_eval_keys(key, num_designs, eval_per_cell),
+            shared.paired_eval_keys(key, num_designs, eval_per_cell),
             key,
         )
         metrics = shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
-        return {**metrics, **per_design_metrics(metrics["eval_grid"])}
+        return {**metrics, **shared.per_design_metrics(metrics["eval_grid"])}
 
     params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)
 

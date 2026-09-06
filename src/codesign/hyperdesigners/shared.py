@@ -355,6 +355,17 @@ def make_rollout_returns(
     return rollout_returns
 
 
+def paired_eval_keys(key: jax.Array, num_designs: int, per_cell: int) -> jax.Array:
+    """One key per eval env, repeating each design's ``per_cell`` trial keys.
+
+    Trial ``c`` starts from the same state under every design, so comparing two
+    designs is a paired comparison rather than two independent noisy draws. Laid out
+    design-major, matching ``Grid.flatten``.
+    """
+    trials = jax.random.split(key, per_cell)
+    return jnp.tile(trials, (num_designs,) + (1,) * (trials.ndim - 1))
+
+
 def eval_metrics(returns, grid) -> dict:
     """Eval metrics for a rolled-out grid.
 
@@ -373,6 +384,21 @@ def eval_metrics(returns, grid) -> dict:
         metrics[f"eval/episode_reward_obj{i}"] = float(np.mean(returns[:, i]))
     metrics["eval_grid"] = dataclasses.replace(grid, rewards=grid.unflatten(returns))
     return metrics
+
+
+def per_design_metrics(grid, prefix: str = "eval") -> dict:
+    """One mean return per design, plus the worst and best of them.
+
+    A return pooled over designs says nothing about whether every design is training;
+    the worst is what stalls first. ``prefix`` namespaces the keys, so a run reporting
+    two eval grids can keep them apart.
+    """
+    means = grid.scalarized_rewards.reshape(grid.n_designs, -1).mean(axis=1)
+    return {
+        **{f"{prefix}/design{i}/episode_reward": float(v) for i, v in enumerate(means)}, # TODO: make this optional to turn off
+        f"{prefix}/worst_design_reward": float(means.min()),
+        f"{prefix}/best_design_reward": float(means.max()),
+    }
 
 
 class Sampled(NamedTuple):

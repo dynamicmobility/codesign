@@ -613,11 +613,13 @@ def train_design_hypernetwork(
         iteration += 1
         return grid, None
 
-    # Held fixed across evals, so returns are comparable epoch to epoch
+    # Held fixed across evals, so returns are comparable epoch to epoch. This 
+    # grid is sampled independently from the anchor grid. Thus, it tests generalization.
+    eval_per_cell = num_eval_envs // num_designs
     eval_grid = Grid.from_design_sample(
-        environment, seed + 1000, num_designs, per_cell=num_eval_envs // num_designs
+        environment, seed + 1000, num_designs, per_cell=eval_per_cell
     )
-    eval_model, eval_designs, eval_tradeoffs = env_inputs(eval_grid)
+    eval_inputs = env_inputs(eval_grid)
 
     # An anchored run trains one design set all through -- the anchors themselves under
     # 'fixed', the means the jitter spreads around under 'noisy-fixed' -- so report it for
@@ -625,20 +627,40 @@ def train_design_hypernetwork(
     train_designs = (
         np.asarray(anchors) if strategy in ("fixed", "noisy-fixed") else None
     )
+    # Anchor grid reconstruction
+    anchor_eval_grid, anchor_inputs = None, None
+    if train_designs is not None:
+        anchor_eval_grid = Grid.crossed(
+            anchors, np.ones((1, 1), np.float32), eval_per_cell
+        )
+        anchor_inputs = env_inputs(anchor_eval_grid)
 
-    def evaluate(training_state, extra_state, key):
+    def eval_grid_metrics(training_state, grid, inputs, key):
+        """Metrics for one held-fixed eval grid, paired across its designs."""
+        model, designs, tradeoffs = inputs
         rewards = rollout_returns(
             training_state.normalizer_params,
             training_state.params,
-            eval_designs,
-            eval_tradeoffs,
-            eval_model,
-            jax.random.split(key, num_eval_envs),
+            designs,
+            tradeoffs,
+            model,
+            shared.paired_eval_keys(key, num_designs, eval_per_cell),
             key,
         )
-        metrics = shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
+        return shared.eval_metrics(jnp.sum(rewards, axis=0), grid)
+
+    def evaluate(training_state, extra_state, key):
+        metrics = eval_grid_metrics(training_state, eval_grid, eval_inputs, key)
         if train_designs is not None:
             metrics["train_designs"] = train_designs
+            anchor = eval_grid_metrics(
+                training_state, anchor_eval_grid, anchor_inputs, key
+            )
+            metrics["anchor_eval_grid"] = anchor["eval_grid"]
+            metrics["eval/anchor_episode_reward"] = anchor["eval/episode_reward"]
+            metrics.update(
+                shared.per_design_metrics(anchor["eval_grid"], prefix="eval/anchor")
+            )
         return metrics
 
     params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)

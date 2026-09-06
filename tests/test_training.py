@@ -225,6 +225,27 @@ def test_design_hypernetwork_random_reports_no_training_designs(case):
 
 
 @pytest.mark.slow
+def test_design_hypernetwork_evaluates_its_anchors(case):
+    """An anchored run reports the designs it trains on, not only the held-out draw.
+
+    The held-out grid is a different Sobol draw, so it cannot say whether a
+    ``load_network`` handoff reproduced the warm-up's policies -- that only holds at the
+    anchors.
+    """
+    metrics, _ = train(case, "design_hypernetwork", strategy="fixed")
+    num_designs = ALGOS["design_hypernetwork"][1]["num_designs"]
+
+    assert "eval/anchor_episode_reward" in metrics
+    assert "eval/anchor/worst_design_reward" in metrics
+    per_design = [k for k in metrics if k.startswith("eval/anchor/design")]
+    assert len(per_design) == num_designs
+
+    # 'random' has no anchored design set, so there is nothing extra to report.
+    random_metrics, _ = train(case, "design_hypernetwork", strategy="random")
+    assert not any(k.startswith("eval/anchor") for k in random_metrics)
+
+
+@pytest.mark.slow
 def test_predictor_reports_grpo_metrics_only_after_warmup(case):
     """Warmup designs come from a Sobol sample, not from ``f``, so there is no policy
     ratio to update the predictor on and no GRPO loss to report."""
