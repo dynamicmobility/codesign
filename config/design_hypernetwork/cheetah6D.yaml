@@ -34,18 +34,18 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 5000000000
+    num_timesteps: 1000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
     batch_size: 128
     num_minibatches: 32
     num_updates_per_batch: 4
-    learning_rate: 0.0001
+    learning_rate: 0.00001
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
-    clipping_epsilon: 0.3
+    clipping_epsilon: 0.2
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
@@ -60,12 +60,15 @@ learning_params:
   network_params:
     hypersize: [512, 512]
     num_features: 64
-    policy_hidden_layer_sizes: [256, 256, 128]
-    value_hidden_layer_sizes:  [256, 256, 128]
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
     initialization_strategy: bias
     weight_initializer: kaiming_uniform
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
-    resamples_per_epoch: 8
-    strategy: random
+    resamples_per_epoch: 1
+    strategy: random         # random | fixed | noisy-fixed
+    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
+    warmup_epochs: 5         # number of epochs (num_evals - 1 in total)
+    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u

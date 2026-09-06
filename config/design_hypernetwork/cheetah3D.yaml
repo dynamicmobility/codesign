@@ -62,13 +62,14 @@ learning_params:
     num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-    # initialization_strategy: bias
-    # weight_initializer: kaiming_uniform
-    initialization_strategy: load_network          # was: bias
-    warmup_checkpoint: results/Sep04/design-hypernetwork-3D-fixed-designs-fresh/001000161280
+    initialization_strategy: bias
+    weight_initializer: kaiming_uniform
 
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
     resamples_per_epoch: 1
-    strategy: random
+    strategy: random         # random | fixed | noisy-fixed
+    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
+    warmup_epochs: 5         # number of epochs (num_evals - 1 in total)
+    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
