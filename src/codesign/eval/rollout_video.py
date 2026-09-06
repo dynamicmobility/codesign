@@ -19,6 +19,7 @@ from codesign.learning.inference import (
     load_design_lookup_hypernetwork,
     load_mo_design_hypernetwork,
     load_mo_design_predictor_hypernetwork,
+    load_design_mlp
 )
 from codesign.utils.model import normalize_design, unnormalize_design
 from codesign.utils.plotting import objective_labels
@@ -131,6 +132,46 @@ def rollout_design_hypernetwork_video(
 
     # Trained, design-conditioned policy for this single design (1-D design -> unbatched).
     load_fn = load_design_hypernetwork if load_fn is None else load_fn
+    inference_fn, params = load_fn(config, path=checkpoint_path)
+    base_policy          = inference_fn(params, design_input, deterministic=deterministic)
+    policy               = mm.from_inference_fn(base_policy)
+
+    return rollout_single_video(
+        env, eval_design, policy, n_steps,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+    )
+
+def rollout_design_mlp_video(
+    env,
+    config: dict,
+    design,
+    n_steps: int,
+    *,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    camera: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    gen_video: bool = True,
+    eval_design = None,
+    load_fn = None,
+):
+    """Render a trained design-hypernetwork policy on a single design.
+
+    Loads the checkpoint, builds the (unbatched) design-conditioned policy for ``design``,
+    and rolls it out via :func:`rollout_single_video`. Single-instance analogue of
+    :func:`codesign.eval.parallel_eval.rollout_design_hypernetwork`.
+
+    Returns ``(frames, traj)`` (see :func:`rollout_single_video`).
+    """
+    if(eval_design is None):
+        eval_design = design
+    design       = np.asarray(design, np.float32).reshape(-1) # flatten
+    design_input = normalize_design(jnp.asarray(design), config=config)
+
+    # Trained, design-conditioned policy for this single design (1-D design -> unbatched).
+    load_fn = load_design_mlp if load_fn is None else load_fn
     inference_fn, params = load_fn(config, path=checkpoint_path)
     base_policy          = inference_fn(params, design_input, deterministic=deterministic)
     policy               = mm.from_inference_fn(base_policy)
@@ -441,6 +482,15 @@ def rollout_policy_video(
         design, eval_design       = _default_designs(config, design, eval_design)
         tradeoff, design_tradeoff = None, None
         rollout = rollout_design_hypernetwork_video(
+            env, config, design=design, eval_design=eval_design, n_steps=n_steps,
+            checkpoint_path=checkpoint_path, seed=seed,
+            camera=camera, width=width, height=height,
+        )
+
+    elif algorithm == "design_mlp":
+        design, eval_design       = _default_designs(config, design, eval_design)
+        tradeoff, design_tradeoff = None, None
+        rollout = rollout_design_mlp_video(
             env, config, design=design, eval_design=eval_design, n_steps=n_steps,
             checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,

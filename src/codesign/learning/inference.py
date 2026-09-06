@@ -33,6 +33,11 @@ from codesign.hyperdesigners.variants.mo_design_predictor_hypernetwork import (
     make_design_predictor_inference_fn,
     setup_mo_design_predictor_hypernetwork,
 )
+from codesign.hyperdesigners.variants.design_mlp import (
+    augment_observation_size,
+    setup_design_mlp,
+    make_design_mlp_inference_fn
+)
 
 
 def _load_checkpoint(config, path, quiet):
@@ -77,6 +82,31 @@ def load_design_hypernetwork(
     design_networks = get_network(params_config, network_factory)
     inference_fn = make_design_inference_fn(design_networks)
     return inference_fn, params
+
+
+def load_design_features(config, path=None, quiet=True):
+    """``(features_fn, params)`` for the design hypernetworks, else ``(None, None)``.
+
+    ``features_fn(hypernet_params, normalized_design) -> (batch, num_features)`` is the row
+    that multiplies ``W`` in ``flat(d) = features(d) @ W + b``, so it says which experts the
+    policy for ``d`` is built from: one-hot for the lookup, whatever the MLP learned for the
+    full hypernetwork.
+    """
+    setup_fn = {
+        "design_hypernetwork": setup_design_hypernetwork,
+        "design_lookup_hypernetwork": setup_design_lookup_hypernetwork,
+    }.get(config["algorithm"])
+    if setup_fn is None:
+        return None, None
+
+    _, network_factory = setup_fn(config)
+    params_config, params = _load_checkpoint(config, path, quiet)
+    network_factory = functools.partial(
+        network_factory,
+        design_dim=len(config["env_config"]["codesign"]["low"]),
+        key=jax.random.PRNGKey(0),
+    )
+    return get_network(params_config, network_factory).hypernetwork.features, params
 
 
 def load_design_lookup_hypernetwork(
@@ -228,3 +258,35 @@ def load_mo_design_predictor_hypernetwork(
         make_design_predictor_inference_fn(design_networks),
         params,
     )
+
+
+def load_design_mlp(
+    config,
+    network_factory=None,
+    path=None,
+    quiet=True,
+):
+    """Load a design-conditioned MLP and its saved parameters from a checkpoint."""
+    if network_factory is None:
+        _, network_factory = setup_design_mlp(config)
+    params_config, params = _load_checkpoint(config, path, quiet)
+
+    design_dim = len(config["env_config"]["codesign"]["low"])
+
+    # The checkpoint records the environment's raw observation size, while design_mlp
+    # was trained on [observation, design]. Reapply the same widening used in training
+    # before Brax reconstructs the policy and value networks.
+    def augmented_network_factory(observation_size, action_size, **kwargs):
+        return network_factory(
+            observation_size=augment_observation_size(
+                observation_size, design_dim
+            ),
+            action_size=action_size,
+            design_dim=design_dim,
+            key=jax.random.PRNGKey(0),
+            **kwargs,
+        )
+
+    design_networks = get_network(params_config, augmented_network_factory)
+    inference_fn = make_design_mlp_inference_fn(design_networks)
+    return inference_fn, params

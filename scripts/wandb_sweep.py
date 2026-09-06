@@ -22,9 +22,32 @@ class UniqueSet(set):
 def apply_sweep_params(learning_params, sweep_parameters):
     """Writes each swept param into whichever learning_params group defines it.
     Raises if a param names a field in more than one group, or in none of them.
+
+    Handles 'bundles' too (i.e. setting the entire design_sampling dict)
     """
     used_params = UniqueSet()
     for param, value in sweep_parameters.items():
+        if hasattr(value, 'items'):
+            bundle = {param: value} if param in learning_params else dict(value)
+            unknown_groups = set(bundle) - set(learning_params)
+            if unknown_groups:
+                raise ValueError(
+                    f"Swept param {param!r} sets {sorted(unknown_groups)}, which name no "
+                    "learning_params group; a bundle's keys must be group names."
+                )
+            for name, fields in bundle.items():
+                group = learning_params[name]
+                # Restricted to fields the base config already declares, so a typo in one
+                # arm is caught here rather than silently training the base's setting.
+                unknown = set(fields) - set(group)
+                if unknown:
+                    raise ValueError(
+                        f"Swept group {name!r} sets {sorted(unknown)}, which the config's "
+                        f"{name} does not define; add them to the base config first."
+                    )
+                group.update(fields)
+            used_params.add(param)
+            continue
         for group in learning_params.values():
             if hasattr(group, 'items') and param in group:
                 group[param] = value

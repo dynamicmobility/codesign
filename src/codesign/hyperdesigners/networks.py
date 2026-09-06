@@ -21,6 +21,8 @@ from flax import linen
 class FeedForwardHypernetwork:
     init: Callable[..., Any]
     apply: Callable[..., Any]
+    # ``(params, design) -> (batch, num_features)``, the row that multiplies W.
+    features: Callable[..., Any] = None
 
 
 @flax.struct.dataclass
