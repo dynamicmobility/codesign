@@ -40,10 +40,12 @@ from .eval import (
 # hyperdesigners
 from .hyperdesigners import (
     train_design_hypernetwork,
+    train_design_lookup_hypernetwork,
     train_design_mlp,
     train_mo_design_hypernetwork,
     train_mo_design_predictor,
     setup_design_hypernetwork,
+    setup_design_lookup_hypernetwork,
     setup_design_mlp,
     setup_mo_design_hypernetwork,
     setup_mo_design_predictor_hypernetwork,
@@ -51,6 +53,8 @@ from .hyperdesigners import (
     DesignPredictorHypernetNetworks,
     make_design_hypernet_networks,
     make_design_inference_fn,
+    make_lookup_hypernet_networks,
+    sobol_design_table,
     make_mo_design_hypernet_networks,
     make_mo_design_inference_fn,
     make_mo_design_predictor_hypernet_networks,
@@ -59,6 +63,7 @@ from .hyperdesigners import (
     DesignPredictorTransition,
     compute_design_hypernet_loss,
     compute_mo_design_hypernet_loss,
+    load_warmup_params,
     compute_grpo_loss,
     DesignTransition,
 )
@@ -66,6 +71,7 @@ from .hyperdesigners import (
 # learning
 from .learning import (
     load_design_hypernetwork,
+    load_design_lookup_hypernetwork,
     load_mo_design_hypernetwork,
     load_mo_design_predictor_hypernetwork,
 )
@@ -92,6 +98,9 @@ from .utils import (
     MODesignTrainingPlottingInfo,
     plot_mean_hv_progress,
     plot_design_pareto_progress,
+    plot_design_rewards,
+    plot_design_learning_curves,
+    plot_design_rewards_progress,
     dress_axis,
     plot_design_sweep_1d,
     plot_design_predictor,
@@ -143,10 +152,12 @@ __all__ = [
     "extreme_tradeoffs_with_labels",
     # hyperdesigners
     "train_design_hypernetwork",
+    "train_design_lookup_hypernetwork",
     "train_design_mlp",
     "train_mo_design_hypernetwork",
     "train_mo_design_predictor",
     "setup_design_hypernetwork",
+    "setup_design_lookup_hypernetwork",
     "setup_design_mlp",
     "setup_mo_design_hypernetwork",
     "setup_mo_design_predictor_hypernetwork",
@@ -154,6 +165,8 @@ __all__ = [
     "DesignPredictorHypernetNetworks",
     "make_design_hypernet_networks",
     "make_design_inference_fn",
+    "make_lookup_hypernet_networks",
+    "sobol_design_table",
     "make_mo_design_hypernet_networks",
     "make_mo_design_inference_fn",
     "make_mo_design_predictor_hypernet_networks",
@@ -162,10 +175,12 @@ __all__ = [
     "DesignPredictorTransition",
     "compute_design_hypernet_loss",
     "compute_mo_design_hypernet_loss",
+    "load_warmup_params",
     "compute_grpo_loss",
     "DesignTransition",
     # learning
     "load_design_hypernetwork",
+    "load_design_lookup_hypernetwork",
     "load_mo_design_hypernetwork",
     "load_mo_design_predictor_hypernetwork",
     # utils
@@ -189,6 +204,9 @@ __all__ = [
     "MODesignTrainingPlottingInfo",
     "plot_mean_hv_progress",
     "plot_design_pareto_progress",
+    "plot_design_rewards",
+    "plot_design_learning_curves",
+    "plot_design_rewards_progress",
     "dress_axis",
     "plot_design_sweep_1d",
     "plot_design_predictor",

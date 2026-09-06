@@ -1,10 +1,10 @@
-# Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
+# Training config for the `design_lookup_hypernetwork` warm-up on CodesignCheetah.
 #
-# H_\pi(d, w) = \pi(a | s)
-name: test-design-hypernetwork-1D
-save_dir: results/Aug29
-description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
-algorithm: design_hypernetwork
+# M designs fixed by Sobol; one-hot features, so row i of W is design i's own policy.
+name: test-design-lookup-hypernetwork-1D
+save_dir: results/Sep04
+description: "One-hot lookup hypernetwork warm-up over CodesignCheetah back-leg lengths."
+algorithm: design_lookup_hypernetwork
 env: "MOCodesignCheetah1D"
 backend: jnp # always jnp for training
 
@@ -36,12 +36,12 @@ learning_params:
   ppo_params:
     num_timesteps: 1000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_parallel_envs: 4096 # num_designs * per_cell
     unroll_length: 20
     batch_size: 128
-    num_minibatches: 32
+    num_minibatches: 32 # must equal num_designs: one design per minibatch
     num_updates_per_batch: 4
-    learning_rate: 0.0001
+    learning_rate: 0.0000177 # 1e-4 / sqrt(num_designs); see the module docstring
     entropy_cost: 0.01
     discounting: 0.99
     reward_scaling: 1.0
@@ -50,16 +50,16 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
+    value_loss_type: mse
+    huber_delta: 1.0
     num_evals: 30
-    num_eval_envs: 256
+    num_eval_envs: 256 # must divide by num_designs
     deterministic_eval: true
     seed: 0
   network_params:
-    hypersize: [256, 256]
-    num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
+    weight_initializer: kaiming_uniform
+    freeze_bias: true
   design_sampling:
-    num_designs: 8 
-    resamples_per_epoch: 1
-    sampling: random
+    num_designs: 32 # designs sampled once at the start, one row of W each

@@ -1,5 +1,5 @@
 # Sweep over the design predictor's own knobs. Everything else is pinned in
-# cheetah1D.yaml, except num_envs, which this file overrides.
+# cheetah1D.yaml, except num_parallel_envs, which this file overrides.
 name: cheetah-1D-predictor
 method: bayes
 metric:
@@ -19,7 +19,7 @@ parameters:
     min: 1
     max: 16
   num_designs:
-    values: [8, 16, 32, 64] # grpo group size; must divide num_envs / num_tradeoffs
+    values: [8, 16, 32, 64] # grpo group size; must divide num_parallel_envs / num_tradeoffs
   num_warmup_iters:
     distribution: int_uniform
     min: 0
@@ -36,5 +36,5 @@ parameters:
     distribution: int_uniform
     min: 20
     max: 40
-  num_envs:
+  num_parallel_envs:
     value: 8192 # pinned, not an axis

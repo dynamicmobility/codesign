@@ -8,11 +8,11 @@ Primary sources:
 
 | File | Contents |
 | --- | --- |
-| `src/codesign/hyperdesigners/mo_design_predictor_hypernetwork.py` | training loop |
-| `src/codesign/hyperdesigners/networks.py:197-330` | predictor architecture + inference fn |
-| `src/codesign/hyperdesigners/losses.py:240-301` | GRPO loss |
+| `src/codesign/hyperdesigners/variants/mo_design_predictor_hypernetwork.py` | the whole algo: networks, losses, training loop, config wiring |
+| ^ `make_mo_design_predictor_hypernet_networks`, `make_design_predictor_inference_fn` | predictor architecture + inference fn |
+| ^ `compute_grpo_loss` | GRPO loss |
+| ^ `setup_mo_design_predictor_hypernetwork` | config -> train fn wiring |
 | `src/codesign/utils/grid.py:120-178` | `DesignPredictorSampleGrid` |
-| `src/codesign/hyperdesigners/factory.py:80-121` | config -> train fn wiring |
 | `config/mo_design_predictor_hypernetwork/cheetah1D.yaml` | reference config |
 
 Numbers below are for `cheetah1D.yaml` unless stated: `num_envs=4096`,

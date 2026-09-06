@@ -18,9 +18,9 @@ Primary sources:
 
 | File | Contents |
 | --- | --- |
-| `src/codesign/hyperdesigners/losses.py:114-129` | the value loss (`v_loss`) |
-| `src/codesign/hyperdesigners/losses.py:203-224` | GAE call and value loss, MO variant |
-| `src/codesign/hyperdesigners/mo_design_hypernetwork.py:168-172` | optimizer construction |
+| `src/codesign/hyperdesigners/losses.py` | `mse_loss` / `huber_loss`, the value-loss shapes |
+| `src/codesign/hyperdesigners/variants/mo_design_hypernetwork.py` | `compute_mo_design_hypernet_loss`: GAE call and value loss, MO variant |
+| ^ | `train_mo_design_hypernetwork`: optimizer construction |
 | `submodules/moplayground/src/moplayground/moppo/networks.py:310-390` | `DualA2CHypernet` |
 | `submodules/moplayground/src/moplayground/envs/dmcontrol/cheetah.py:103-147` | obs and rewards |
 | `config/mo_design_predictor_hypernetwork/cheetah1D.yaml` | reference config |

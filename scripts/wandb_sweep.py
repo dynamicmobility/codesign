@@ -37,6 +37,11 @@ def apply_sweep_params(learning_params, sweep_parameters):
             "so they would be sampled but never applied."
         )
 
+def env_count_key(ppo_params):
+    """Name of the env-count field: codesign's trainers call it ``num_parallel_envs``,
+    minimal-mjx's ppo ``num_envs``."""
+    return 'num_parallel_envs' if 'num_parallel_envs' in ppo_params else 'num_envs'
+
 def derive_batching(ppo_params, sweep_parameters):
     """Derives batch_size so that related args (num_minibatches, etc) are consistent.
     Expects `ppo_params` to already hold this run's swept values.
@@ -44,6 +49,7 @@ def derive_batching(ppo_params, sweep_parameters):
     """
     BATCHING_PARAMS = (
         'num_envs',
+        'num_parallel_envs',
         'num_minibatches',
         'rollouts_per_step',
         'batch_size'
@@ -56,7 +62,7 @@ def derive_batching(ppo_params, sweep_parameters):
             "batch_size is derived. Sweep 'rollouts_per_step' instead to vary data per training step."
         )
 
-    num_envs        = ppo_params['num_envs']
+    num_envs        = ppo_params[env_count_key(ppo_params)]
     num_minibatches = ppo_params['num_minibatches']
     rollouts        = sweep_parameters.get('rollouts_per_step', 1)
 
@@ -90,9 +96,10 @@ def derive_eval_grid(learning_params):
         return {}
 
     num_cells = design['num_designs'] * (tradeoff['num_tradeoffs'] if tradeoff else 1)
-    if ppo_params['num_envs'] % num_cells != 0:
+    key = env_count_key(ppo_params)
+    if ppo_params[key] % num_cells != 0:
         raise ValueError(
-            f"num_envs ({ppo_params['num_envs']}) must be a multiple of "
+            f"{key} ({ppo_params[key]}) must be a multiple of "
             f"num_designs * num_tradeoffs ({num_cells})."
         )
 

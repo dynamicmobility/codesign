@@ -1,5 +1,12 @@
+"""Network pieces shared by more than one hyperdesigner algo.
+
+Each algo's own bundle, builders and inference fns live in the algo's module; only what
+several of them reuse stays here.
+"""
+
 import dataclasses
-from typing import Any, Callable, Literal, Sequence, Tuple
+import inspect
+from typing import Any, Callable, Literal, Sequence
 
 import flax
 import jax
@@ -7,24 +14,13 @@ import jax.numpy as jnp
 from brax.training import distribution, networks, types
 from brax.training.networks import ActivationFn, DistributionalCritic, Initializer, FeedForwardNetwork, MLP, Mapping
 from brax.training.networks import normalizer_select, _get_obs_state_size
-from brax.training.types import PRNGKey
 from flax import linen
-
-from moplayground.moppo.networks import DualA2CHypernet
 
 
 @dataclasses.dataclass
 class FeedForwardHypernetwork:
     init: Callable[..., Any]
     apply: Callable[..., Any]
-
-
-# Represents an MLP conditioned on design for single-objective multi-design
-@flax.struct.dataclass
-class DesignNetworks:
-    policy_network: networks.FeedForwardNetwork
-    value_network: networks.FeedForwardNetwork
-    parametric_action_distribution: distribution.ParametricDistribution
 
 
 @flax.struct.dataclass
@@ -34,195 +30,24 @@ class DesignHypernetNetworks:
     value_network: networks.FeedForwardNetwork
     parametric_action_distribution: distribution.ParametricDistribution
 
-@flax.struct.dataclass
-class DesignPredictorHypernetNetworks:
-    hypernetwork: FeedForwardHypernetwork
-    policy_network: networks.FeedForwardNetwork
-    value_network: networks.FeedForwardNetwork
-    parametric_action_distribution: distribution.ParametricDistribution
-    design_predictor_network: networks.FeedForwardNetwork
-    parametric_design_distribution: distribution.ParametricDistribution
 
+def resolve_kernel_initializer(initializer: str | Initializer) -> Initializer:
+    """A ready ``(key, shape, dtype)`` initializer from a name in brax's registry.
 
-def make_design_mlp_networks(
-    observation_size: types.ObservationSize,
-    action_size: int,
-    design_dim: int,
-    key: jax.Array,
-    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
-    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    activation: networks.ActivationFn = linen.swish,
-    policy_obs_key: str = "state",
-    value_obs_key: str = "state",
-    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
-    noise_std_type: Literal["scalar", "log"] = "scalar",
-    init_noise_std: float = 1.0,
-    state_dependent_std: bool = False,
-    num_value_outputs: int = 1,
-)->DesignNetworks:
-    """Build the target policy/value MLPs and the design-conditioned hypernetwork."""
-    if distribution_type == "normal":
-        parametric_action_distribution = distribution.NormalDistribution(
-            event_size=action_size
-        )
-    elif distribution_type == "tanh_normal":
-        parametric_action_distribution = distribution.NormalTanhDistribution(
-            event_size=action_size
-        )
-    else:
-        raise ValueError(
-            f'Unsupported distribution type: {distribution_type}. Must be one'
-            ' of "normal" or "tanh_normal".'
-        )
-    policy_network = networks.make_policy_network(
-        param_size=parametric_action_distribution.param_size,
-        obs_size=observation_size,
-        preprocess_observations_fn=preprocess_observations_fn,
-        hidden_layer_sizes=policy_hidden_layer_sizes,
-        activation=activation,
-        obs_key=policy_obs_key,
-        distribution_type=distribution_type,
-        noise_std_type=noise_std_type,
-        init_noise_std=init_noise_std,
-        state_dependent_std=state_dependent_std,
-    )
+    The registry mixes factories (``he_uniform``) with initializers that are already in that
+    form (``zeros``); only a factory needs calling, and one is told apart by taking no
+    ``shape`` argument. An initializer handed over directly comes back unchanged.
 
-    value_network = make_vector_value_network(
-        obs_size=observation_size,
-        preprocess_observations_fn=preprocess_observations_fn,
-        hidden_layer_sizes=value_hidden_layer_sizes,
-        num_objectives=num_value_outputs,
-        activation=activation,
-        obs_key=value_obs_key,
-    )
-
-    return DesignNetworks(
-        policy_network=policy_network,
-        value_network=value_network,
-        parametric_action_distribution=parametric_action_distribution,
-    )
-
-def make_design_mlp_inference_fn(networks_: DesignNetworks):
-    """Inference-fn factory keyed on the robot design.
-
-    Returns ``inference_fn(params, design, deterministic=False) -> policy(obs, key)``,
-    where ``params = (normalizer_params, hypernet_params)``. ``design`` may be a single
-    design ``(design_dim,)`` or batched ``(num_envs, design_dim)``; in the batched case
-    obs/params are vmapped over the leading env axis.
+    Names, rather than initializers, are what the builders take: brax's checkpoint writer
+    JSON-encodes a network factory's keyword arguments, and a function there is written out
+    as an unusable ``"function init"``.
     """
-
-    def design_mlp_inference_fn(
-        params: types.Params, design: jax.Array, deterministic: bool = False
-    ) -> types.Policy:
-        normalizer_params, policy_params = params[0], params[1]
-        policy_network = networks_.policy_network
-        parametric_action_distribution = networks_.parametric_action_distribution
-
-        if len(design.shape) == 1:
-            policy_apply = policy_network.apply
-        else:
-            policy_apply = jax.vmap(policy_network.apply, in_axes=(None, None, 0))
-
-        def policy(
-            observations: types.Observation, key_sample: PRNGKey
-        ) -> Tuple[types.Action, types.Extra]:
-            design_input = jax.tree_util.tree_map(
-                lambda obs: jnp.broadcast_to(
-                    design, obs.shape[:-1] + design.shape[-1:]
-                ),
-                observations,
-            )
-
-            logits = policy_apply(
-                normalizer_params,
-                policy_params,
-                jax.tree_util.tree_map(
-                    lambda obs, des: jnp.concatenate((obs, des), axis=-1),
-                    observations,
-                    design_input,
-                ),
-            )
-            if deterministic:
-                return parametric_action_distribution.mode(logits), {}
-            raw_actions = parametric_action_distribution.sample_no_postprocessing(
-                logits, key_sample
-            )
-            log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
-            postprocessed_actions = parametric_action_distribution.postprocess(
-                raw_actions
-            )
-            return postprocessed_actions, {
-                "log_prob": log_prob,
-                "raw_action": raw_actions,
-            }
-
-        return policy
-
-    return design_mlp_inference_fn
-
-
-HypernetInitStrategy = Literal["bias", "weight", "load_network"]
-
-def make_design_hypernetwork(
-    design_dim: int,
-    obs_dim: int,
-    target_policy_dict: dict,
-    target_value_dict: dict,
-    hypersize: tuple,
-    num_features: int = 8,
-    w_variance: float = 0.0,
-    initialization_strategy: HypernetInitStrategy = "bias",
-    weight_initializer: Initializer = jax.nn.initializers.kaiming_uniform,
-) -> FeedForwardHypernetwork:
-    """Wrap a ``DualA2CHypernet`` keyed on the design (no simplex normalization).
-
-    ``apply(params, design) -> (policy_params, value_params)`` where each is a Flax
-    ``{'params': ...}`` tree (batched along axis 0 when ``design`` is batched).
-    """
-    if(initialization_strategy not in ("bias", "weight", "load_network")):
-        raise ValueError(f"Unsupported initialization_strategy: {initialization_strategy!r}")
-
-    hypernet = DualA2CHypernet(
-        target_policy_dict=target_policy_dict,
-        target_value_dict=target_value_dict,
-        num_objs=design_dim,
-        obs_dim=obs_dim,
-        hypersize=hypersize,
-        num_features=num_features,
-        W_variance=w_variance,
-    )
-
-    if(initialization_strategy == "weight"):
-        def init(key):
-            key_hypernet, key_policy_w, key_value_w = jax.random.split(key, 3)
-            params = flax.core.unfreeze(hypernet.init(key_hypernet, dummy_design))
-            params["params"]["policy_b"] = jnp.zeros_like(
-                params["params"]["policy_b"]
-            )
-            params["params"]["value_b"] = jnp.zeros_like(
-                params["params"]["value_b"]
-            )
-            policy_w = params["params"]["policy_W"]
-            value_w = params["params"]["value_W"]
-            params["params"]["policy_W"] = weight_initializer(
-                key_policy_w, policy_w.shape, policy_w.dtype
-            )
-            params["params"]["value_W"] = weight_initializer(
-                key_value_w, value_w.shape, value_w.dtype
-            )
-            return flax.core.freeze(params)
-    else:
-        def init(key):
-            return hypernet.init(key, dummy_design)
-
-    dummy_design = jnp.zeros(design_dim)
-
-    def apply(params, design):
-        # Returns ((policy_params, value_params), (flat...), (features...)); take [0].
-        return hypernet.apply(params, design)[0]
-
-    return FeedForwardHypernetwork(init=init, apply=apply)
+    if not isinstance(initializer, str):
+        return initializer
+    initializer = networks.KERNEL_INITIALIZER[initializer]
+    if "shape" in inspect.signature(initializer).parameters:
+        return initializer
+    return initializer()
 
 
 def make_vector_value_network(
@@ -274,29 +99,32 @@ def make_vector_value_network(
   )
 
 
-def make_design_hypernet_networks(
+
+def make_target_networks(
     observation_size: types.ObservationSize,
     action_size: int,
-    design_dim: int,
     key: jax.Array,
-    hypersize: tuple = (128, 128),
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
     policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
     value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    activation: networks.ActivationFn = linen.swish,
+    activation: ActivationFn = linen.swish,
     policy_obs_key: str = "state",
     value_obs_key: str = "state",
     distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
     noise_std_type: Literal["scalar", "log"] = "scalar",
     init_noise_std: float = 1.0,
     state_dependent_std: bool = False,
-    num_features: int = 8,
-    w_variance: float = 0.0,
     num_value_outputs: int = 1,
-    initialization_strategy: HypernetInitStrategy = 'bias',
-    weight_initializer: Initializer = jax.nn.initializers.kaiming_uniform
-) -> DesignHypernetNetworks:
-    """Build the target policy/value MLPs and the design-conditioned hypernetwork."""
+    weight_initializer: str | Initializer = "kaiming_uniform",
+):
+    """The target policy/value MLPs whose weights a hypernetwork generates.
+
+    Returns ``(parametric_action_distribution, policy_network, value_network,
+    target_policy_params, target_value_params, obs_dim)``, where the two param trees are one
+    draw of the target nets' own initialization and ``obs_dim`` is the policy's flat
+    observation width.
+    """
+    weight_initializer = resolve_kernel_initializer(weight_initializer)
     if distribution_type == "normal":
         parametric_action_distribution = distribution.NormalDistribution(
             event_size=action_size
@@ -322,7 +150,7 @@ def make_design_hypernet_networks(
         noise_std_type=noise_std_type,
         init_noise_std=init_noise_std,
         state_dependent_std=state_dependent_std,
-        kernel_init=weight_initializer
+        kernel_init=weight_initializer,
     )
 
     value_network = make_vector_value_network(
@@ -332,317 +160,19 @@ def make_design_hypernet_networks(
         num_objectives=num_value_outputs,
         activation=activation,
         obs_key=value_obs_key,
-        kernel_init=weight_initializer
+        kernel_init=weight_initializer,
     )
 
     key_policy, key_value = jax.random.split(key)
-    target_policy_params = policy_network.init(key_policy)
-    target_value_params = value_network.init(key_value)
-
-    obs_dim = networks._get_obs_state_size(observation_size, policy_obs_key)
-    hypernetwork = make_design_hypernetwork(
-        design_dim=design_dim,
-        obs_dim=obs_dim,
-        target_policy_dict=target_policy_params,
-        target_value_dict=target_value_params,
-        hypersize=hypersize,
-        num_features=num_features,
-        w_variance=w_variance,
-        initialization_strategy=initialization_strategy,
-        weight_initializer=weight_initializer,
+    return (
+        parametric_action_distribution,
+        policy_network,
+        value_network,
+        policy_network.init(key_policy),
+        value_network.init(key_value),
+        _get_obs_state_size(observation_size, policy_obs_key),
     )
 
-    return DesignHypernetNetworks(
-        hypernetwork=hypernetwork,
-        policy_network=policy_network,
-        value_network=value_network,
-        parametric_action_distribution=parametric_action_distribution,
-    )
-
-
-def make_mo_design_hypernet_networks(
-    observation_size: types.ObservationSize,
-    action_size: int,
-    design_dim: int,
-    num_objectives: int,
-    key: jax.Array,
-    hypersize: tuple = (128, 128),
-    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
-    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    activation: networks.ActivationFn = linen.swish,
-    policy_obs_key: str = "state",
-    value_obs_key: str = "state",
-    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
-    noise_std_type: Literal["scalar", "log"] = "scalar",
-    init_noise_std: float = 1.0,
-    state_dependent_std: bool = False,
-    num_features: int = 8,
-    w_variance: float = 0.0,
-) -> DesignHypernetNetworks:
-    """Build a hypernetwork conditioned on ``[design, tradeoff]``: ``H(d, w)``.
-
-    Structurally identical to :func:`make_design_hypernet_networks`, except the
-    hypernetwork's conditioning input is widened to ``design_dim + num_objectives`` so it
-    consumes the concatenation of the (normalized) design and the tradeoff ``w``. The
-    returned bundle is the standard :class:`DesignHypernetNetworks`.
-    """
-    return make_design_hypernet_networks(
-        observation_size=observation_size,
-        action_size=action_size,
-        design_dim=design_dim + num_objectives,
-        key=key,
-        hypersize=hypersize,
-        preprocess_observations_fn=preprocess_observations_fn,
-        policy_hidden_layer_sizes=policy_hidden_layer_sizes,
-        value_hidden_layer_sizes=value_hidden_layer_sizes,
-        activation=activation,
-        policy_obs_key=policy_obs_key,
-        value_obs_key=value_obs_key,
-        distribution_type=distribution_type,
-        noise_std_type=noise_std_type,
-        init_noise_std=init_noise_std,
-        state_dependent_std=state_dependent_std,
-        num_features=num_features,
-        w_variance=w_variance,
-        num_value_outputs=num_objectives,
-    )
-
-def make_mo_design_predictor_hypernet_networks(
-    observation_size: types.ObservationSize,
-    action_size: int,
-    design_dim: int,
-    num_objectives: int,
-    key: jax.Array,
-    hypersize: tuple = (128, 128),
-    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
-    policy_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    value_hidden_layer_sizes: Sequence[int] = (64,) * 2,
-    activation: networks.ActivationFn = linen.swish,
-    policy_obs_key: str = "state",
-    value_obs_key: str = "state",
-    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
-    noise_std_type: Literal["scalar", "log"] = "scalar",
-    init_noise_std: float = 1.0,
-    state_dependent_std: bool = False,
-    num_features: int = 8,
-    w_variance: float = 0.0,
-    # Design Hypernetwork
-    design_distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
-    design_hidden_layer_sizes: Sequence[int] = (16,) * 2,
-    design_noise_std_type: Literal["scalar", "log"] = "scalar",
-    design_init_noise_std: float = 1.0,
-
-) -> DesignPredictorHypernetNetworks:
-    """Build a hypernetwork conditioned on ``[design, tradeoff]``: ``H(d, w)`` alongside a design predictor.
-    The hypernetwork/value/action are the same as make_design_hypernet_networks, but the design predictor
-    network is also included.
-
-    The design predictor network is a feedforward network which outputs a parametric distribution
-
-    """
-    design_hypernet = make_mo_design_hypernet_networks(
-        observation_size=observation_size,
-        action_size=action_size,
-        design_dim=design_dim,
-        num_objectives=num_objectives,
-        key=key,
-        hypersize=hypersize,
-        preprocess_observations_fn=preprocess_observations_fn,
-        policy_hidden_layer_sizes=policy_hidden_layer_sizes,
-        value_hidden_layer_sizes=value_hidden_layer_sizes,
-        activation=activation,
-        policy_obs_key=policy_obs_key,
-        value_obs_key=value_obs_key,
-        distribution_type=distribution_type,
-        noise_std_type=noise_std_type,
-        init_noise_std=init_noise_std,
-        state_dependent_std=state_dependent_std,
-        num_features=num_features,
-        w_variance=w_variance,
-    )
-
-    if design_distribution_type == "normal":
-        parametric_design_distribution = distribution.NormalDistribution(
-            event_size=design_dim
-        )
-    elif design_distribution_type == "tanh_normal":
-        parametric_design_distribution = distribution.NormalTanhDistribution(
-            event_size=design_dim
-        )
-    else:
-        raise ValueError(
-            f'Unsupported distribution type: {design_distribution_type}. Must be one'
-            ' of "normal" or "tanh_normal".'
-        )
-
-    # The "observation" is the tradeoff, which already lies on the simplex, so
-    # preprocess_observations_fn is left at brax's identity default. noise_std_type /
-    # init_noise_std / state_dependent_std are only read by the "normal" branch of
-    # make_policy_network; under "tanh_normal" the std comes from the MLP head.
-    design_predictor_network = networks.make_policy_network(
-        param_size=parametric_design_distribution.param_size,
-        obs_size=num_objectives,
-        hidden_layer_sizes=design_hidden_layer_sizes,
-        activation=activation,
-        distribution_type=design_distribution_type,
-        noise_std_type=design_noise_std_type,
-        init_noise_std=design_init_noise_std,
-        state_dependent_std=state_dependent_std,
-    )
-    return DesignPredictorHypernetNetworks(
-        hypernetwork = design_hypernet.hypernetwork,
-        policy_network = design_hypernet.policy_network,
-        value_network = design_hypernet.value_network,
-        parametric_action_distribution = design_hypernet.parametric_action_distribution,
-        design_predictor_network = design_predictor_network,
-        parametric_design_distribution = parametric_design_distribution
-    )
-
-
-def make_design_predictor_inference_fn(networks_: DesignPredictorHypernetNetworks):
-    """Inference-fn factory for the design predictor ``f(d | w)``.
-
-    Returns ``design_predictor_inference_fn(params, tradeoffs, deterministic=False,
-    key_sample=None) -> (designs, extras)``, where ``params`` is the design-predictor
-    network's params alone (its input is a simplex tradeoff, so there is no normalizer)
-    and ``designs`` are normalized to ``[0, 1]``. ``tradeoffs`` may be a single vector
-    ``(num_objectives,)`` or batched ``(n, num_objectives)``.
-
-    ``extras['raw_action']`` is the *pre-tanh* sample, which is what
-    ``parametric_design_distribution.log_prob`` expects; the returned design is the tanh
-    output mapped from ``(-1, 1)`` onto ``[0, 1]``.
-    """
-
-    def design_predictor_inference_fn(
-            params: types.Params,
-            tradeoffs: jax.Array,
-            deterministic: bool = True,
-            key_sample: PRNGKey = None,
-    ):
-        design_predictor_network = networks_.design_predictor_network
-        parametric_design_distribution = networks_.parametric_design_distribution
-        # No preprocessing, so the processor params are unused.
-        logits = design_predictor_network.apply(None, params, tradeoffs)
-
-        if deterministic:
-            return 0.5 * (parametric_design_distribution.mode(logits) + 1.0), {}
-        raw_actions = parametric_design_distribution.sample_no_postprocessing(
-            logits, key_sample
-        )
-        # raw_actions ranges from -1 to 1 and a transformation is applied to keep it in the range
-        # of 0 to 1. 
-        # TODO: We can remove the need to do this by keeping the "unnormalized"
-        # range from -1 to 1, but will need to change this in multiple places
-        log_prob = parametric_design_distribution.log_prob(logits, raw_actions)
-        designs = 0.5 * (parametric_design_distribution.postprocess(raw_actions) + 1.0)
-        return designs, {
-            "log_prob": log_prob,
-            "raw_action": raw_actions,
-        }
-
-    return design_predictor_inference_fn
-
-
-
-def make_mo_design_inference_fn(networks_: DesignHypernetNetworks | DesignPredictorHypernetNetworks):
-    """Inference-fn factory keyed on ``(design, tradeoff)``.
-
-    Returns ``inference_fn(params, designs, tradeoffs, deterministic=False) ->
-    policy(obs, key)``, where ``params = (normalizer_params, hypernet_params)``. ``designs``
-    (normalized to ``[0, 1]``) and ``tradeoffs`` (simplex tradeoffs) may be single vectors
-    or batched ``(num_envs, ...)``; they are concatenated along the last axis before the
-    hypernetwork is applied.
-    """
-
-    def mo_design_inference_fn(
-        params: types.Params,
-        designs: jax.Array,
-        tradeoffs: jax.Array,
-        deterministic: bool = False,
-    ) -> types.Policy:
-        """Returns a multi-objective design-conditioned policy hypernetwork function."""
-        normalizer_params, hypernet_params = params[0], params[1]
-        policy_network = networks_.policy_network
-        parametric_action_distribution = networks_.parametric_action_distribution
-
-        cond = jnp.concatenate([designs, tradeoffs], axis=-1)
-        # Policy params from the hypernetwork (value head is ignored at acting time).
-        policy_params, _ = networks_.hypernetwork.apply(hypernet_params, cond)
-
-        if len(cond.shape) == 1:
-            policy_apply = policy_network.apply
-        else:
-            policy_apply = jax.vmap(policy_network.apply, in_axes=(None, 0, 0))
-
-        def policy(
-            observations: types.Observation, key_sample: PRNGKey
-        ) -> Tuple[types.Action, types.Extra]:
-            logits = policy_apply(normalizer_params, policy_params, observations)
-            if deterministic:
-                return parametric_action_distribution.mode(logits), {}
-            raw_actions = parametric_action_distribution.sample_no_postprocessing(
-                logits, key_sample
-            )
-            log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
-            postprocessed_actions = parametric_action_distribution.postprocess(
-                raw_actions
-            )
-            return postprocessed_actions, {
-                "log_prob": log_prob,
-                "raw_action": raw_actions,
-            }
-
-        return policy
-
-    return mo_design_inference_fn
-
-
-def make_design_inference_fn(networks_: DesignHypernetNetworks):
-    """Inference-fn factory keyed on the robot design.
-
-    Returns ``inference_fn(params, design, deterministic=False) -> policy(obs, key)``,
-    where ``params = (normalizer_params, hypernet_params)``. ``design`` may be a single
-    design ``(design_dim,)`` or batched ``(num_envs, design_dim)``; in the batched case
-    obs/params are vmapped over the leading env axis.
-    """
-
-    def design_inference_fn(
-        params: types.Params, design: jax.Array, deterministic: bool = False
-    ) -> types.Policy:
-        normalizer_params, hypernet_params = params[0], params[1]
-        policy_network = networks_.policy_network
-        parametric_action_distribution = networks_.parametric_action_distribution
-
-        # Policy params from the hypernetwork (value head is ignored at acting time).
-        policy_params, _ = networks_.hypernetwork.apply(hypernet_params, design)
-
-        if len(design.shape) == 1:
-            policy_apply = policy_network.apply
-        else:
-            policy_apply = jax.vmap(policy_network.apply, in_axes=(None, 0, 0))
-
-        def policy(
-            observations: types.Observation, key_sample: PRNGKey
-        ) -> Tuple[types.Action, types.Extra]:
-            logits = policy_apply(normalizer_params, policy_params, observations)
-            if deterministic:
-                return parametric_action_distribution.mode(logits), {}
-            raw_actions = parametric_action_distribution.sample_no_postprocessing(
-                logits, key_sample
-            )
-            log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
-            postprocessed_actions = parametric_action_distribution.postprocess(
-                raw_actions
-            )
-            return postprocessed_actions, {
-                "log_prob": log_prob,
-                "raw_action": raw_actions,
-            }
-
-        return policy
-
-    return design_inference_fn
 
 def make_value_fn(networks_: DesignHypernetNetworks):
     # Takes in the params and design and outputs a value function (obs -> value)

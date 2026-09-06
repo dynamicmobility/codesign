@@ -13,6 +13,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 CONFIGS = {
     "design_hypernetwork": REPO / "config/design_hypernetwork/cheetah1D.yaml",
+    "design_lookup_hypernetwork":
+        REPO / "config/design_lookup_hypernetwork/cheetah1D.yaml",
     "mo_design_hypernetwork": REPO / "config/mo_design_hypernetwork/cheetah1D.yaml",
     "mo_design_predictor_hypernetwork":
         REPO / "config/mo_design_predictor_hypernetwork/cheetah1D.yaml",
