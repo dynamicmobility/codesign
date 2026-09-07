@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: DLH-to-DL-6D-fixed-to-noisy
+name: DLH-to-DL-6D-fixed-to-noisy-long
 save_dir: results/Sep05
 description: "Design hypernetwork trained on one fixed Sobol design set for the whole run."
 algorithm: design_hypernetwork
@@ -34,14 +34,14 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 1000000000
+    num_timesteps: 2000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
     batch_size: 64
     num_minibatches: 64
     num_updates_per_batch: 4
-    learning_rate: 0.0001
+    learning_rate: 0.000005
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
@@ -50,7 +50,7 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 30
+    num_evals: 60
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
