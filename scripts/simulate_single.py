@@ -17,11 +17,19 @@ CONFIG_PATH = "config/design_hypernetwork_two_axis.yaml"
 
 T = 250          # rollout length (control steps)
 AMP = 0.8        # action amplitude (ctrl range is [-1, 1])
-FREQ = 0.5       # action frequency [Hz]
+FREQ = 2       # action frequency [Hz]
 OUT_DIR = Path("scripts/outputs")
 
 
-def main(config: str, design: float, steps: int, policy_kind: str, camera: str, backend = None) -> None:
+def main(
+    config: str,
+    design: float,
+    steps: int,
+    policy_kind: str,
+    camera: str,
+    backend=None,
+    enable_termination: bool = True,
+) -> None:
     train_config = mm.read_config(config)
     backend = args.backend if backend is None else backend
     env, env_params = load_env(train_config, backend=backend)
@@ -45,6 +53,7 @@ def main(config: str, design: float, steps: int, policy_kind: str, camera: str, 
         print(design)
     frames, traj, reward_plotter, data_plotter, info_plotter = codesign.rollout_single_video(
         env, design, policy, steps, camera=camera, width=640, height=480,
+        enable_termination=enable_termination,
     )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,5 +101,19 @@ if __name__ == "__main__":
     parser.add_argument("--camera", type=str, default="track", help="render camera name")
     parser.add_argument("--config", type=str, default=CONFIG_PATH, help="environment config to use")
     parser.add_argument("--backend", type=str, default='np', help="which numpy backend to use")
+    parser.add_argument(
+        "--termination",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="stop the rollout when the environment terminates (use --no-termination to continue)",
+    )
     args = parser.parse_args()
-    main(args.config, args.design, args.steps, args.policy, args.camera, args.backend)
+    main(
+        args.config,
+        args.design,
+        args.steps,
+        args.policy,
+        args.camera,
+        args.backend,
+        args.termination,
+    )
