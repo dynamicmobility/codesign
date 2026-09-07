@@ -80,6 +80,7 @@ from .learning import (
 # utils
 from .utils import (
     Grid,
+    load_training_data,
     uniform_design_sweep,
     stack_models,
     build_batched_model,
@@ -208,6 +209,7 @@ __all__ = [
     "plot_design_rewards",
     "plot_design_learning_curves",
     "plot_design_rewards_progress",
+    "load_training_data",
     "dress_axis",
     "plot_design_sweep_1d",
     "plot_design_predictor",

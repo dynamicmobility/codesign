@@ -10,15 +10,18 @@ from __future__ import annotations
 import dataclasses
 import functools
 import time
+from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
 import flax
 import jax
 import jax.numpy as jnp
+import minimal_mjx as mm
 import numpy as np
 import optax
 from brax.training import gradients
 from brax.training.acme import running_statistics
+from brax.training.agents.ppo import checkpoint
 
 from codesign.hyperdesigners import acting
 from codesign.utils import model as model_lib
@@ -110,6 +113,54 @@ def init_training_state(params, optimizer, observation_size) -> TrainingState:
             model_lib.observation_spec(observation_size)
         ),
     )
+
+
+def resume_config(learning_params) -> dict | None:
+    """The ``resume`` block ``minimal_mjx.learning.training`` leaves for a continued run."""
+    return dict(learning_params["resume"]) if "resume" in learning_params else None
+
+
+def resume_training_state(resume, training_state, optimizer, restore_params, extra_state=None):
+    """Continue the learner from the state a previous job left in the run directory.
+    TODO: clean up this docstring
+    Prefers the full learner state written beside the checkpoints, which carries the
+    optimizer's moments, the observation normalizer and every trained network, and so
+    continues the run exactly where it stopped.
+
+    A run that predates that file has only its brax checkpoints, which hold the tuple
+    ``params_of`` produces -- what inference needs. ``restore_params(training_state,
+    extra_state, checkpoint)`` is the inverse of ``params_of``: it puts those params back,
+    the normalizer comes from the checkpoint too, and Adam restarts from zero moments. The
+    first updates after that are then scaled by the gradient itself rather than by its
+    running second-moment estimate, which is a transient of a few steps, but any network
+    the checkpoint omits is lost, so ``restore_params`` should refuse in that case.
+
+    Returns the restored ``(training_state, extra_state)``.
+    """
+    saved = mm.utils.logging.load_training_state(
+        resume["run_dir"], (training_state, extra_state)
+    )
+    if saved is not None:
+        step, (training_state, extra_state) = saved
+        if step != resume["step"]:
+            # The two are written one after the other, so a job killed between them
+            # leaves the learner an epoch off the newest checkpoint.
+            print(
+                f"warning: the learner state is at {step} steps but the newest "
+                f"checkpoint is at {resume['step']}; continuing from the learner"
+            )
+        return training_state, extra_state
+
+    print(
+        f"{resume['run_dir']} saved no learner state, so restoring the inference params "
+        f"from {resume['checkpoint']} and restarting the optimizer"
+    )
+    params = checkpoint.load(str(Path(resume["checkpoint"]).resolve()))
+    training_state, extra_state = restore_params(training_state, extra_state, params)
+    return training_state.replace(
+        normalizer_params = params[0],
+        optimizer_state   = optimizer.init(training_state.params),
+    ), extra_state
 
 
 def make_env_inputs(env) -> Callable:
@@ -449,10 +500,21 @@ def run_training(
     env_inputs: Callable,
     extra_state=None,
     run_evals: bool = True,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
+    resume_epoch: int = 0,
 ):
     """Resample, train, evaluate, checkpoint -- once per epoch.
+
+    ``resume_epoch`` is how many epochs a continued run already did. The epoch index the
+    algo sees keeps counting from there, and the sampler and the RNG are replayed through
+    those epochs, so a schedule defined over them -- a warm-up phase, a noise level that
+    widens with the resample count -- carries on rather than restarting. Given the learner
+    state the earlier job saved, the continuation is then the run it would have been had
+    it never stopped, provided its epochs are still the same size.
+
+    Steps are reported from zero, being this job's own; the caller's ``policy_params_fn``
+    and ``progress_fn`` place them on the whole run's axis.
 
     Returns ``(params, metrics)``: the last checkpointed params and the last epoch's metrics.
     """
@@ -461,15 +523,30 @@ def run_training(
     key_eval = jax.random.fold_in(key, 2)
     key_sample = jax.random.fold_in(key, 3)
 
+    # Replay the epochs already done, which costs only their design draws: the sampler's
+    # own counters and RNG land where the previous job left them, and every key below is
+    # split as often as that job split it, so the run's randomness carries on rather than
+    # repeating its opening epochs. Mirrors the key usage of the loop underneath.
+    for it in range(resume_epoch):
+        for _ in range(schedule.resamples_per_epoch):
+            key_sample, sub = jax.random.split(key_sample)
+            algo.sample(it, extra_state, sub)
+            key_env, _ = jax.random.split(key_env)   # env reset
+            key, _ = jax.random.split(key)           # training chunk
+            key_env, _ = jax.random.split(key_env)   # post_chunk
+        if run_evals:
+            key_eval, _ = jax.random.split(key_eval)
+
     # Initial eval + checkpoint.
     metrics = {}
     metrics = algo.evaluate(training_state, extra_state, key_eval)
     progress_fn(0, metrics)
     params = algo.params_of(training_state, extra_state)
-    policy_params_fn(0, inference_fn, params)
+    policy_params_fn(0, inference_fn, params, training_state=(training_state, extra_state))
 
     walltime = 0.0
-    for it in range(schedule.num_epochs):
+    for local_it in range(schedule.num_epochs):
+        it = resume_epoch + local_it
         t0 = time.time()
         chunk_metrics = []
         for _ in range(schedule.resamples_per_epoch):
@@ -505,7 +582,7 @@ def run_training(
         )
         epoch_time = time.time() - t0
         walltime += epoch_time
-        current_step = (it + 1) * schedule.env_step_per_epoch
+        current_step = (local_it + 1) * schedule.env_step_per_epoch
 
         metrics = {
             "training/sps": schedule.env_step_per_epoch / epoch_time,
@@ -518,7 +595,10 @@ def run_training(
             metrics.update(algo.evaluate(training_state, extra_state, eval_subkey))
 
         params = algo.params_of(training_state, extra_state)
-        policy_params_fn(current_step, inference_fn, params)
+        policy_params_fn(
+            current_step, inference_fn, params,
+            training_state=(training_state, extra_state),
+        )
         progress_fn(current_step, metrics)
 
     return params, metrics

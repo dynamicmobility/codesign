@@ -296,9 +296,10 @@ def train_mo_design_hypernetwork(
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
     seed: int = 0,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
     run_evals: bool = True,
+    resume: dict | None = None,
     # Accepted for compatibility with minimal-mjx's train (unused here).
     wrap_env_fn: Callable | None = None,
     eval_env=None,
@@ -393,6 +394,15 @@ def train_mo_design_hypernetwork(
         DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
         optimizer, environment.observation_size,
     )
+    resume_epoch = 0
+    if resume is not None:
+        training_state, _ = shared.resume_training_state(
+            resume, training_state, optimizer,
+            lambda ts, extra, ckpt: (
+                ts.replace(params=ts.params.replace(hypernetwork=ckpt[1])), extra
+            ),
+        )
+        resume_epoch = resume["epoch"]
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}
 
@@ -409,6 +419,7 @@ def train_mo_design_hypernetwork(
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,
+        resume_epoch=resume_epoch,
     )
     return inference_fn, params, metrics
 
@@ -448,6 +459,7 @@ def setup_mo_design_hypernetwork(config):
         per_cell              = tradeoff_sampling["per_cell"],
         alpha                 = tradeoff_sampling["alpha"],
         sampling              = tradeoff_sampling["sampling"],
+        resume                = shared.resume_config(lp),
         **optional_params,
         **ppo,
     )

@@ -14,6 +14,7 @@ from codesign.utils.model import (
 )
 from codesign.utils.plotting import (
     design_colors,
+    load_training_data,
     get_colors,
     objective_labels,
     plot_design_paretos,
@@ -45,6 +46,7 @@ __all__ = [
     "unnormalize_design",
     "total_mass",
     "design_colors",
+    "load_training_data",
     "get_colors",
     "objective_labels",
     "plot_design_paretos",

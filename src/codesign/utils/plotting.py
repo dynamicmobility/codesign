@@ -17,6 +17,8 @@ from scipy.stats import binned_statistic, gaussian_kde
 import moplayground as mop
 import minimal_mjx as mm
 
+from codesign.utils.grid import Grid
+
 # TODO: ensure docstrings describe all arguments for all functions
 # TODO: delete any unused functions
 
@@ -418,6 +420,49 @@ class MODesignTrainingPlottingInfo:
         self.times.append(time)
         for key, value in aux_kwargs.items():
             self.aux.setdefault(key, []).append(value)
+
+
+def load_training_data(
+    training_data: MODesignTrainingPlottingInfo,
+    save_dir: Path,
+    csv_name: str,
+    aux_grids: dict[str, str] | None = None,
+    aux_fn=None,
+    before: int | None = None,
+) -> MODesignTrainingPlottingInfo:
+    """Refill ``training_data`` from the evals in a previous run.
+
+    Auxillary (aux) variables are not always stored, but are rather computed
+    from the saved grids. This function recomputes them so that the history
+    is represented in a resumed run.
+
+    ``before`` is the step the run restarts from: evals at or past it are left out, the
+    continued run evaluating that state again as its own first entry.
+    """
+    save_dir = Path(save_dir)
+    path = save_dir / csv_name
+    if not path.exists():
+        return training_data
+    frame = pd.read_csv(path)
+    if before is not None:
+        frame = frame[frame["iters"] < before]
+    if frame.empty:
+        return training_data
+    # A run that never wrote a second grid has none to read back for any of its steps.
+    aux_grids = {
+        key: prefix for key, prefix in (aux_grids or {}).items()
+        if (save_dir / f"{prefix}_{frame['iters'].iloc[0]}.npz").exists()
+    }
+    for step, when in zip(frame["iters"], frame["times"]):
+        grid = Grid.load(save_dir / f"eval_grid_{step}.npz")
+        training_data.update(
+            num_steps = int(step),
+            grid      = grid,
+            time      = float(when),
+            **{k: Grid.load(save_dir / f"{p}_{step}.npz") for k, p in aux_grids.items()},
+            **(aux_fn(grid) if aux_fn else {}),
+        )
+    return training_data
 
 
 def scalar_metrics(metrics: dict) -> dict:

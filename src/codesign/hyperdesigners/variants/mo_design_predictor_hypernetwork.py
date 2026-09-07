@@ -306,9 +306,10 @@ def train_mo_design_predictor(
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
     seed: int = 0,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
     run_evals: bool = True,
+    resume: dict | None = None,
     # Accepted for compatibility with minimal-mjx's train (unused here).
     wrap_env_fn: Callable | None = None,
     eval_env=None,
@@ -550,6 +551,23 @@ def train_mo_design_predictor(
         params=design_init_params,
     )
 
+    resume_epoch = 0
+    if resume is not None:
+        # The checkpoint carries both networks' params but neither optimizer's moments.
+        def restore(ts, design_state, ckpt):
+            return (
+                ts.replace(params=ts.params.replace(hypernetwork=ckpt[1])),
+                design_state.replace(
+                    params=ckpt[2], optimizer_state=design_optimizer.init(ckpt[2])
+                ),
+            )
+
+        training_state, design_predictor_state = shared.resume_training_state(
+            resume, training_state, optimizer, restore,
+            extra_state=design_predictor_state,
+        )
+        resume_epoch = resume["epoch"]
+
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, design_predictor_state), {}
 
@@ -572,6 +590,7 @@ def train_mo_design_predictor(
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,
+        resume_epoch=resume_epoch,
     )
     return inference_fn, params, metrics
 
@@ -622,6 +641,7 @@ def setup_mo_design_predictor_hypernetwork(config):
         num_tradeoffs                = tradeoff_sampling["num_tradeoffs"],
         alpha                        = tradeoff_sampling["alpha"],
         sampling                     = tradeoff_sampling["sampling"],
+        resume                       = shared.resume_config(lp),
         **optional_params,
         **ppo,
     )

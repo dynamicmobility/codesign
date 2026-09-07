@@ -60,6 +60,44 @@ scripts/train.py  entry point, driven by a YAML config in config/
 python -m scripts.train --config config/mo_design_hypernetwork/cheetah1D.yaml
 ```
 
+### Continuing a run
+
+`num_timesteps` is a run's whole budget, so training it further is a matter of raising it
+and pointing `--resume` at the run's own config:
+
+```bash
+# raise num_timesteps in the config, then
+python -m scripts.train --config results/Sep05/<run>/config.yaml --resume
+```
+
+The job restarts from the newest checkpoint in that directory and trains the difference,
+writing its checkpoints on the same step axis, appending to the same csvs and figures, and
+logging to the same W&B run. Without `--resume` an existing run directory is still refused,
+so nothing is overwritten by accident.
+
+Each epoch writes `<run>/training_state`, holding the optimizer's moments, the observation
+normalizer and every trained network, next to the brax checkpoints, which hold only what
+inference needs. A run continued from that state, replaying the design schedule and the
+RNG through the epochs already done, is the run it would have been had it never stopped --
+provided its epochs stay the same size. An epoch is
+`ceil(num_timesteps / (num_evals - 1)) ` steps rounded up to a whole training step, and a
+continuation divides only what is left, so keeping the size means adding a whole number
+`k` of the run's existing epochs and setting `num_evals` to `k + 1`:
+
+```
+epoch      = old num_timesteps / (old num_evals - 1)   # read it off the checkpoint spacing
+num_evals  = k + 1
+num_timesteps = old num_timesteps + k * epoch
+```
+
+Anything else still continues correctly; its epochs are just a different length, so the
+checkpoints after the seam are spaced differently from those before it.
+
+A run started before `training_state` existed can still be continued, from the params in
+its newest checkpoint: Adam restarts from zero moments, so a few updates are scaled by the
+gradient rather than by its running estimate. `design_mlp` refuses this path, its
+checkpoints holding the policy but not the value network PPO trains against.
+
 ## Tests
 
 ```bash
@@ -77,5 +115,6 @@ a `spec.compile` dominates the runtime of everything that needs one.
 | `tests/test_grid.py` | `Grid` shapes, model dedupe, batching, save/load |
 | `tests/test_rollout.py` | every grid cell gets its own design, tradeoff, and model |
 | `tests/test_training.py` | schedule arithmetic; all three algos end to end |
+| `tests/test_resume.py` | finding the resume point; replaying a schedule; a run continued end to end |
 
 Narrow a run the usual way — `pytest --runslow tests/test_grid.py -k dedupe`.

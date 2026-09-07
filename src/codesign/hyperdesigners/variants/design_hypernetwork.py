@@ -481,11 +481,12 @@ def train_design_hypernetwork(
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
     seed: int = 0,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
     run_evals: bool = True,
     batching_strategy: str = 'shuffle',
     warmup_checkpoint: str | None = None,
+    resume: dict | None = None,
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
@@ -670,7 +671,17 @@ def train_design_hypernetwork(
         DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
         optimizer, environment.observation_size,
     )
-    if warmup_checkpoint is not None:
+    resume_epoch = 0
+    if resume is not None:
+        # The state being continued already has any warm-up transfer folded into it.
+        training_state, _ = shared.resume_training_state(
+            resume, training_state, optimizer,
+            lambda ts, extra, ckpt: (
+                ts.replace(params=ts.params.replace(hypernetwork=ckpt[1])), extra
+            ),
+        )
+        resume_epoch = resume["epoch"]
+    elif warmup_checkpoint is not None:
         training_state = load_warmup_params(
             training_state, warmup_checkpoint, optimizer, environment.design_limits
         )
@@ -690,6 +701,7 @@ def train_design_hypernetwork(
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,
+        resume_epoch=resume_epoch,
     )
     return inference_fn, params, metrics
 
@@ -740,6 +752,7 @@ def setup_design_hypernetwork(config):
         warmup_epochs       = design_sampling.get("warmup_epochs", 0),
         rate                = design_sampling.get("rate", 0.0),
         warmup_checkpoint   = warmup_checkpoint if init_strategy == "load_network" else None,
+        resume              = shared.resume_config(lp),
         **ppo,
     )
     return train_fn, network_factory

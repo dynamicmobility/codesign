@@ -320,9 +320,10 @@ def train_design_mlp(
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
     seed: int = 0,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
     run_evals: bool = True,
+    resume: dict | None = None,
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
@@ -483,6 +484,22 @@ def train_design_mlp(
         ),
         optimizer, obs_size,
     )
+    resume_epoch = 0
+    if resume is not None:
+        def restore(ts, extra, ckpt):
+            # params_of checkpoints the policy alone, so a run whose learner state
+            # predates that file cannot get its value network back.
+            raise ValueError(
+                f"{resume['run_dir']} saved no learner state, and a design_mlp "
+                "checkpoint holds only the policy, not the value network PPO trains "
+                "against, so this run cannot be continued"
+            )
+
+        training_state, _ = shared.resume_training_state(
+            resume, training_state, optimizer, restore
+        )
+        resume_epoch = resume["epoch"]
+
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}
 
@@ -499,6 +516,7 @@ def train_design_mlp(
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,
+        resume_epoch=resume_epoch,
     )
     return inference_fn, params, metrics
 
@@ -535,6 +553,7 @@ def setup_design_mlp(config):
         warmup_strategy       = design_sampling.get("warmup_strategy"),
         warmup_epochs         = design_sampling.get("warmup_epochs", 0),
         rate                  = design_sampling.get("rate", 0.0),
+        resume                = shared.resume_config(lp),
         **ppo,
     )
     return train_fn, network_factory

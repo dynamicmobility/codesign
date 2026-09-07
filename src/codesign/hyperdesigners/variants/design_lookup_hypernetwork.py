@@ -285,9 +285,10 @@ def train_design_lookup_hypernetwork(
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
     seed: int = 0,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
     run_evals: bool = True,
+    resume: dict | None = None,
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
@@ -397,6 +398,15 @@ def train_design_lookup_hypernetwork(
         DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
         optimizer, environment.observation_size,
     )
+    resume_epoch = 0
+    if resume is not None:
+        training_state, _ = shared.resume_training_state(
+            resume, training_state, optimizer,
+            lambda ts, extra, ckpt: (
+                ts.replace(params=ts.params.replace(hypernetwork=ckpt[1])), extra
+            ),
+        )
+        resume_epoch = resume["epoch"]
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}
 
@@ -413,6 +423,7 @@ def train_design_lookup_hypernetwork(
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,
+        resume_epoch=resume_epoch,
     )
     return inference_fn, params, metrics
 
@@ -448,6 +459,7 @@ def setup_design_lookup_hypernetwork(config):
         design_low          = tuple(design['low']),
         design_high         = tuple(design['high']),
         num_designs         = design_sampling.get("num_designs", 8),
+        resume              = shared.resume_config(lp),
         **ppo,
     )
     return train_fn, network_factory
