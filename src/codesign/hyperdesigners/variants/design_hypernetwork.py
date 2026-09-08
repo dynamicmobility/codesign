@@ -241,6 +241,7 @@ def compute_design_hypernet_loss(
     gae_lambda: float = 0.95,
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
+    num_advantage_groups: int = 1, # TODO: investigate this param
     value_loss_fn: Callable = mse_loss,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
     """Computes the clipped-PPO loss for the design hypernetwork.
@@ -254,6 +255,8 @@ def compute_design_hypernet_loss(
             ``extras['policy_extras']['log_prob']``.
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
+        num_advantage_groups: equal contiguous groups ``B`` splits into for advantage
+            standardization; ``1`` pools the minibatch.
     """
     parametric_action_distribution = design_networks.parametric_action_distribution
     policy_apply = jax.vmap(
@@ -305,7 +308,14 @@ def compute_design_hypernet_loss(
         discount=discounting,
     )
     if normalize_advantage:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        # Advantages are [T, B] with B cell-major, so the design group axis folds out of B.
+        # Importantly, one std per group keeps a low-return design's share of the policy gradient from
+        # shrinking in proportion to how much smaller its returns happen to be compared
+        # to a high return design.
+        grouped = advantages.reshape(advantages.shape[0], num_advantage_groups, -1)
+        mean = grouped.mean(axis=(0, 2), keepdims=True)
+        std = grouped.std(axis=(0, 2), keepdims=True)
+        advantages = ((grouped - mean) / (std + 1e-8)).reshape(advantages.shape)
 
     rho_s = jnp.exp(target_action_log_probs - behaviour_action_log_probs)
     surrogate_loss1 = rho_s * advantages
@@ -446,6 +456,7 @@ def load_warmup_params(
 
 # -------------------------------------------------------------------- training
 DESIGN_STRATEGIES = ("random", "fixed", "noisy-fixed")
+BATCHING_STRATEGIES = ("design", "shuffle", "stratified")
 
 
 def train_design_hypernetwork(
@@ -498,10 +509,16 @@ def train_design_hypernetwork(
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
-    # Batching is by design, so a minibatch is one design's rollouts only at equality.
-    assert num_minibatches == num_designs, (
-        "num_minibatches must equal num_designs for one design per minibatch"
-    )
+    if batching_strategy not in BATCHING_STRATEGIES:
+        raise ValueError(
+            f"Unsupported batching_strategy: {batching_strategy!r}; expected one of "
+            f"{BATCHING_STRATEGIES}"
+        )
+    if batching_strategy == "design":
+        # A minibatch is one design's rollouts only where the design axis splits to width 1.
+        assert num_minibatches == num_designs, (
+            "num_minibatches must equal num_designs for one design per minibatch"
+        )
     # check constraints
     warmup_strategy = strategy if warmup_strategy is None else warmup_strategy
     for name, value in (("strategy", strategy), ("warmup_strategy", warmup_strategy)):
@@ -531,6 +548,16 @@ def train_design_hypernetwork(
         raise ValueError(
             f"warmup_epochs {warmup_epochs} covers all {schedule.num_epochs} epochs "
             f"(num_evals - 1), so strategy {strategy!r} never runs"
+        )
+    # Stratified minibatches split the per-cell axis, which the rollout scans have widened.
+    # A minibatch then holds per_cell * batch_size / num_parallel_envs rows of every design.
+    rows_per_design = per_cell * schedule.num_scans
+    if batching_strategy == "stratified" and rows_per_design % num_minibatches:
+        raise ValueError(
+            f"stratified batching deals each design's {rows_per_design} rollout rows "
+            f"(per_cell {per_cell} x {schedule.num_scans} scans) over {num_minibatches} "
+            f"minibatches, which does not divide; per_cell {per_cell} x batch_size "
+            f"{batch_size} must be a multiple of num_parallel_envs {num_parallel_envs}"
         )
 
     key = jax.random.PRNGKey(seed)
@@ -564,6 +591,9 @@ def train_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
+        # Only a stratified minibatch groups by design. 'design' is one design already,
+        # and 'shuffle' has no usable grouping, so both pool.
+        num_advantage_groups  = num_designs if batching_strategy == "stratified" else 1,
         value_loss_fn         = partial(huber_loss, huber_delta = huber_delta) if value_loss_type == 'huber' else mse_loss,
     )
     chunk = shared.make_training_chunk(
