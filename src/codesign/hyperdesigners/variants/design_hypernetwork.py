@@ -481,7 +481,6 @@ def train_design_hypernetwork(
     normalize_observations: bool = True,
     design_dim: int = 1,
     num_designs: int = 8,
-    per_cell: int = 16, # How many times each design should be trialed
     resamples_per_epoch: int = 1,
     strategy: str = 'random',
     warmup_strategy: str | None = None,
@@ -503,9 +502,11 @@ def train_design_hypernetwork(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    assert (num_designs * per_cell) % num_parallel_envs == 0, (
-        "total number of environments (num_designs*per_cell) must be divisible by num_parallel_envs"
+    assert num_parallel_envs % num_designs == 0, (
+        "num_parallel_envs must be divisible by num_designs"
     )
+    # Rollouts per design, which the env budget fixes: the grid fills num_parallel_envs.
+    per_cell = num_parallel_envs // num_designs
     assert num_eval_envs % num_designs == 0, (
         "num_eval_envs must be divisible by num_designs"
     )
@@ -549,15 +550,12 @@ def train_design_hypernetwork(
             f"warmup_epochs {warmup_epochs} covers all {schedule.num_epochs} epochs "
             f"(num_evals - 1), so strategy {strategy!r} never runs"
         )
-    # Stratified minibatches split the per-cell axis, which the rollout scans have widened.
-    # A minibatch then holds per_cell * batch_size / num_parallel_envs rows of every design.
-    rows_per_design = per_cell * schedule.num_scans
-    if batching_strategy == "stratified" and rows_per_design % num_minibatches:
+    # A stratified minibatch holds batch_size / num_designs rows of every design.
+    if batching_strategy == "stratified" and batch_size % num_designs:
         raise ValueError(
-            f"stratified batching deals each design's {rows_per_design} rollout rows "
-            f"(per_cell {per_cell} x {schedule.num_scans} scans) over {num_minibatches} "
-            f"minibatches, which does not divide; per_cell {per_cell} x batch_size "
-            f"{batch_size} must be a multiple of num_parallel_envs {num_parallel_envs}"
+            f"stratified batching gives every minibatch an equal share of all "
+            f"{num_designs} designs, so batch_size {batch_size} must be a multiple of "
+            f"num_designs {num_designs}"
         )
 
     key = jax.random.PRNGKey(seed)
@@ -746,6 +744,12 @@ def setup_design_hypernetwork(config):
     design = dict(config['env_config']['codesign'])
     design_sampling = dict(lp.get("design_sampling", {}))
 
+    if "per_cell" in design_sampling:
+        raise ValueError(
+            "design_sampling 'per_cell' is now derived as num_parallel_envs // "
+            "num_designs, which is what the schedule arithmetic requires; drop the key "
+            "and set num_parallel_envs to the grid you want"
+        )
     if "sampling" in design_sampling:
         raise ValueError(
             "design_sampling 'sampling' is now 'strategy', optionally preceded by a "
@@ -775,7 +779,6 @@ def setup_design_hypernetwork(config):
         network_factory     = network_factory,
         design_dim          = len(design['low']),
         num_designs         = design_sampling.get("num_designs", 8),
-        per_cell            = design_sampling.get("per_cell", 16),
         resamples_per_epoch = design_sampling.get("resamples_per_epoch", 1),
         strategy            = design_sampling.get("strategy", "random"),
         warmup_strategy     = design_sampling.get("warmup_strategy"),

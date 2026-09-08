@@ -36,7 +36,7 @@ learning_params:
   ppo_params:
     num_timesteps: 2000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_parallel_envs: 4096 # = num_designs * rollouts per design
     unroll_length: 20
     batch_size: 64
     num_minibatches: 64
@@ -69,7 +69,6 @@ learning_params:
 
   design_sampling:
     num_designs: 64 # How many different designs to sample in each epoch
-    per_cell: 64 # How many times each design should be trialed
     resamples_per_epoch: 1
     strategy: noisy-fixed         # random | fixed | noisy-fixed
     warmup_strategy: fixed   # runs for the first warmup_epochs epochs

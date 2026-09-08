@@ -36,7 +36,7 @@ learning_params:
   ppo_params:
     num_timesteps: 5000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_parallel_envs: 4096 # = num_designs * rollouts per design
     unroll_length: 20
     batch_size: 128
     num_minibatches: 32
@@ -64,6 +64,5 @@ learning_params:
     value_hidden_layer_sizes:  [64, 64]
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
-    per_cell: 128 # How many times each design should be trialed
     resamples_per_epoch: 8
     strategy: random

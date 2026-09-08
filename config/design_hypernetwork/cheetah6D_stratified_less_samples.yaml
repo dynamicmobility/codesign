@@ -46,7 +46,7 @@ learning_params:
   ppo_params:
     num_timesteps: 2000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_parallel_envs: 4096 # = num_designs * rollouts per design
     unroll_length: 20
     batch_size: 512          # was 128: rows per minibatch, now 32 designs x 16 rows
     num_minibatches: 8       # was 32 (= num_designs, which only `design` batching needs)
@@ -76,7 +76,6 @@ learning_params:
     weight_initializer: kaiming_uniform
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
-    per_cell: 128 # How many times each design should be trialed
     resamples_per_epoch: 4
     strategy: random         # random | fixed | noisy-fixed
     warmup_strategy: fixed   # runs for the first warmup_epochs epochs
