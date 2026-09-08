@@ -1,11 +1,11 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: 6d-height-kaiming
-save_dir: scratch/logs/codesign/results/Sep03
-description: "N/A"
+name: design-hypernetwork-3D-fixed-designs-fresh
+save_dir: results/Sep04
+description: "Design hypernetwork trained on one fixed Sobol design set for the whole run."
 algorithm: design_hypernetwork
-env: "MOCodesignCheetah"
+env: "MOCodesignCheetahBackLegs"
 backend: jnp # always jnp for training
 
 env_config:
@@ -23,14 +23,14 @@ env_config:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
-      default_scalarization: [0.0, 0.0, 1.0]
+      default_scalarization: [0, 0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
   codesign:
-    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    default_design: [1.0, 1.0, 1.0]
+    low:  [0.5, 0.5, 0.5]
+    high: [2.0, 2.0, 2.0]
 
 learning_params:
   ppo_params:
@@ -58,12 +58,15 @@ learning_params:
     huber_delta: 1.0
     batching_strategy: design
   network_params:
-    hypersize: [512, 512]
-    num_features: 64
+    hypersize: [256, 256]
+    num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
     initialization_strategy: bias
     weight_initializer: kaiming_uniform
+    # initialization_strategy: load_network          # was: bias
+    # warmup_checkpoint: results/Sep04/design-lookup-warmup-3D-trainable-bias/010001612800
+
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
@@ -71,4 +74,4 @@ learning_params:
     strategy: random         # random | fixed | noisy-fixed
     warmup_strategy: fixed   # runs for the first warmup_epochs epochs
     warmup_epochs: 5         # number of epochs (num_evals - 1 in total)
-    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
+    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box units

@@ -1,11 +1,11 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: 6d-height-kaiming
-save_dir: scratch/logs/codesign/results/Sep03
-description: "N/A"
+name: walker
+save_dir: results/Sep04
+description: "Trying something"
 algorithm: design_hypernetwork
-env: "MOCodesignCheetah"
+env: "MOCodesignWalkerSymmetric"
 backend: jnp # always jnp for training
 
 env_config:
@@ -20,17 +20,17 @@ env_config:
       alive:      1.0
       done:       0
     optimization:
-      objectives:        [['run'], ['energy'], ['height']]
+      objectives:        [['run'], ['energy']]
       shared_objectives: ['alive']
-      labels:            ['Running Speed', 'Height']
-      default_scalarization: [0.0, 0.0, 1.0]
+      labels:            ['Running Speed', 'Energy']
+      default_scalarization: [1, 0]
   termination:
     enabled: true
     base_height: 0.2
   codesign:
-    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    default_design: [1.0, 1.0, 1.0]
+    low:  [0.5, 0.5, 0.5]
+    high: [2.0, 2.0, 2.0]
 
 learning_params:
   ppo_params:
@@ -41,11 +41,11 @@ learning_params:
     batch_size: 128
     num_minibatches: 32
     num_updates_per_batch: 4
-    learning_rate: 0.00001
+    learning_rate: 0.0001
     entropy_cost: 0.01
-    discounting: 0.98
+    discounting: 0.99
     reward_scaling: 1.0
-    clipping_epsilon: 0.2
+    clipping_epsilon: 0.3
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
@@ -54,21 +54,19 @@ learning_params:
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
-    value_loss_type: mse
+    value_loss_type: huber
     huber_delta: 1.0
     batching_strategy: design
   network_params:
-    hypersize: [512, 512]
-    num_features: 64
+    hypersize: [256, 256]
+    num_features: 32
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
     initialization_strategy: bias
     weight_initializer: kaiming_uniform
+
   design_sampling:
     num_designs: 32 # How many different designs to sample in each epoch
     per_cell: 128 # How many times each design should be trialed
     resamples_per_epoch: 1
-    strategy: random         # random | fixed | noisy-fixed
-    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
-    warmup_epochs: 5         # number of epochs (num_evals - 1 in total)
-    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
+    sampling: random

@@ -6,11 +6,19 @@ collapses to ``flat(d_i) = W[i] + b``: row ``i`` of ``W`` holds design ``i``'s o
 
     dL/dW[j] = sum_n features_j(d_n) * dL/dflat_n
 
-is fed by design ``j``'s rollouts alone. ``b`` is frozen (its gradient sums over every
-design, which would couple the ``M`` policies) and each row starts at its own
-kaiming-initialized target network, so ``b + W[i]`` begins as an independently initialized
-policy. After warm-up ``W`` is a basis of ``M`` trained policies that a full run can start
-from via ``initialization_strategy: load_network``.
+is fed by design ``j``'s rollouts alone. After warm-up ``W`` is a basis of ``M`` trained
+policies that a full run can start from via ``initialization_strategy: load_network``.
+
+Two ``network_params`` knobs set where the ``M`` policies start and whether they stay
+decoupled:
+
+- ``initialization_strategy: experts`` (default) gives each row its own kaiming-initialized
+  target network, so ``b + W[i]`` begins as an independently initialized policy.
+  ``bias`` starts ``W`` at zero instead, so every design begins on the single kaiming policy
+  held in ``b`` and the spread is learned.
+- ``freeze_bias: true`` (default) holds ``b`` fixed, because ``dL/db`` sums over every design
+  and would otherwise move all ``M`` policies on every step. Setting it false trains ``b``
+  as a shared backbone, which is the point of pairing it with ``bias``.
 
 The loss, inference fn and rollout machinery are ``design_hypernetwork``'s, unchanged.
 
@@ -61,22 +69,41 @@ from codesign.utils.grid import Grid
 
 
 # --------------------------------------------------------------------------- networks
+LookupInitStrategy = Literal["experts", "bias"]
+
+
 def make_lookup_hypernetwork(
     obs_dim: int,
     target_policy_dict: dict,
     target_value_dict: dict,
     design_table: np.ndarray,
-    policy_experts: jnp.ndarray,
-    value_experts: jnp.ndarray,
+    policy_experts: jnp.ndarray | None = None,
+    value_experts: jnp.ndarray | None = None,
     freeze_bias: bool = True,
+    initialization_strategy: LookupInitStrategy = "experts",
 ) -> FeedForwardHypernetwork:
     """Wrap a ``LookupA2CHypernet`` over the ``M`` rows of ``design_table``.
 
     ``apply(params, design) -> (policy_params, value_params)``, as for the design
-    hypernetwork. ``policy_experts``/``value_experts`` are ``(M, num_params)`` flattened
-    target-network draws; each row of ``W`` is initialized to that draw minus ``b``, so
-    ``b + W[i]`` is exactly the i-th draw.
+    hypernetwork.
+
+    ``initialization_strategy`` picks where the ``M`` policies start:
+
+    - ``experts``: ``policy_experts``/``value_experts`` are ``(M, num_params)`` flattened
+      target-network draws and each row of ``W`` is that draw minus ``b``, so ``b + W[i]``
+      is exactly the i-th draw and the anchors start independent.
+    - ``bias``: ``W`` starts at zero, so every anchor starts on the single kaiming policy
+      held in ``b`` and the per-design spread has to be learned into ``W``. This is
+      ``design_hypernetwork``'s ``bias`` strategy, and pairs with ``freeze_bias=False``.
     """
+    if initialization_strategy not in ("experts", "bias"):
+        raise ValueError(
+            f"Unsupported initialization_strategy: {initialization_strategy!r}"
+        )
+    if initialization_strategy == "experts" and (
+        policy_experts is None or value_experts is None
+    ):
+        raise ValueError("the 'experts' strategy needs policy_experts and value_experts")
     num_designs = len(design_table)
     hypernet = LookupA2CHypernet(
         target_policy_dict=target_policy_dict,
@@ -91,15 +118,22 @@ def make_lookup_hypernetwork(
 
     def init(key):
         params = flax.core.unfreeze(hypernet.init(key, dummy_design))
-        params["params"]["policy_W"] = policy_experts - params["params"]["policy_b"]
-        params["params"]["value_W"] = value_experts - params["params"]["value_b"]
+        if initialization_strategy == "experts":
+            params["params"]["policy_W"] = policy_experts - params["params"]["policy_b"]
+            params["params"]["value_W"] = value_experts - params["params"]["value_b"]
+        else:
+            params["params"]["policy_W"] = jnp.zeros_like(params["params"]["policy_W"])
+            params["params"]["value_W"] = jnp.zeros_like(params["params"]["value_W"])
         return flax.core.freeze(params)
 
     def apply(params, design):
         # Returns ((policy_params, value_params), (flat...), (features...)); take [0].
         return hypernet.apply(params, design)[0]
 
-    return FeedForwardHypernetwork(init=init, apply=apply)
+    def features(params, design):
+        return hypernet.apply(params, design)[2][0]
+
+    return FeedForwardHypernetwork(init=init, apply=apply, features=features)
 
 
 def make_lookup_hypernet_networks(
@@ -124,6 +158,7 @@ def make_lookup_hypernet_networks(
     state_dependent_std: bool = False,
     num_value_outputs: int = 1,
     weight_initializer: str | Initializer = "kaiming_uniform",
+    initialization_strategy: LookupInitStrategy = "experts",
 ) -> DesignHypernetNetworks:
     """Build the target MLPs and a lookup hypernetwork over ``num_designs`` fixed designs.
 
@@ -161,11 +196,14 @@ def make_lookup_hypernet_networks(
     )
 
     # One independent draw of the target nets per design, so each row of W starts as its own
-    # network rather than as a flat perturbation of a shared one.
-    flatten = lambda p: flatten_model(p["params"])[0]
-    expert_keys = jax.random.split(jax.random.fold_in(key, 1), num_designs)
-    policy_experts = jnp.stack([flatten(policy_network.init(k)) for k in expert_keys])
-    value_experts = jnp.stack([flatten(value_network.init(k)) for k in expert_keys])
+    # network rather than as a flat perturbation of a shared one. 'bias' starts every design
+    # on the shared policy in b instead, so the draws are not needed.
+    policy_experts = value_experts = None
+    if initialization_strategy == "experts":
+        flatten = lambda p: flatten_model(p["params"])[0]
+        expert_keys = jax.random.split(jax.random.fold_in(key, 1), num_designs)
+        policy_experts = jnp.stack([flatten(policy_network.init(k)) for k in expert_keys])
+        value_experts = jnp.stack([flatten(value_network.init(k)) for k in expert_keys])
 
     hypernetwork = make_lookup_hypernetwork(
         obs_dim=obs_dim,
@@ -175,6 +213,7 @@ def make_lookup_hypernet_networks(
         policy_experts=policy_experts,
         value_experts=value_experts,
         freeze_bias=freeze_bias,
+        initialization_strategy=initialization_strategy,
     )
 
     return DesignHypernetNetworks(
@@ -216,31 +255,6 @@ def warn_off_table(design, table) -> None:
         )
 
 
-def paired_eval_keys(key: jax.Array, num_designs: int, per_cell: int) -> jax.Array:
-    """One key per eval env, repeating each design's ``per_cell`` trial keys.
-
-    Trial ``c`` then starts from the same state under every design, so comparing two
-    designs is a paired comparison rather than two independent noisy draws. Laid out
-    design-major, matching ``Grid.flatten``.
-    """
-    trials = jax.random.split(key, per_cell)
-    return jnp.tile(trials, (num_designs,) + (1,) * (trials.ndim - 1))
-
-
-def per_design_metrics(grid) -> dict:
-    """One mean return per design, plus the worst and best of them.
-
-    Each row of ``W`` is one design's own policy, so the return pooled over designs says
-    nothing about whether every one of them is training; the worst is what stalls first.
-    """
-    means = grid.scalarized_rewards.reshape(grid.n_designs, -1).mean(axis=1)
-    return {
-        **{f"eval/design{i}/episode_reward": float(v) for i, v in enumerate(means)},
-        "eval/worst_design_reward": float(means.min()),
-        "eval/best_design_reward": float(means.max()),
-    }
-
-
 # -------------------------------------------------------------------- training
 def train_design_lookup_hypernetwork(
     environment,
@@ -271,9 +285,10 @@ def train_design_lookup_hypernetwork(
     num_eval_envs: int = 64,
     deterministic_eval: bool = True,
     seed: int = 0,
-    progress_fn: Callable = lambda *a: None,
-    policy_params_fn: Callable = lambda *a: None,
+    progress_fn: Callable = lambda *a, **kw: None,
+    policy_params_fn: Callable = lambda *a, **kw: None,
     run_evals: bool = True,
+    resume: dict | None = None,
     # Accepted for compatibility with minimal-mjx's train (which calls train_fn with
     # these); unused here because this env is model-as-input with its own acting/eval.
     wrap_env_fn: Callable | None = None,
@@ -371,11 +386,11 @@ def train_design_lookup_hypernetwork(
             eval_designs,
             eval_tradeoffs,
             eval_model,
-            paired_eval_keys(key, num_designs, eval_per_cell),
+            shared.paired_eval_keys(key, num_designs, eval_per_cell),
             key,
         )
         metrics = shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
-        return {**metrics, **per_design_metrics(metrics["eval_grid"])}
+        return {**metrics, **shared.per_design_metrics(metrics["eval_grid"])}
 
     params_of = lambda ts, extra: (ts.normalizer_params, ts.params.hypernetwork)
 
@@ -383,6 +398,15 @@ def train_design_lookup_hypernetwork(
         DesignHypernetParams(hypernetwork=design_networks.hypernetwork.init(key_net)),
         optimizer, environment.observation_size,
     )
+    resume_epoch = 0
+    if resume is not None:
+        training_state, _ = shared.resume_training_state(
+            resume, training_state, optimizer,
+            lambda ts, extra, ckpt: (
+                ts.replace(params=ts.params.replace(hypernetwork=ckpt[1])), extra
+            ),
+        )
+        resume_epoch = resume["epoch"]
     if num_timesteps == 0:
         return inference_fn, params_of(training_state, None), {}
 
@@ -399,6 +423,7 @@ def train_design_lookup_hypernetwork(
         run_evals=run_evals,
         progress_fn=progress_fn,
         policy_params_fn=policy_params_fn,
+        resume_epoch=resume_epoch,
     )
     return inference_fn, params, metrics
 
@@ -424,6 +449,7 @@ def setup_design_lookup_hypernetwork(config):
         value_hidden_layer_sizes    = tuple(net["value_hidden_layer_sizes"]),
         weight_initializer          = net.get("weight_initializer", "kaiming_uniform"),
         freeze_bias                 = net.get("freeze_bias", True),
+        initialization_strategy     = net.get("initialization_strategy", "experts"),
     )
 
     train_fn = functools.partial(
@@ -433,6 +459,7 @@ def setup_design_lookup_hypernetwork(config):
         design_low          = tuple(design['low']),
         design_high         = tuple(design['high']),
         num_designs         = design_sampling.get("num_designs", 8),
+        resume              = shared.resume_config(lp),
         **ppo,
     )
     return train_fn, network_factory

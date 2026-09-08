@@ -17,6 +17,8 @@ from scipy.stats import binned_statistic, gaussian_kde
 import moplayground as mop
 import minimal_mjx as mm
 
+from codesign.utils.grid import Grid
+
 # TODO: ensure docstrings describe all arguments for all functions
 # TODO: delete any unused functions
 
@@ -396,8 +398,8 @@ class MODesignTrainingPlottingInfo:
     """
     Practical class for holding plotting/evaluation info during training. 
     
-    Aux should only contain data that can be computed from class attributes but 
-    may be convenient to hold on to.
+    Aux holds one extra value per eval -- a quantity derived from the grids, or a second
+    grid the run evaluates -- so its lists stay aligned with ``iterations``.
     """
     start_time    : float
     iterations    : list = field(default_factory=list)
@@ -418,6 +420,49 @@ class MODesignTrainingPlottingInfo:
         self.times.append(time)
         for key, value in aux_kwargs.items():
             self.aux.setdefault(key, []).append(value)
+
+
+def load_training_data(
+    training_data: MODesignTrainingPlottingInfo,
+    save_dir: Path,
+    csv_name: str,
+    aux_grids: dict[str, str] | None = None,
+    aux_fn=None,
+    before: int | None = None,
+) -> MODesignTrainingPlottingInfo:
+    """Refill ``training_data`` from the evals in a previous run.
+
+    Auxillary (aux) variables are not always stored, but are rather computed
+    from the saved grids. This function recomputes them so that the history
+    is represented in a resumed run.
+
+    ``before`` is the step the run restarts from: evals at or past it are left out, the
+    continued run evaluating that state again as its own first entry.
+    """
+    save_dir = Path(save_dir)
+    path = save_dir / csv_name
+    if not path.exists():
+        return training_data
+    frame = pd.read_csv(path)
+    if before is not None:
+        frame = frame[frame["iters"] < before]
+    if frame.empty:
+        return training_data
+    # A run that never wrote a second grid has none to read back for any of its steps.
+    aux_grids = {
+        key: prefix for key, prefix in (aux_grids or {}).items()
+        if (save_dir / f"{prefix}_{frame['iters'].iloc[0]}.npz").exists()
+    }
+    for step, when in zip(frame["iters"], frame["times"]):
+        grid = Grid.load(save_dir / f"eval_grid_{step}.npz")
+        training_data.update(
+            num_steps = int(step),
+            grid      = grid,
+            time      = float(when),
+            **{k: Grid.load(save_dir / f"{p}_{step}.npz") for k, p in aux_grids.items()},
+            **(aux_fn(grid) if aux_fn else {}),
+        )
+    return training_data
 
 
 def scalar_metrics(metrics: dict) -> dict:
@@ -606,6 +651,39 @@ def plot_design_learning_curves(ax: plt.Axes, iterations, grids, colors=None) ->
     return dress_axis(ax)
 
 
+def save_designs(designs, path: Path) -> None:
+    """One design per row, indexed to match a grid's design axis."""
+    pd.DataFrame(
+        designs, columns=[f"d{i}" for i in range(np.shape(designs)[-1])],
+    ).rename_axis("index").to_csv(path)
+
+
+def save_design_rewards_figure(
+    path: Path,
+    num_steps: int,
+    iterations: list,
+    grids: list,
+    label: str = None,
+    run: wandb.Run = None,
+    log_key: str = None,
+) -> None:
+    """The latest grid's per-design returns beside every design's learning curve.
+
+    ``label`` names the design set, for a run that plots more than one.
+    """
+    name = "per-design" if label is None else f"{label} per-design"
+    fig, (latest, curves) = plt.subplots(1, 2, figsize=(11, 4))
+    plot_design_rewards(latest, grids[-1])
+    plot_design_learning_curves(curves, iterations, grids)
+    latest.set_title(f"{name} return, step {num_steps}", color=INK, fontsize=10)
+    curves.set_title(f"{name} mean return", color=INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    if run and log_key:
+        run.log({log_key: wandb.Html(path.read_text())}, step=num_steps)
+
+
 def plot_design_rewards_progress(
     num_steps: int,
     metrics: dict,
@@ -619,11 +697,20 @@ def plot_design_rewards_progress(
 
     A pooled mean cannot say whether every design is training, so this draws the eval's
     individual rollout returns against their design beside each design's learning curve.
+
+    An anchored ``design_hypernetwork`` run also evaluates the designs it trains on.
+    Those are a different design set from ``eval_grid``, so index ``i`` means a different
+    robot in each, and they get their own figure, npz and designs.csv rather than sharing
+    the held-out grid's.
     """
     print_training_update(num_steps)
     times.append(time.time())
     grid = metrics["eval_grid"]
-    training_data.update(num_steps=num_steps, grid=grid, time=time.time())
+    anchor_grid = metrics.get("anchor_eval_grid")
+    training_data.update(
+        num_steps=num_steps, grid=grid, time=time.time(),
+        **({} if anchor_grid is None else {"anchor_grid": anchor_grid}),
+    )
 
     if run:
         run.log(scalar_metrics(metrics), step=num_steps)
@@ -631,21 +718,26 @@ def plot_design_rewards_progress(
     if save_dir:
         training_data.save(save_dir / "design_rewards_progress.csv")
         grid.save(save_dir / f"eval_grid_{num_steps}.npz")
-        # The anchors in physical units: the designs a rollout of this run may ask for.
-        pd.DataFrame(
-            np.asarray(grid.designs)[:, 0],
-            columns=[f"d{i}" for i in range(grid.design_dim)],
-        ).rename_axis("index").to_csv(save_dir / "designs.csv")
-        fig, (latest, curves) = plt.subplots(1, 2, figsize=(11, 4))
-        plot_design_rewards(latest, grid)
-        plot_design_learning_curves(curves, training_data.iterations, training_data.grids)
-        latest.set_title(f"per-design return, step {num_steps}", color=INK, fontsize=10)
-        curves.set_title("per-design mean return", color=INK, fontsize=10)
-        fig.tight_layout()
-        fig.savefig(save_dir / "progress.svg")
-        plt.close(fig)
-        if run:
-            run.log(
-                {"design_rewards": wandb.Html((save_dir / "progress.svg").read_text())},
-                step=num_steps,
+
+        # save the designs
+        train_designs = metrics.get("train_designs")
+        eval_designs = np.asarray(grid.designs)[:, 0]
+        save_designs(
+            eval_designs if train_designs is None else train_designs,
+            save_dir / "designs.csv",
+        )
+        # A run with only one design set needs no disambiguating label.
+        save_design_rewards_figure(
+            save_dir / "progress.svg", num_steps, training_data.iterations,
+            training_data.grids, None if anchor_grid is None else "held-out",
+            run, "design_rewards",
+        )
+        if anchor_grid is not None:
+            # designs.csv holds the anchors, so the held-out grid needs its own index.
+            save_designs(eval_designs, save_dir / "eval_designs.csv")
+            anchor_grid.save(save_dir / f"anchor_eval_grid_{num_steps}.npz")
+            save_design_rewards_figure(
+                save_dir / "progress_anchors.svg", num_steps,
+                training_data.iterations, training_data.aux["anchor_grid"],
+                "anchor", run, "anchor_design_rewards",
             )

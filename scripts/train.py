@@ -31,34 +31,68 @@ def get_handle_params(config):
             return None
 
 
-def get_progress_fn(config, env: codesign.CodesignBase):
+def pareto_aux(grid, ref_point=None): # TODO: move to plotting
+    """The hypervolume and spacing ``plot_design_pareto_progress`` records per eval."""
+    mean_rewards = grid.mean_rewards
+    hv, sp = mop.get_pareto_statistics(
+        mean_rewards.reshape(-1, mean_rewards.shape[-1]), ref_point=ref_point
+    )
+    return {'hv': float(hv), 'sp': float(sp)}
+
+
+def get_progress_fn(config, env: codesign.CodesignBase, resume=False):
     """Custom progress callback for the MO design hypernetwork (per-design Pareto
-    frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default."""
-    
+    frontiers, one subplot per checkpoint); ``None`` falls back to minimal-mjx's default.
+
+    ``resume`` reloads the evals already in the run directory, so a continued run's csv
+    and figures cover the whole run rather than only the epochs this job adds."""
+
+    run_dir = Path(config['save_dir']) / config['name']
+    # Evals at or past the restart point get redone, so they are not read back.
+    resumed = mm.find_resume(run_dir) if resume else None
+    before = None if resumed is None else resumed.step
+
     if config.algorithm in ('mo_design_hypernetwork', 'mo_design_predictor_hypernetwork'):
         optimization = config.env_config.reward.optimization
+        ref_point = optimization.get('reference_point', None)
         training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = env.objectives,
-            ref_point  = optimization.get('reference_point', None),
+            ref_point  = ref_point,
         )
-        # return functools.partial(plot_mo_design_progress, training_data=training_data)
-        # return functools.partial(codesign.plot_mean_hv_progress, training_data=training_data)
+        if resumed is not None:
+            codesign.load_training_data(
+                training_data, run_dir, 'design_pareto_progress.csv',
+                # hv and sp are not in the csv, but they are functions of the grid.
+                aux_fn=functools.partial(pareto_aux, ref_point=ref_point),
+                before=before,
+            )
         return functools.partial(codesign.plot_design_pareto_progress, training_data=training_data)
-    elif config.algorithm == 'design_lookup_hypernetwork':
-        # Every design carries its own policy here, so the eval is reported per design.
+    
+    elif config.algorithm == 'design_lookup_hypernetwork' or (
+        config.algorithm == 'design_hypernetwork'
+        and config.learning_params.get('design_sampling', {}).get('strategy')
+        in ('fixed', 'noisy-fixed')
+    ):
+        # save to designs.csv
         training_data = codesign.MODesignTrainingPlottingInfo(
             start_time = time.time(),
             labels     = getattr(env, 'objectives', None) or [],
         )
+        if resumed is not None:
+            codesign.load_training_data(
+                training_data, run_dir, 'design_rewards_progress.csv',
+                aux_grids={'anchor_grid': 'anchor_eval_grid'},
+                before=before,
+            )
         return functools.partial(
             codesign.plot_design_rewards_progress, training_data=training_data
         )
-    elif config.algorithm in ['design_hypernetwork', 'ppo', 'design_mlp']:
+    elif config.algorithm in ('design_hypernetwork', 'ppo', 'design_mlp'):
         return None
     else:
         raise Exception(f'Unknown algorithm {config.algorithm}')
-    
+
 
 def wrap_env(config, env):
     match config.algorithm:
@@ -146,13 +180,19 @@ def log_rollout_videos(
             )
 
 
-def train(config, log_video=True, **video_kwargs):
+def train(config, log_video=True, resume=False, **video_kwargs):
+    # A continued run keeps logging to the W&B run that opened its directory.
+    run_id = mm.utils.logging.load_run_id(
+        Path(config['save_dir']) / config['name']
+    ) if resume else None
     # run = None
     run = mm.utils.logging.initialize_wandb(
         name    = config["name"].replace('/', ''),
         entity  = 'vmadabushi3-georgia-institute-of-technology',
         project = 'codesign',
-        config  = config
+        config  = config,
+        id      = run_id,
+        resume  = 'allow' if run_id else None,
     )
 
     # Codesign Env
@@ -171,7 +211,8 @@ def train(config, log_video=True, **video_kwargs):
         eval_env,
         run=run,
         handle_params=setup_fn,
-        progress_fn=get_progress_fn(config, env),
+        progress_fn=get_progress_fn(config, env, resume=resume),
+        resume=resume,
     )
 
     if log_video:
@@ -191,6 +232,12 @@ if __name__ == "__main__":
         help="skip rendering/logging the policy rollout video after training",
     )
     parser.add_argument(
+        "--resume", action="store_true",
+        help="continue the checkpoints already in the run directory instead of "
+             "refusing to overwrite it; num_timesteps is then the run's total budget "
+             "and only what is left of it gets trained",
+    )
+    parser.add_argument(
         "--num-designs", type=int, default=3,
         help="designs to sweep across the design range (hypernetworks only); one video each, "
              "or one per extreme tradeoff each for mo_design_hypernetwork",
@@ -202,6 +249,7 @@ if __name__ == "__main__":
     train(
         config,
         log_video   = not args.no_video,
+        resume      = args.resume,
         num_designs = args.num_designs,
         n_steps     = args.video_steps,
         camera      = args.video_camera,

@@ -1,9 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: 6d-height-kaiming
-save_dir: scratch/logs/codesign/results/Sep03
-description: "N/A"
+name: DLH-to-DL-6D-lr-1e_5
+save_dir: results/Sep06
+description: "Design hypernetwork trained on one fixed Sobol design set for the whole run."
 algorithm: design_hypernetwork
 env: "MOCodesignCheetah"
 backend: jnp # always jnp for training
@@ -23,7 +23,7 @@ env_config:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
-      default_scalarization: [0.0, 0.0, 1.0]
+      default_scalarization: [0, 0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
@@ -34,14 +34,14 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 1000000000
+    num_timesteps: 2000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
-    batch_size: 128
-    num_minibatches: 32
+    batch_size: 64
+    num_minibatches: 64
     num_updates_per_batch: 4
-    learning_rate: 0.00001
+    learning_rate: 0.00005
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
@@ -50,7 +50,7 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 30
+    num_evals: 60
     num_eval_envs: 256
     deterministic_eval: true
     seed: 0
@@ -58,17 +58,20 @@ learning_params:
     huber_delta: 1.0
     batching_strategy: design
   network_params:
-    hypersize: [512, 512]
+    hypersize: [256, 256]
     num_features: 64
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-    initialization_strategy: bias
-    weight_initializer: kaiming_uniform
+    # initialization_strategy: bias
+    # weight_initializer: kaiming_uniform
+    initialization_strategy: load_network          # was: bias
+    warmup_checkpoint: results/Sep05/design-lookup-warmup-6D-trainable-bias-short/002000322560
+
   design_sampling:
-    num_designs: 32 # How many different designs to sample in each epoch
-    per_cell: 128 # How many times each design should be trialed
+    num_designs: 64 # How many different designs to sample in each epoch
+    per_cell: 64 # How many times each design should be trialed
     resamples_per_epoch: 1
-    strategy: random         # random | fixed | noisy-fixed
+    strategy: noisy-fixed         # random | fixed | noisy-fixed
     warmup_strategy: fixed   # runs for the first warmup_epochs epochs
-    warmup_epochs: 5         # number of epochs (num_evals - 1 in total)
-    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
+    warmup_epochs: 10         # number of epochs (num_evals - 1 in total)
+    rate: 0.01               # noisy-fixed only: std added per resample, in normalized box units

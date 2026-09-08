@@ -1,0 +1,32 @@
+# Design-sampling strategies
+name: design-3D-sampling-strategies
+method: grid
+metric:
+  name: eval/episode_reward.max # score each run by its best eval, not its last
+  goal: maximize
+parameters:
+  arm:
+    values:
+      # Baseline: a fresh Sobol draw every epoch, so no design is seen twice.
+      - design_sampling: {strategy: random, warmup_strategy: random, warmup_epochs: 0, rate: 0.0}
+
+      # Jitter around Sobol anchors from the start.
+      - design_sampling: {strategy: noisy-fixed, warmup_strategy: noisy-fixed, warmup_epochs: 0, rate: 0.005}
+      
+      # Same, but higher jitter.
+      - design_sampling: {strategy: noisy-fixed, warmup_strategy: noisy-fixed, warmup_epochs: 0, rate: 0.02}
+
+      # Anchors first, then 'immediate' full coverage. Less warmup epochs
+      - design_sampling: {strategy: random, warmup_strategy: fixed, warmup_epochs: 5, rate: 0.0}
+
+      # Anchors first, then 'immediate' full coverage. More warmup epochs
+      - design_sampling: {strategy: random, warmup_strategy: fixed, warmup_epochs: 10, rate: 0.0}
+
+      # Same, but with jitter
+      - design_sampling: {strategy: noisy-fixed, warmup_strategy: fixed, warmup_epochs: 5, rate: 0.02}
+
+      # Non-kaiming init
+      - design_sampling: {strategy: random, warmup_strategy: random, warmup_epochs: 0, rate: 0.0}
+        network_params: {weight_initializer: lecun_uniform}
+  num_timesteps:
+    value: 800000000 # comparison budget; rerun the winner at the base config's 1e9

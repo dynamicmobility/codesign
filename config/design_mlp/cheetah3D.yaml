@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: test
-save_dir: results/Aug31
+name: design-mlp-big-network
+save_dir: results/Sep06
 description: "Single-objective design-conditioned MLP network PPO over 3D CodesignCheetah with new algorithm code"
 algorithm: "design_mlp"
 env: "MOCodesignCheetahBackLegs"
@@ -23,7 +23,7 @@ env_config:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
-      default_scalarization: [1.0, 1.0, 1.0]
+      default_scalarization: [0.0, 0.0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
@@ -55,15 +55,13 @@ learning_params:
     deterministic_eval: true
     seed: 0
   network_params:
-    hypersize: [256, 256]
-    num_features: 32
-    policy_hidden_layer_sizes: [64, 64]
-    value_hidden_layer_sizes:  [64, 64]
+    policy_hidden_layer_sizes: [1024, 1024]
+    value_hidden_layer_sizes:  [1024, 1024]
   design_sampling:
     num_designs: 32
     num_eval_designs: 8
     resamples_per_epoch: 1
-    sampling: random
+    strategy: random
   tradeoff_sampling:
     num_tradeoffs: 8
     num_eval_tradeoffs: 8
