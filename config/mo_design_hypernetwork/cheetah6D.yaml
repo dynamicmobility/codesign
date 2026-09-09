@@ -35,7 +35,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 2000000000
+    num_timesteps: 3000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
@@ -51,7 +51,7 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 60
+    num_evals: 90
     num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
