@@ -1,0 +1,37 @@
+# Learning rate x design coverage x resampling frequency on the 6D cheetah.
+#
+# num_parallel_envs is deliberately not pinned here. Naming it (even as a fixed `value`)
+# puts it in the sweep's parameters, which makes wandb_sweep.derive_batching re-derive
+# batch_size as num_parallel_envs // gcd(num_parallel_envs, num_minibatches) = 512, i.e.
+# half the base config's 1024. Leaving it out keeps the base config's batching untouched.
+name: cheetah-6D-mo-lr-coverage
+method: bayes
+metric:
+  name: Mean Hypervolume.max # score each run by its best front, not its last
+  goal: maximize
+parameters:
+  learning_rate: # three decades bracketing the base config's 5e-7
+    distribution: log_uniform_values
+    min: 1.0e-7
+    max: 1.0e-4
+
+  # Designs per epoch. 64 is the ceiling here: stratified batching deals every cell an
+  # equal share of each minibatch, so per_cell * num_scans = 512 / num_designs must be
+  # divisible by num_minibatches (8), and batch_size (1024) must be a multiple of
+  # num_designs * num_tradeoffs.
+  num_designs:
+    values: [8, 16, 32, 64]
+
+  # Design/tradeoff redraws per epoch, powers of two so num_timesteps below stays exact.
+  # Each redraw rebuilds one mjx.Model per unique design host-side, so wall clock scales
+  # with num_designs * resamples_per_epoch even though the env-step budget does not.
+  resamples_per_epoch:
+    values: [1, 2, 4, 8, 16]
+
+  # Search budget, ~23% of the base config's 2e9. Schedule.make rounds
+  # num_timesteps / (num_epochs * resamples_per_epoch * env_step_per_training_step) up, so
+  # an arbitrary budget hands the high-resample arms extra steps. 463994880 =
+  # 59 epochs * 16 * 163840 steps * 3 divides exactly for every resamples value above,
+  # giving every run the same env-step count.
+  num_timesteps:
+    value: 463994880
