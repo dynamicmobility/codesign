@@ -180,46 +180,91 @@ def make_env_inputs(env) -> Callable:
     return env_inputs
 
 
+def _flat_transitions(grid: Grid) -> DesignTransition:
+    """The grid's transitions on one row axis: (M, K, C, T, ...) -> (M*K*C, T, ...)."""
+    return jax.tree_util.tree_map(
+        lambda x: x.reshape((-1,) + x.shape[3:]), grid.transitions
+    )
+
+
+def batch_shuffle(g: Grid, num_minibatches: int, key) -> DesignTransition:
+    """Minibatches drawn uniformly across the grid; leaves: (num_minibatches, B, T, ...)."""
+
+    def convert(x):
+        # One key for every leaf, so a cell's fields stay on the same row.
+        x = jax.random.permutation(key, x)
+        return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
+
+    return jax.tree_util.tree_map(convert, _flat_transitions(g))
+
+
+def batch_design(g: Grid, num_minibatches: int, key) -> DesignTransition:
+    """One design per minibatch, ordered afresh each call; leaves: (num_minibatches, B, T, ...)."""
+    return jax.tree.map(
+        lambda *xs: jnp.stack(xs),
+        *[
+            _flat_transitions(grid)
+            for grid in g.batch_by_design(key, num_minibatches, shuffle=True)
+        ],
+    )
+
+
+def batch_stratified(g: Grid, num_minibatches: int, key) -> DesignTransition:
+    """Every cell in every minibatch, its repeats dealt evenly; leaves:
+    (num_minibatches, B, T, ...) with B cell-major.
+
+    Permuting the per-cell axis rather than the flat env axis is what fixes each
+    minibatch's share of a cell at ``C / num_minibatches``, so ``B`` folds back into
+    ``(M * K, C / num_minibatches)`` and a loss can reduce one cell at a time.
+    """
+    m, k, c = g.cell_shape
+    if c % num_minibatches:
+        raise ValueError(
+            f"per_cell is {c}, which {num_minibatches} minibatches do not divide"
+        )
+    rows = c // num_minibatches
+
+    def convert(x):
+        # (M, K, C, T, ...) -> (num_minibatches, M*K*rows, T, ...). ``independent`` left
+        # False permutes ``arange(C)``, which depends on the key and C alone -- so every
+        # leaf is reordered the same way and a cell's fields stay on one row.
+        x = jax.random.permutation(key, x, axis=2)
+        x = x.reshape(m, k, num_minibatches, rows, *x.shape[3:])
+        x = jnp.moveaxis(x, 2, 0)
+        return x.reshape(num_minibatches, -1, *x.shape[4:])
+
+    return jax.tree_util.tree_map(convert, g.transitions)
+
+
+BATCH_FNS = {
+    "design": batch_design, "shuffle": batch_shuffle, "stratified": batch_stratified
+}
+
+
 def make_sgd_step(loss_fn, optimizer, num_minibatches: int, batching_strategy = 'design') -> Callable:
     """``sgd_step(carry, _, data, normalizer_params)``: one shuffled pass of minibatched
     gradient steps over ``data``, carrying ``(optimizer_state, params, key)``.
-    If batching_strategy is ``design`` then num_minibatches should be equal to grid num designs
+
+    ``batching_strategy`` names one of :data:`BATCH_FNS`, which decides both how many
+    designs a single gradient step sees and how a loss may group the batch:
+
+    * ``design`` -- one design per minibatch, so ``num_minibatches`` must equal the grid's
+      design count. Every gradient step is one design's alone.
+    * ``shuffle`` -- minibatches drawn uniformly from the flat env axis. Each one mixes
+      designs, but how many rows any design contributes is multinomial, so a minibatch has
+      no usable per-design grouping.
+    * ``stratified`` -- every design in every minibatch with an equal share of its rows.
+      Mixes designs like ``shuffle`` while keeping the grouping ``design`` has.
     """
     gradient_update_fn = gradients.gradient_update_fn(
         loss_fn, optimizer, pmap_axis_name=None, has_aux=True
     )
-
-    def flatten_transitions(x):
-        # (M, K, C, T, ...) -> (M*K*C, T, ...): the [B, T] layout the losses expect.
-        return x.reshape((-1,) + x.shape[3:])
-
-    def get_transitions_from_grid(grid: Grid) -> DesignTransition:
-        return jax.tree_util.tree_map(flatten_transitions, grid.transitions)
-
-    def shuffle(g: Grid, num_minibatches, key) -> DesignTransition:
-        """Minibatches drawn uniformly across the grid; leaves: (num_minibatches, B, T, ...)."""
-
-        def convert(x):
-            # One key for every leaf, so a cell's fields stay on the same row.
-            x = jax.random.permutation(key, x)
-            return jnp.reshape(x, (num_minibatches, -1) + x.shape[1:])
-
-        return jax.tree_util.tree_map(convert, get_transitions_from_grid(g))
-
-    def batch_design(x: Grid, num_minibatches, key) -> DesignTransition:
-        """One design per minibatch, ordered afresh each call; leaves: (num_minibatches, B, T, ...)."""
-        design_grids = x.batch_by_design(key, num_minibatches, shuffle=True)
-        return jax.tree.map(
-            lambda *xs: jnp.stack(xs),
-            *[get_transitions_from_grid(grid) for grid in design_grids],
+    if batching_strategy not in BATCH_FNS:
+        raise ValueError(
+            f"Invalid batching strategy {batching_strategy!r}; expected one of "
+            f"{tuple(BATCH_FNS)}"
         )
-
-    if batching_strategy == 'design':
-        batch_fn = batch_design
-    elif batching_strategy == 'shuffle':
-        batch_fn = shuffle
-    else:
-        raise ValueError("Invalid batching strategy")
+    batch_fn = BATCH_FNS[batching_strategy]
 
     def batch_step(carry, data: DesignTransition, normalizer_params):
         opt_state, params, key = carry

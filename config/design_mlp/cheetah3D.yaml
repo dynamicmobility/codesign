@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: design-mlp-big-network
+name: design-mlp-small-network-height-only
 save_dir: results/Sep06
 description: "Single-objective design-conditioned MLP network PPO over 3D CodesignCheetah with new algorithm code"
 algorithm: "design_mlp"
@@ -55,8 +55,8 @@ learning_params:
     deterministic_eval: true
     seed: 0
   network_params:
-    policy_hidden_layer_sizes: [1024, 1024]
-    value_hidden_layer_sizes:  [1024, 1024]
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
   design_sampling:
     num_designs: 32
     num_eval_designs: 8

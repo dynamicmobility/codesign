@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: trying-with-design-pareto-prog-2
-save_dir: results/Aug29
+name: updated-mo-design-1D
+save_dir: results/Sep08
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
 env: "MOCodesignCheetah1D"
@@ -23,7 +23,7 @@ env_config:
       objectives:        [['run'], ['energy'], ['height']]
       shared_objectives: ['alive']
       labels:            ['Running Speed', 'Height']
-      default_scalarization: [1.0, 1.0, 1.0]
+      default_scalarization: [0.0, 0.0, 1.0]
       reference_point:       [0.0, 0.0, 0.0]
   termination:
     enabled: true
@@ -37,35 +37,44 @@ learning_params:
   ppo_params:
     num_timesteps: 500000000
     episode_length: 500
-    num_parallel_envs: 8192
-    unroll_length: 26
-    batch_size: 256
-    num_minibatches: 32
+    num_parallel_envs: 4096
+    unroll_length: 20
+    batch_size: 1024
+    num_minibatches: 8
     num_updates_per_batch: 4
-    learning_rate: 0.00007382460273218768
-    entropy_cost: 0.023
-    discounting: 0.99
-    reward_scaling: 0.005333732736851479
-    clipping_epsilon: 0.28
+    learning_rate: 0.000001
+    entropy_cost: 0.01
+    discounting: 0.98
+    reward_scaling: 1.0
+    clipping_epsilon: 0.2
     gae_lambda: 0.95
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 15
+    num_evals: 60
     num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
+    value_loss_type: mse
+    huber_delta: 1.0
+    batching_strategy: stratified  # design | shuffle | stratified
   network_params:
-    hypersize: [256, 256]
-    num_features: 16
-    policy_hidden_layer_sizes: [64, 64]
-    value_hidden_layer_sizes:  [64, 64]
+    hypersize: [512, 512]
+    num_features: 64
+    policy_hidden_layer_sizes: [256, 256, 128]
+    value_hidden_layer_sizes:  [256, 256, 128]
+    # initialization_strategy: bias
+    # weight_initializer: kaiming_uniform # TODO: currently the default, no warmup capabilities in mo design
   design_sampling:
-    num_designs: 8 
-    resamples_per_epoch: 8
+    num_designs: 32 # How many different designs to sample in each epoch
+    resamples_per_epoch: 4
+    strategy: random         # random | fixed | noisy-fixed
+    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
+    warmup_epochs: 7         # number of epochs (num_evals - 1 in total)
+    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
     num_eval_designs: 16
   tradeoff_sampling:
     num_tradeoffs: 16
-    alpha: 2.0
+    alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
     num_eval_tradeoffs: 16

@@ -36,7 +36,7 @@ learning_params:
   ppo_params:
     num_timesteps: 3000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_parallel_envs: 4096 # = num_designs * num_tradeoffs * rollouts per cell
     unroll_length: 20
     batch_size: 128
     num_minibatches: 32
@@ -66,10 +66,9 @@ learning_params:
     num_designs: 32
     num_eval_designs: 8
     resamples_per_epoch: 4
-    sampling: random
+    strategy: random         # random | fixed | noisy-fixed
   tradeoff_sampling:
     num_tradeoffs: 8
-    per_cell: 16
     num_eval_tradeoffs: 8
     alpha: 1.0
     sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
