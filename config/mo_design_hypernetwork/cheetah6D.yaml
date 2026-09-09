@@ -35,14 +35,14 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 2000000000
+    num_timesteps: 4000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
     batch_size: 1024
     num_minibatches: 8
     num_updates_per_batch: 4
-    learning_rate: 0.0000005
+    learning_rate: 0.000005
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
@@ -64,7 +64,7 @@ learning_params:
     policy_hidden_layer_sizes: [256, 256, 128]
     value_hidden_layer_sizes:  [256, 256, 128]
   design_sampling:
-    num_designs: 32 # How many different designs to sample in each epoch
+    num_designs: 8 # How many different designs to sample in each epoch
     resamples_per_epoch: 4
     strategy: random         # random | fixed | noisy-fixed
     warmup_strategy: fixed   # runs for the first warmup_epochs epochs
