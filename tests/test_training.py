@@ -200,6 +200,36 @@ def test_design_hypernetwork_rejects_inconsistent_strategies(case, overrides, me
         train(case, "design_hypernetwork", **overrides)
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("batching_strategy", list(shared.BATCH_FNS))
+def test_design_hypernetwork_trains_under_every_batching_strategy(case, batching_strategy):
+    """All three cuts of the grid run end to end and keep the loss finite."""
+    metrics, _ = train(
+        case, "design_hypernetwork", batching_strategy=batching_strategy
+    )
+    assert np.isfinite(metrics["training/total_loss"])
+    assert "eval/episode_reward" in metrics
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "overrides, message",
+    [
+        (dict(batching_strategy="nope"), "Unsupported batching_strategy"),
+        # A minibatch holds per_cell x batch_size / num_parallel_envs rows of each
+        # design, so 4 x 1 / 8 leaves a fraction of a row.
+        (dict(batching_strategy="stratified", num_minibatches=8, batch_size=1, per_cell=4),
+         "does not divide"),
+        # 'design' still needs one design per minibatch.
+        (dict(batching_strategy="design", num_minibatches=1, batch_size=8),
+         "must equal num_designs"),
+    ],
+)
+def test_design_hypernetwork_rejects_unusable_batching(case, overrides, message):
+    with pytest.raises((ValueError, AssertionError), match=message):
+        train(case, "design_hypernetwork", **overrides)
+
+
 def test_design_hypernetwork_rejects_the_old_sampling_key():
     """``design_sampling: sampling`` was renamed, so an old config must not run silently."""
     config = {
@@ -538,3 +568,217 @@ def test_load_network_rejects_mismatched_hidden_sizes(tmp_path):
     limits = np.array([LOOKUP["low"], LOOKUP["high"]], np.float32)
     with pytest.raises(ValueError, match="hidden sizes"):
         codesign.load_warmup_params(state, str(path), optimizer, limits, quiet=True)
+
+
+# ------------------------------------------------------------- stratified batching
+#
+# The claim being pinned down: a stratified minibatch holds *every* design with an equal
+# share of its rows, which is what lets the loss standardize advantages one design at a
+# time while a single gradient step still averages over all of them. The grid leaves are
+# fingerprinted with the cell they came from so a batch can be checked for both.
+
+STRAT = dict(designs=6, per_cell=8, steps=4)
+
+
+def _strat_grid(per_cell=None):
+    """A grid whose transition leaves encode ``m * 100 + c`` at every timestep."""
+    m, c, t = STRAT["designs"], per_cell or STRAT["per_cell"], STRAT["steps"]
+    tag = (
+        np.arange(m, dtype=np.float32)[:, None, None] * 100.0
+        + np.arange(c, dtype=np.float32)[None, :, None]
+    )
+    cell = jnp.asarray(np.broadcast_to(tag[:, None], (m, 1, c, t)).copy())
+    return Grid(
+        designs=np.arange(m, dtype=np.float32).reshape(m, 1, 1),
+        tradeoffs=np.ones((m, 1, 1), np.float32),
+        per_cell=c,
+        transitions=DesignTransition(
+            observation=jnp.broadcast_to(cell[..., None], (m, 1, c, t, 5)),
+            action=jnp.broadcast_to(cell[..., None], (m, 1, c, t, 2)),
+            reward=cell,
+            design=jnp.broadcast_to(cell[..., None], (m, 1, c, t, 1)),
+            tradeoff=jnp.ones((m, 1, c, t, 1)),
+            discount=cell,
+            next_observation=jnp.broadcast_to(cell[..., None], (m, 1, c, t, 5)),
+            extras={"log_prob": cell},
+        ),
+    )
+
+
+def _stratified(num_minibatches, key=None, per_cell=None):
+    return shared.batch_stratified(
+        _strat_grid(per_cell), num_minibatches,
+        jax.random.PRNGKey(0) if key is None else key,
+    )
+
+
+@pytest.mark.parametrize("num_minibatches", [1, 2, 4, 8])
+def test_stratified_puts_every_design_in_every_minibatch(num_minibatches):
+    """Each minibatch holds all M designs, ``per_cell / num_minibatches`` rows each.
+
+    This is the property ``shuffle`` cannot give: drawing uniformly from the flat env
+    axis makes a design's row count multinomial, so some designs go missing.
+    """
+    m, c = STRAT["designs"], STRAT["per_cell"]
+    rows = c // num_minibatches
+    batched = _stratified(num_minibatches)
+    assert batched.reward.shape == (num_minibatches, m * rows, STRAT["steps"])
+    for mb in np.asarray(batched.reward):
+        designs = (mb[:, 0] // 100).astype(int)  # fingerprint decodes to m
+        counts = np.bincount(designs, minlength=m)
+        np.testing.assert_array_equal(counts, np.full(m, rows))
+
+
+@pytest.mark.parametrize("num_minibatches", [2, 4])
+def test_stratified_minibatch_is_cell_major(num_minibatches):
+    """Row ``(m * rows + r)`` belongs to design ``m`` -- what the loss's reshape assumes.
+
+    ``compute_design_hypernet_loss`` folds a group axis straight out of ``B``, so the
+    grouping is only per-design if the rows arrive sorted by design.
+    """
+    m, rows = STRAT["designs"], STRAT["per_cell"] // num_minibatches
+    for mb in np.asarray(_stratified(num_minibatches).reward):
+        designs = (mb[:, 0] // 100).astype(int)
+        np.testing.assert_array_equal(designs, np.repeat(np.arange(m), rows))
+
+
+def test_stratified_keeps_every_field_on_the_same_row():
+    """All leaves are permuted by one index, so a row's fields agree on its origin.
+
+    ``jax.random.permutation`` is called once per leaf with a shared key; that is only
+    safe because with ``independent=False`` it permutes ``arange(C)``, which depends on
+    the key and ``C`` alone -- not on the leaf's trailing shape or dtype.
+    """
+    batched = _stratified(4)
+    reference = np.asarray(batched.reward)
+    for leaf in jax.tree_util.tree_leaves(batched):
+        leaf = np.asarray(leaf).reshape(reference.shape + (-1,))[..., 0]
+        if not np.allclose(leaf, 1.0):  # the constant tradeoff carries no fingerprint
+            np.testing.assert_array_equal(leaf, reference)
+
+
+def test_stratified_partitions_the_rows_without_loss_or_duplication():
+    """The minibatches are a permutation of the grid's rows, not a resample."""
+    grid, batched = _strat_grid(), _stratified(4)
+    assert sorted(np.asarray(batched.reward).ravel().tolist()) == sorted(
+        np.asarray(grid.transitions.reward).ravel().tolist()
+    )
+
+
+def test_stratified_reorders_rows_within_a_design():
+    """Some key deals a design's rows in a non-identity order.
+
+    Without this the partition would be fixed across the ``num_updates_per_batch`` passes,
+    so the same rows would share a minibatch every time.
+    """
+    rows = STRAT["per_cell"] // 2
+    moved = False
+    for seed in range(10):
+        mb = np.asarray(_stratified(2, jax.random.PRNGKey(seed)).reward)[0]
+        order = (mb[:rows, 0] % 100).astype(int)  # design 0's row indices c
+        moved |= not np.array_equal(order, np.arange(rows))
+    assert moved
+
+
+def test_stratified_rejects_an_indivisible_minibatch_count():
+    with pytest.raises(ValueError, match="do not divide"):
+        _stratified(5)  # per_cell 8
+
+
+def test_make_sgd_step_rejects_an_unknown_strategy():
+    with pytest.raises(ValueError, match="Invalid batching strategy"):
+        shared.make_sgd_step(lambda *a: None, shared.make_optimizer(1e-3), 2, "nope")
+
+
+# --------------------------------------------------- advantages are within-design
+#
+# Two independent facts make the advantage design-local before any normalization runs,
+# and one config choice keeps its scale design-local afterwards. Each is pinned here.
+
+
+def test_gae_runs_within_a_row_and_never_across_designs():
+    """Perturbing one column of ``[T, B]`` moves that column's advantages alone.
+
+    ``compute_gae`` accumulates ``delta_t = r_t + gamma * V(s_t+1) - V(s_t)`` backwards
+    along T for each column independently, so a row's advantage is a function of that
+    row's own rewards and values. Rows are whole trajectories of one design, so no
+    advantage can mix designs however the batch is laid out.
+    """
+    from brax.training.agents.ppo import losses as ppo_losses
+
+    t, b, perturbed = 5, 4, 2
+    fill = lambda seed: jax.random.normal(jax.random.PRNGKey(seed), (t, b))
+    args = dict(
+        truncation=jnp.zeros((t, b)), termination=jnp.zeros((t, b)),
+        values=fill(1), bootstrap_value=fill(2)[0], lambda_=0.95, discount=0.99,
+    )
+    rewards = fill(0)
+    _, base = ppo_losses.compute_gae(rewards=rewards, **args)
+    _, bumped = ppo_losses.compute_gae(
+        rewards=rewards.at[:, perturbed].multiply(10.0), **args
+    )
+
+    moved = np.abs(np.asarray(base - bumped)).sum(axis=0)
+    assert moved[perturbed] > 0
+    assert np.all(moved[np.arange(b) != perturbed] == 0)
+
+
+def test_value_baseline_is_produced_per_design():
+    """Distinct designs get distinct value params, so GAE subtracts a design's own V.
+
+    Without this the advantage would be design-local only in its rewards; the baseline
+    would be shared, and a design's advantage would carry the others' return level. Built
+    under the ``weight`` strategy because ``bias`` starts with ``W = 0``, where every
+    design shares one policy until training separates them.
+    """
+    bundle = codesign.make_design_hypernet_networks(
+        observation_size=LOOKUP["obs"], action_size=LOOKUP["act"], design_dim=1,
+        key=jax.random.PRNGKey(0), initialization_strategy="weight",
+    )
+    params = bundle.hypernetwork.init(jax.random.PRNGKey(1))
+    _, value_params = bundle.hypernetwork.apply(params, jnp.asarray([[0.6], [1.9]]))
+    flat = [np.asarray(leaf).reshape(2, -1) for leaf in jax.tree_util.tree_leaves(value_params)]
+    both = np.concatenate(flat, axis=1)
+    assert both.shape[0] == 2
+    assert not np.allclose(both[0], both[1])
+
+
+def _advantages_after_normalization(num_groups, scales):
+    """Standardize a ``[T, B]`` block the way the loss does, one group per scale."""
+    t, rows = 3, 4
+    raw = jnp.concatenate(
+        [jax.random.normal(jax.random.PRNGKey(i), (t, rows)) * s
+         for i, s in enumerate(scales)], axis=1
+    )
+    grouped = raw.reshape(raw.shape[0], num_groups, -1)
+    mean = grouped.mean(axis=(0, 2), keepdims=True)
+    std = grouped.std(axis=(0, 2), keepdims=True)
+    return raw, ((grouped - mean) / (std + 1e-8)).reshape(raw.shape)
+
+
+def test_grouped_normalization_puts_each_design_on_its_own_scale():
+    """With one group per design every design leaves at unit variance.
+
+    A design whose returns are 100x smaller then contributes the same magnitude of policy
+    gradient, instead of 1/100th of it.
+    """
+    scales = [1.0, 100.0]
+    _, normalized = _advantages_after_normalization(len(scales), scales)
+    halves = np.split(np.asarray(normalized), len(scales), axis=1)
+    for half in halves:
+        assert half.std() == pytest.approx(1.0, abs=1e-4)
+
+
+def test_pooling_shrinks_the_small_scale_design():
+    """``num_advantage_groups=1`` is the old behaviour: one std for every design."""
+    scales = [1.0, 100.0]
+    _, normalized = _advantages_after_normalization(1, scales)
+    small, large = np.split(np.asarray(normalized), 2, axis=1)
+    assert small.std() < 0.1 * large.std()
+
+
+def test_one_group_reproduces_the_ungrouped_normalization():
+    """The default leaves the loss numerically where it was before grouping existed."""
+    raw, normalized = _advantages_after_normalization(1, [1.0, 3.0])
+    expected = (raw - raw.mean()) / (raw.std() + 1e-8)
+    np.testing.assert_allclose(np.asarray(normalized), np.asarray(expected), atol=1e-6)

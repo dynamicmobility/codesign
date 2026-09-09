@@ -22,14 +22,18 @@ from flax import linen
 
 from codesign.hyperdesigners import shared
 from codesign.hyperdesigners.acting import DesignTransition
-from codesign.hyperdesigners.variants.design_hypernetwork import make_design_hypernet_networks
+from codesign.hyperdesigners.variants.design_hypernetwork import (
+    BATCHING_STRATEGIES,
+    DESIGN_STRATEGIES,
+    make_design_hypernet_networks,
+)
 from codesign.hyperdesigners.losses import (
     DesignHypernetParams,
     huber_loss,
     mse_loss,
 )
 from codesign.hyperdesigners.networks import DesignHypernetNetworks
-from codesign.utils.grid import Grid
+from codesign.utils.grid import Grid, sample_tradeoffs_cpu
 
 if TYPE_CHECKING:
     # The predictor bundle is defined downstream, in mo_design_predictor_hypernetwork.
@@ -152,6 +156,7 @@ def compute_mo_design_hypernet_loss(
     gae_lambda: float = 0.95,
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
+    num_advantage_groups: int = 1,
     value_loss_fn: Callable = mse_loss,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
     """Computes the clipped-PPO loss for the multi-objective design hypernetwork ``H(d, w)``.
@@ -166,6 +171,8 @@ def compute_mo_design_hypernet_loss(
             ``extras['policy_extras']['log_prob']``.
         rng: PRNG key (for entropy estimate).
         design_networks: the design hypernetwork bundle.
+        num_advantage_groups: equal contiguous groups ``B`` splits into for advantage
+            standardization; ``1`` pools the minibatch.
     """
     designs, tradeoffs = data.design, data.tradeoff
     parametric_action_distribution = design_networks.parametric_action_distribution
@@ -224,12 +231,17 @@ def compute_mo_design_hypernet_loss(
         out_axes=2,
     )(rewards, baseline, bootstrap_value)
     if normalize_advantage:
-        # Standardize each objective over the batch axes [T, B] only. The objective axis
-        # M is not a batch axis: its entries carry different units, so they get their own
-        # mean/std, which puts them on a common scale before the tradeoff mixes them.
-        mean = advantages.mean(axis=(0, 1), keepdims=True)
-        std = advantages.std(axis=(0, 1), keepdims=True)
-        advantages = (advantages - mean) / (std + 1e-8)
+        # One mean/std per (group, objective): objectives carry different units, so each
+        # gets its own scale before the tradeoff mixes them, and B is design-major so the
+        # design axis folds out of it into contiguous groups. Standardizing per design
+        # keeps a low-return design's share of the policy gradient from shrinking in
+        # proportion to how much smaller its returns happen to be.
+        grouped = advantages.reshape(
+            advantages.shape[0], num_advantage_groups, -1, advantages.shape[2]
+        )
+        mean = grouped.mean(axis=(0, 2), keepdims=True)
+        std = grouped.std(axis=(0, 2), keepdims=True)
+        advantages = ((grouped - mean) / (std + 1e-8)).reshape(advantages.shape)
 
     scalar_advantages = jnp.sum(data.tradeoff * advantages, axis=2)
 
@@ -268,7 +280,6 @@ def train_mo_design_hypernetwork(
     num_designs: int = 8,
     num_eval_designs: int = 8,
     num_tradeoffs: int = 8,
-    per_cell: int = 8,
     num_eval_tradeoffs: int = 8,
     unroll_length: int = 20,
     batch_size: int = 64,
@@ -287,7 +298,11 @@ def train_mo_design_hypernetwork(
     normalize_observations: bool = True,
     design_dim: int = 1,
     resamples_per_epoch: int = 1,
-    batching_strategy = 'design',
+    batching_strategy: str = 'design',
+    strategy: str = 'random',
+    warmup_strategy: str | None = None,
+    warmup_epochs: int = 0,
+    rate: float = 0.0,
     # tradeoff sampling
     alpha: float = 1.0,
     sampling: str = "dense",
@@ -304,20 +319,57 @@ def train_mo_design_hypernetwork(
     wrap_env_fn: Callable | None = None,
     eval_env=None,
 ):
-    num_envs = num_designs * num_tradeoffs * per_cell
-    assert (num_envs) % num_parallel_envs == 0, (
-        "total number of environments (num_designs*num_tradeoffs*per_cell) must be divisible by num_parallel_envs"
+    num_cells = num_designs * num_tradeoffs
+    assert num_parallel_envs % num_cells == 0, (
+        "num_parallel_envs must be divisible by num_designs * num_tradeoffs"
     )
+    # Rollouts per cell, which the env budget fixes: the grid fills num_parallel_envs.
+    per_cell = num_parallel_envs // num_cells
 
     assert num_eval_envs % (num_eval_designs * num_eval_tradeoffs) == 0, (
         "num_eval_envs must be divisible by num_eval_designs * num_eval_tradeoffs"
     )
+
+    if batching_strategy not in BATCHING_STRATEGIES:
+        raise ValueError(
+            f"Unsupported batching_strategy: {batching_strategy!r}; expected one of "
+            f"{BATCHING_STRATEGIES}"
+        )
+    # check constraints
+    warmup_strategy = strategy if warmup_strategy is None else warmup_strategy
+    for name, value in (("strategy", strategy), ("warmup_strategy", warmup_strategy)):
+        if value not in DESIGN_STRATEGIES:
+            raise ValueError(
+                f"Unsupported {name}: {value!r}; expected one of {DESIGN_STRATEGIES}"
+            )
+    if "noisy-fixed" in (strategy, warmup_strategy) and rate <= 0.0:
+        raise ValueError(
+            f"'noisy-fixed' needs rate > 0, got {rate}; at rate 0 the std never leaves "
+            "zero and the strategy is just 'fixed'"
+        )
+    if warmup_strategy != strategy and warmup_epochs <= 0:
+        raise ValueError(
+            f"warmup_strategy {warmup_strategy!r} differs from strategy {strategy!r} but "
+            f"warmup_epochs is {warmup_epochs}, so the warm-up never runs"
+        )
 
     eval_envs_per_cell = num_eval_envs // (num_eval_designs * num_eval_tradeoffs)
     schedule = shared.Schedule.make(
         num_timesteps, num_evals, num_parallel_envs, batch_size, num_minibatches,
         unroll_length, resamples_per_epoch,
     )
+    if warmup_strategy != strategy and warmup_epochs >= schedule.num_epochs:
+        raise ValueError(
+            f"warmup_epochs {warmup_epochs} covers all {schedule.num_epochs} epochs "
+            f"(num_evals - 1), so strategy {strategy!r} never runs"
+        )
+    # A stratified minibatch holds batch_size / num_cells rows of every cell.
+    if batching_strategy == "stratified" and batch_size % num_cells:
+        raise ValueError(
+            f"stratified batching gives every minibatch an equal share of all "
+            f"{num_cells} design x tradeoff cells, so batch_size {batch_size} must be a "
+            f"multiple of num_designs {num_designs} x num_tradeoffs {num_tradeoffs}"
+        )
 
     key = jax.random.PRNGKey(seed)
     key, key_net = jax.random.split(key)
@@ -350,6 +402,9 @@ def train_mo_design_hypernetwork(
         gae_lambda            = gae_lambda,
         clipping_epsilon      = clipping_epsilon,
         normalize_advantage   = normalize_advantage,
+        # Only a stratified minibatch is guaranteed an equal share of every design;
+        # 'design' and 'shuffle' carry no such grouping, so both pool.
+        num_advantage_groups  = num_designs if batching_strategy == "stratified" else 1,
         value_loss_fn         = partial(huber_loss, huber_delta = huber_delta) if value_loss_type == 'huber' else mse_loss,
     )
     chunk = shared.make_training_chunk(
@@ -362,12 +417,48 @@ def train_mo_design_hypernetwork(
     )
     env_inputs = shared.make_env_inputs(environment)
 
+    # The anchors 'fixed' holds and 'noisy-fixed' jitters, (num_designs, design_dim) in
+    # physical units.
+    anchors = Grid.from_design_sample(environment, seed, num_designs).designs[:, 0]
+    design_low, design_high = np.asarray(environment.design_limits, np.float32)
+    design_span = design_high - design_low
+
+    def draw(name: str, iteration: int) -> Grid:
+        """The grid ``name`` produces ``iteration`` resamples into its own phase.
+
+        ``name`` governs the design axis only; every strategy redraws the ``K`` tradeoffs,
+        which ``tradeoff_sampling`` owns.
+        """
+        if name == "random":
+            return Grid.from_uniform_sample(
+                environment, grid_rng, num_tradeoffs, num_designs, per_cell,
+                sampling=sampling, alpha=alpha,
+            )
+        designs = anchors
+        if name == "noisy-fixed":
+            noise = grid_rng.normal(0.0, 1.0, anchors.shape) * (
+                rate * iteration * design_span
+            )
+            designs = np.clip(anchors + noise, design_low, design_high)
+        tradeoffs = sample_tradeoffs_cpu(
+            grid_rng, num_tradeoffs, num_objectives, sampling=sampling, alpha=alpha
+        )
+        return Grid.crossed(
+            designs, tradeoffs, per_cell, objectives=environment.objectives
+        )
+
+    phase, iteration = None, 0
+
     def sample(it, extra_state, key):
-        """Space-filling designs crossed with freshly sampled tradeoffs."""
-        return Grid.from_uniform_sample(
-            environment, grid_rng, num_tradeoffs, num_designs, per_cell,
-            sampling=sampling, alpha=alpha,
-        ), None
+        """Designs crossed with freshly sampled tradeoffs."""
+        nonlocal phase, iteration
+        # iterations start counting when sampling strategy begins
+        current = warmup_strategy if it < warmup_epochs else strategy
+        if current != phase:
+            phase, iteration = current, 0
+        grid = draw(current, iteration)
+        iteration += 1
+        return grid, None
 
     # Held fixed across evals, so returns are comparable epoch to epoch.
     eval_grid = Grid.from_uniform_sample(
@@ -383,7 +474,9 @@ def train_mo_design_hypernetwork(
             eval_designs,
             eval_tradeoffs,
             eval_model,
-            jax.random.split(key, num_eval_envs),
+            shared.paired_eval_keys(
+                key, num_eval_designs * num_eval_tradeoffs, eval_envs_per_cell
+            ),
             key,
         )
         return shared.eval_metrics(jnp.sum(rewards, axis=0), eval_grid)
@@ -435,6 +528,21 @@ def setup_mo_design_hypernetwork(config):
     design_sampling   = dict(lp['design_sampling'])
     tradeoff_sampling = dict(lp['tradeoff_sampling'])
 
+    for group, name in ((design_sampling, "design_sampling"),
+                        (tradeoff_sampling, "tradeoff_sampling")):
+        if "per_cell" in group:
+            raise ValueError(
+                f"{name} 'per_cell' is now derived as num_parallel_envs // (num_designs "
+                "* num_tradeoffs), which is what the schedule arithmetic requires; drop "
+                "the key and set num_parallel_envs to the grid you want"
+            )
+    if "sampling" in design_sampling:
+        raise ValueError(
+            "design_sampling 'sampling' is now 'strategy', optionally preceded by a "
+            "'warmup_strategy' for the first 'warmup_epochs' epochs; the simplex "
+            "sampler stays under tradeoff_sampling 'sampling'"
+        )
+
     network_factory = functools.partial(
         make_mo_design_hypernet_networks,
         hypersize                   = tuple(net["hypersize"]),
@@ -455,8 +563,11 @@ def setup_mo_design_hypernetwork(config):
         design_dim            = len(codesign["low"]),
         num_designs           = design_sampling["num_designs"],
         resamples_per_epoch   = design_sampling["resamples_per_epoch"],
+        strategy              = design_sampling.get("strategy", "random"),
+        warmup_strategy       = design_sampling.get("warmup_strategy"),
+        warmup_epochs         = design_sampling.get("warmup_epochs", 0),
+        rate                  = design_sampling.get("rate", 0.0),
         num_tradeoffs         = tradeoff_sampling["num_tradeoffs"],
-        per_cell              = tradeoff_sampling["per_cell"],
         alpha                 = tradeoff_sampling["alpha"],
         sampling              = tradeoff_sampling["sampling"],
         resume                = shared.resume_config(lp),
