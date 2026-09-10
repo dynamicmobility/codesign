@@ -1,9 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: ppo-walker6d-run
+name: ppo-walker6d-asymmetric
 save_dir: results/Sep10
-description: "Added height as shared reward"
+description: "Added height as shared reward, one leg longer"
 algorithm: "ppo"
 env: "MOCodesignWalker"
 backend: jnp # always jnp for training
@@ -29,7 +29,7 @@ env_config:
     enabled: true
     base_height: 0.2
   codesign:
-    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    default_design: [1.2, 1.2, 1.2, 0.8, 0.8, 0.8]
     low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
     high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
