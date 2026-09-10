@@ -91,6 +91,7 @@ class MOCodesignWalker(MOCodesignBase):
         info['posafter']  = data.qpos[0] + 0.01
         info['head_height'] = head_z
         info['butt_height'] = butt_z
+        info['nom_height'] = data.qpos[1]
 
         done = self._np.array(0.0)
         rewards = self.reward_function(
@@ -149,9 +150,15 @@ class MOCodesignWalker(MOCodesignBase):
             'alive'  : self.mo_backend.reward_alive(),
             'energy' : self.reward_power(data, info),
             'run'    : self.reward_run(info),
-            'done'   : self.mo_backend.reward_done(done)
+            'done'   : self.mo_backend.reward_done(done),
+            'height' : self.reward_height(data, info),
         }
         return rewards
+
+    def reward_height(self, data, info):
+        height = data.qpos[1]
+        self._np.clip(height, min=None, max=info['nom_height']) # TODO: Normalize on height
+        return height
     
     def reward_run(self, info):
         reward_run = (info['posafter'] - info['posbefore']) / self.dt
