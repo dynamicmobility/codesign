@@ -7,7 +7,7 @@
 name: cheetah-6D-mo-lr-coverage
 method: bayes
 metric:
-  name: Mean Hypervolume.max # score each run by its best front, not its last
+  name: Pareto-Optimal Design Hypervolume.max # score each run by its best front, not its last
   goal: maximize
 parameters:
   learning_rate: # three decades bracketing the base config's 5e-7
