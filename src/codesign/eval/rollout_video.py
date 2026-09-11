@@ -401,14 +401,14 @@ def rollout_caption(config, design, eval_design=None, tradeoff=None, design_trad
 
 def _rollout_ppo_video(
     env, config, eval_design, n_steps, *, checkpoint_path=None, seed=0,
-    camera=None, width=None, height=None,
+    camera=None, width=None, height=None, deterministic=True
 ):
     """Roll the fixed-design PPO policy out on the scalarized (single-objective) env.
 
     The policy is unconditioned, so ``eval_design`` only selects the model it runs on.
     ``load_env`` already wraps ppo envs; the wrap here is for callers that pass a raw one.
     """
-    base_policy = mm.load_policy(config, deterministic=True, checkpoint_path=checkpoint_path)
+    base_policy = mm.load_policy(config, deterministic=deterministic, checkpoint_path=checkpoint_path)
     policy      = mm.from_inference_fn(base_policy)
     so_env      = (
         env if isinstance(env, CodesignMO2SO)
@@ -437,6 +437,7 @@ def rollout_policy_video(
     camera: str | None = None,
     width: int | None = 640,
     height: int | None = 480,
+    deterministic=True,
 ) -> RolloutVideo:
     """Roll the policy trained by ``config`` out on one design and render it.
 
@@ -473,7 +474,7 @@ def rollout_policy_video(
         tradeoff, design_tradeoff = None, None
         rollout = _rollout_ppo_video(
             env, config, eval_design, n_steps, checkpoint_path=checkpoint_path,
-            seed=seed, camera=camera, width=width, height=height,
+            seed=seed, camera=camera, width=width, height=height, deterministic=deterministic
         )
 
     elif algorithm == "design_hypernetwork":
@@ -612,6 +613,7 @@ def save_policy_rollout_video(
     run: wandb.Run | None = None,
     log_key: str = "rollout",
     use_caption: bool = True,
+    deterministic: bool = True,
 ) -> RolloutVideo:
     """Roll out the trained policy for ``config`` and write the video to ``out_path``.
 
@@ -625,7 +627,7 @@ def save_policy_rollout_video(
         config, env=env, design=design, eval_design=eval_design, tradeoff=tradeoff,
         design_tradeoff=design_tradeoff, sample_design=sample_design, n_steps=n_steps,
         checkpoint_path=checkpoint_path, seed=seed,
-        camera=camera, width=width, height=height,
+        camera=camera, width=width, height=height, deterministic=deterministic
     )
     print(f"rendered {len(rollout.traj)} steps: {rollout.caption}")
     return write_rollout_video(rollout, out_path, run=run, log_key=log_key, use_caption=use_caption)

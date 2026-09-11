@@ -1,0 +1,78 @@
+# Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
+#
+# H_\pi(d, w) = \pi(a | s)
+name: mo-up-walker6d
+save_dir: results/Sep08
+description: "Multi-objective design-conditioned hypernetwork PPO over Walker leg lengths."
+algorithm: "mo_design_hypernetwork"
+env: "MOCodesignWalker"
+backend: jnp # always jnp for training
+
+env_config:
+  ctrl_dt: 0.01
+  sim_dt: 0.01
+  action_scale: 1.0
+  reward:
+    weights:
+      run:        1.0
+      height:     1.0
+      energy:     0.00003
+      alive:      1.0
+      done:       0
+    optimization:
+      objectives:        [['run'], ['energy']]
+      shared_objectives: ['alive']
+      labels:            ['Running Speed', 'Energy']
+      default_scalarization: [1.0, 0.0]
+      reference_point:       [0.0, 0.0]
+  termination:
+    enabled: true
+    base_height: 0.2
+  codesign:
+    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+
+learning_params:
+  ppo_params:
+    num_timesteps: 4000000000
+    episode_length: 500
+    num_parallel_envs: 4096
+    unroll_length: 20
+    batch_size: 1024
+    num_minibatches: 8
+    num_updates_per_batch: 4
+    learning_rate: 0.000005
+    entropy_cost: 0.01
+    discounting: 0.98
+    reward_scaling: 1.0
+    clipping_epsilon: 0.2
+    gae_lambda: 0.95
+    max_grad_norm: 1.0
+    normalize_advantage: true
+    normalize_observations: true
+    num_evals: 90
+    num_eval_envs: 1024
+    deterministic_eval: true
+    seed: 0
+    value_loss_type: mse
+    huber_delta: 1.0
+    batching_strategy: stratified  # design | shuffle | stratified
+  network_params:
+    hypersize: [1024, 1024]
+    num_features: 64
+    policy_hidden_layer_sizes: [256, 256, 128]
+    value_hidden_layer_sizes:  [256, 256, 128]
+  design_sampling:
+    num_designs: 8 # How many different designs to sample in each epoch
+    resamples_per_epoch: 4
+    strategy: random         # random | fixed | noisy-fixed
+    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
+    warmup_epochs: 7         # number of epochs (num_evals - 1 in total)
+    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
+    num_eval_designs: 16
+  tradeoff_sampling:
+    num_tradeoffs: 16
+    alpha: 1.0
+    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
+    num_eval_tradeoffs: 16
