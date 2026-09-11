@@ -1,9 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mo-mlp-cheetah6d
-save_dir: results/Sep10
-description: "Multi-objective design-conditioned MLP"
+name: mo-design-mlp-cheetah6d-big-net
+save_dir: results/Sep11
+description: "Multi-objective design-conditioned MLP for 6D cheetah"
 algorithm: "mo_design_mlp"
 env: "MOCodesignCheetah"
 backend: jnp # always jnp for training
@@ -59,10 +59,8 @@ learning_params:
     huber_delta: 1.0
     batching_strategy: stratified  # design | shuffle | stratified
   network_params:
-    hypersize: [1024, 1024]
-    num_features: 64
-    policy_hidden_layer_sizes: [256, 256, 128]
-    value_hidden_layer_sizes:  [256, 256, 128]
+    policy_hidden_layer_sizes: [2751, 2686, 2655]
+    value_hidden_layer_sizes:  [2751, 2686, 2655]
   design_sampling:
     num_designs: 8 # How many different designs to sample in each epoch
     resamples_per_epoch: 4
