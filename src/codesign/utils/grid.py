@@ -75,6 +75,50 @@ def _generator(seed: int | jax.Array | np.random.Generator) -> np.random.Generat
     return np.random.default_rng(int(seed) if isinstance(seed, jax.Array) else seed)
 
 
+TRADEOFF_LAYOUTS = ("uniform", "corners", "2d")
+
+
+def tradeoff_layout(
+    layout: str,
+    num_objectives: int,
+    seed=0,
+    n_tradeoffs: int | None = None,
+    sampling: str = "sparse-heavytail",
+    alpha: float = 1.0,
+) -> np.ndarray:
+    """The ``(K, num_objectives)`` tradeoffs of a named layout:
+      * ``uniform`` — ``n_tradeoffs`` simplex draws (see :func:`sample_tradeoffs_cpu`);
+      * ``corners`` — the ``num_objectives`` one-hot corners of the simplex, ignoring
+        ``n_tradeoffs``;
+      * ``2d`` — ``n_tradeoffs`` points along each objective pair's edge with the other
+        objectives held at zero, so ``K = n_tradeoffs * (num_objectives choose 2)``.
+    """
+    match layout:
+        case "uniform":
+            return sample_tradeoffs_cpu(
+                _generator(seed), n_tradeoffs, num_objectives,
+                sampling=sampling, alpha=alpha,
+            )
+        case "corners":
+            return np.eye(num_objectives, dtype=np.float32)
+        case "2d":
+            if num_objectives < 2:
+                raise ValueError(
+                    f"2D tradeoffs need at least 2 objectives; env has {num_objectives}."
+                )
+            x = np.linspace(0.0, 1.0, n_tradeoffs, dtype=np.float32)
+            blocks = []
+            for i, j in itertools.combinations(range(num_objectives), 2):
+                block = np.zeros((n_tradeoffs, num_objectives), dtype=np.float32)
+                block[:, i], block[:, j] = x, 1.0 - x
+                blocks.append(block)
+            return np.concatenate(blocks, axis=0)
+        case _:
+            raise ValueError(
+                f"Unknown tradeoff layout '{layout}'; expected one of {TRADEOFF_LAYOUTS}."
+            )
+
+
 def _box_designs_cpu(seed, env: CodesignBase, n_designs: int, limits = None) -> np.ndarray:
     """Space-filling sample of ``n_designs`` over the env's design box. Cannot be run on GPU due to
     Sobol. (There may exist a Sobol jax implementation, but it is not necessary)
@@ -179,11 +223,20 @@ class Grid:
     @classmethod
     def from_design_sample(
         cls, env: CodesignBase, seed, n_designs: int, per_cell: int = 1, limits = None,
+        tradeoffs = None, **kwargs,
     ) -> "Grid":
-        """Space-filling (sobol) designs against the single trivial tradeoff, ``(M, 1, C, 1)``.
+        """Space-filling (sobol) designs crossed with ``(K, n_r)`` tradeoffs.
+
+        ``tradeoffs`` defaults to the single trivial tradeoff -- weight 1.0 on an already
+        scalar reward, ``(M, 1, C, 1)``. Pass the scalarization a single-objective run was
+        trained under to keep the env's per-objective rewards readable against it, or a
+        sampled layout (see :func:`tradeoff_layout`) for the full design x tradeoff grid.
         """
+        if tradeoffs is None:
+            tradeoffs = np.ones((1, 1), np.float32)
         return cls.crossed(
-            _box_designs_cpu(seed, env, n_designs, limits=limits), np.ones((1, 1), np.float32), per_cell
+            _box_designs_cpu(seed, env, n_designs, limits=limits), tradeoffs, per_cell,
+            **kwargs,
         )
 
     @classmethod
@@ -200,8 +253,9 @@ class Grid:
         """Space-filling designs over the env's design box crossed with sampled tradeoffs.
         """
         rng = _generator(seed)
-        tradeoffs = sample_tradeoffs_cpu(
-            rng, n_tradeoffs, len(env.objectives), sampling=sampling, alpha=alpha
+        tradeoffs = tradeoff_layout(
+            "uniform", len(env.objectives), rng,
+            n_tradeoffs = n_tradeoffs, sampling = sampling, alpha = alpha,
         )
         return cls.crossed(
             _box_designs_cpu(rng, env, n_designs), tradeoffs, per_cell,
@@ -215,7 +269,7 @@ class Grid:
         """Space-filling designs crossed with the one-hot corners of the simplex."""
         return cls.crossed(
             _box_designs_cpu(seed, env, n_designs),
-            np.eye(len(env.objectives), dtype=np.float32),
+            tradeoff_layout("corners", len(env.objectives)),
             per_cell,
             objectives=env.objectives,
         )
@@ -231,18 +285,11 @@ class Grid:
     ) -> "Grid":
         """Samples tradeoffs purely in two objectives.
         """
-        m = len(env.objectives)
-        if m < 2:
-            raise ValueError(f"2D tradeoffs need at least 2 objectives; env has {m}.")
-        x = np.linspace(0.0, 1.0, n_tradeoffs_per_pair, dtype=np.float32)
-        blocks = []
-        for i, j in itertools.combinations(range(m), 2):
-            block = np.zeros((n_tradeoffs_per_pair, m), dtype=np.float32)
-            block[:, i], block[:, j] = x, 1.0 - x
-            blocks.append(block)
         return cls.crossed(
             _box_designs_cpu(seed, env, n_designs),
-            np.concatenate(blocks, axis=0),
+            tradeoff_layout(
+                "2d", len(env.objectives), n_tradeoffs=n_tradeoffs_per_pair
+            ),
             per_cell,
             objectives=env.objectives,
         )

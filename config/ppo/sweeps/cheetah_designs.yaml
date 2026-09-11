@@ -1,0 +1,22 @@
+name: cheetah-ppo-designs
+method: grid
+metric:
+  name: eval/episode_reward.max # per-arm best eval, for the sweep table only
+  goal: maximize
+parameters:
+  arm:
+    values:
+      - name:                  nominal-run
+        default_design:        [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        default_scalarization: [1.0, 0.0, 0.0]
+
+      - name:                  nominal-height
+        default_design:        [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        default_scalarization: [0.0, 0.0, 1.0]
+        
+      - name:                  nominal-energy
+        default_design:        [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        default_scalarization: [0.0, 1.0, 0.0]
+
+  save_dir:
+    value: results/Sep10

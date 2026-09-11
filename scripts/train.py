@@ -29,8 +29,25 @@ def get_handle_params(config):
             return codesign.hyperdesigners.setup_mo_design_hypernetwork
         case 'mo_design_predictor_hypernetwork':
             return codesign.hyperdesigners.setup_mo_design_predictor_hypernetwork
+        case 'morlax':
+            return setup_morlax
         case 'ppo':
             return None
+
+
+def setup_morlax(config):
+    """``mop.setup_morlax`` pinned to moplayground's multi-objective env wrapper.
+
+    minimal-mjx hands every algorithm brax's single-objective wrapper, whose episode
+    bookkeeping sums a scalar reward per env; morlax's envs return one reward per
+    objective, so the training and eval envs need ``mop.mo_wrapper`` instead.
+    """
+    train_fn, network_factory = mop.setup_morlax(config)
+
+    def mo_train_fn(*args, wrap_env_fn=None, **kwargs):
+        return train_fn(*args, wrap_env_fn=mop.mo_wrapper, **kwargs)
+
+    return mo_train_fn, network_factory
 
 
 def pareto_aux(grid, ref_point=None): # TODO: move to plotting
@@ -90,6 +107,17 @@ def get_progress_fn(config, env: codesign.CodesignBase, resume=False):
         return functools.partial(
             codesign.plot_design_rewards_progress, training_data=training_data
         )
+    elif config.algorithm == 'morlax':
+        training_data = mop.MOTrainingPlottingInfo(
+            start_time = time.time(),
+            labels     = env.objectives,
+        )
+        def morlax_progress(num_steps, metrics, times, save_dir, run=None, **kwargs):
+            """``mop.plot_mo_progress`` under minimal-mjx's callback signature; the
+            scalar-reward curve arguments it passes go unused."""
+            times.append(time.time())
+            mop.plot_mo_progress(num_steps, metrics, training_data, save_dir, run)
+        return morlax_progress
     elif config.algorithm in ('design_hypernetwork', 'ppo', 'design_mlp'):
         return None
     else:
@@ -111,6 +139,11 @@ def wrap_env(config, env):
             env = codesign.CodesignMO2SO(
                 env       = env,
                 weighting = config.env_config.reward.optimization.default_scalarization
+            )
+        case 'morlax':
+            env = codesign.Codesign2SingleDesign(
+                env = env,
+                design = config.env_config.codesign.default_design
             )
         case 'mo_design_hypernetwork' | 'mo_design_predictor_hypernetwork' | 'mo_design_mlp':
             pass

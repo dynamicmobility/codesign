@@ -30,12 +30,12 @@ def load_env(config: dict, backend: str | None = None) -> tuple[CodesignBase, di
     else:
         raise ValueError(f"Unknown env '{env_name}'")
 
-    # Single Objective wrapper
-    if(config['algorithm'] in ("design_hypernetwork", "design_lookup_hypernetwork")):
-        env = CodesignMO2SO(env, env_params.reward.optimization.default_scalarization)
+    # # Single Objective wrapper
+    # if(config['algorithm'] in ("design_hypernetwork", "design_lookup_hypernetwork")):
+    #     env = CodesignMO2SO(env, env_params.reward.optimization.default_scalarization)
 
-    # Single Objective wrapper
-    if(config['algorithm'] == "ppo"):
-        env = CodesignMO2SO(env, env_params.reward.optimization.default_scalarization)
+    # # Single Objective wrapper
+    # if(config['algorithm'] == "ppo"):
+    #     env = CodesignMO2SO(env, env_params.reward.optimization.default_scalarization)
 
     return env, env_params
