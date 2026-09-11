@@ -1,6 +1,6 @@
 """Single-instance (non-parallel) rollout of a policy on one Env, rendered to video.
 """
-
+# TODO: clean up this terrible file...rip
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,8 +12,8 @@ from mujoco import mjx
 from mujoco_playground._src.mjx_env import render_array
 from tqdm import tqdm
 
-from codesign.envs import CodesignBase, MOCodesignBase, CodesignMO2SO, load_env
-from minimal_mjx.eval import policy as policy_lib
+from codesign.envs import CodesignBase, MOCodesignBase, CodesignMO2SO, load_env, Codesign2SingleDesign
+import moplayground as mop
 from codesign.learning.inference import (
     load_design_hypernetwork,
     load_design_lookup_hypernetwork,
@@ -298,10 +298,8 @@ def default_video_design(config):
     if config["algorithm"] == "ppo":
         return np.asarray(config['env_config']['codesign']["default_design"], np.float32).reshape(-1)
 
-    design = config["env_config"]['codesign']
-    low  = np.asarray(design["low"], np.float32).reshape(-1)
-    high = np.asarray(design["high"], np.float32).reshape(-1)
-    return 0.5 * (low + high)  # (design_dim,) box midpoint
+    design = config["env_config"]['codesign']['default_design']
+    return design
 
 
 def _writable_frame(frame):
@@ -514,6 +512,15 @@ def rollout_policy_video(
         rollout = rollout_mo_design_hypernetwork_video(
             env, config, design=design, eval_design=eval_design, tradeoff=tradeoff,
             n_steps=n_steps, checkpoint_path=checkpoint_path, seed=seed,
+            camera=camera, width=width, height=height,
+        )
+    
+    elif algorithm == "morlax":
+        design, eval_design       = _default_designs(config, design, eval_design)
+        tradeoff, design_tradeoff = _simplex(tradeoff, _num_objectives(config)), None
+        env = Codesign2SingleDesign(env, design=eval_design)
+        rollout = mop.rollout_policy(
+            env, config, tradeoff=tradeoff, n_steps=n_steps,
             camera=camera, width=width, height=height,
         )
 

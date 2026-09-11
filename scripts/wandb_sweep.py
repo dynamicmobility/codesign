@@ -10,54 +10,89 @@ from pathlib import Path
 import os
 import codesign
 
-# Swept params consumed by a derivation instead of being written to a config group.
+# Swept params consumed by a derivation instead of being written to a config field.
 DERIVED_INPUTS = frozenset({'rollouts_per_step'})
 
-class UniqueSet(set):
-    def add(self, element):
-        if element in self:
-            raise ValueError(f"Duplicate item added: {element}")
-        super().add(element)
+def find_field(config, name, prefix=''):
+    """Paths of every field called `name` anywhere in a nested config, spelled the way
+    ``mm.flatten_config`` writes them, e.g. 'env_config/codesign/default_design'."""
+    paths = []
+    for key, value in config.items():
+        path = f'{prefix}/{key}' if prefix else key
+        if key == name:
+            paths.append(path)
+        elif hasattr(value, 'items'):
+            paths.extend(find_field(value, name, path))
+    return paths
 
-def apply_sweep_params(learning_params, sweep_parameters):
-    """Writes each swept param into whichever learning_params group defines it.
-    Raises if a param names a field in more than one group, or in none of them.
+def locate(config, param):
+    """The ``(container, key)`` a swept param names, or None if the config has no such
+    field. A param holding a '/' is a path from the config root; a bare name is searched
+    for config-wide and must name exactly one field."""
+    path = param
+    if '/' not in param:
+        matches = find_field(config, param)
+        if len(matches) > 1:
+            raise ValueError(
+                f"Swept param {param!r} names all of {matches}; spell out the one meant."
+            )
+        if not matches:
+            return None
+        path = matches[0]
 
-    Handles 'bundles' too (i.e. setting the entire design_sampling dict)
-    """
-    used_params = UniqueSet()
+    *groups, key = path.split('/')
+    container = config
+    for group in groups:
+        if not hasattr(container.get(group), 'items'):
+            return None
+        container = container[group]
+    return (container, key) if key in container else None
+
+def swept_fields(sweep_parameters):
+    """Leaf field names a sweep sets, however they are spelled (bare, as a path, or inside
+    a bundle), so a derivation can test whether a field is swept."""
+    fields = set()
     for param, value in sweep_parameters.items():
         if hasattr(value, 'items'):
-            bundle = {param: value} if param in learning_params else dict(value)
-            unknown_groups = set(bundle) - set(learning_params)
-            if unknown_groups:
-                raise ValueError(
-                    f"Swept param {param!r} sets {sorted(unknown_groups)}, which name no "
-                    "learning_params group; a bundle's keys must be group names."
-                )
-            for name, fields in bundle.items():
-                group = learning_params[name]
-                # Restricted to fields the base config already declares, so a typo in one
-                # arm is caught here rather than silently training the base's setting.
-                unknown = set(fields) - set(group)
-                if unknown:
-                    raise ValueError(
-                        f"Swept group {name!r} sets {sorted(unknown)}, which the config's "
-                        f"{name} does not define; add them to the base config first."
-                    )
-                group.update(fields)
-            used_params.add(param)
-            continue
-        for group in learning_params.values():
-            if hasattr(group, 'items') and param in group:
-                group[param] = value
-                used_params.add(param)
+            fields |= swept_fields(value)
+        else:
+            fields.add(param.rpartition('/')[2])
+    return fields
 
-    unmatched = set(sweep_parameters) - used_params - DERIVED_INPUTS
+def write_sweep_params(config, sweep_parameters, prefix=''):
+    """Writes each swept param into the field it names. Returns the params naming no
+    field, prefixed by the bundle they came from."""
+    unmatched = []
+    for param, value in sweep_parameters.items():
+        target = locate(config, param)
+        if hasattr(value, 'items'):
+            # A bundle is merged field by field, so the group's unswept fields keep the
+            # base config's values. A bundle naming no field is an arm label: its own
+            # keys are then resolved against the config.
+            group  = config if target is None else target[0][target[1]]
+            inner  = prefix if target is None else f'{prefix}{param}/'
+            unmatched += write_sweep_params(group, value, inner)
+        elif target is None:
+            unmatched.append(prefix + param)
+        else:
+            container, key = target
+            container[key] = value
+    return unmatched
+
+def apply_sweep_params(config, sweep_parameters):
+    """Writes a sweep's sampled params into the training config.
+
+    A param names its field either by a bare name the config defines exactly once
+    ('default_design'), or, to disambiguate, by its path from the config root as
+    ``mm.flatten_config`` spells it ('env_config/codesign/default_design'). Params are
+    restricted to fields the base config already declares, so a typo in one arm is caught
+    here rather than silently training the base's setting.
+    """
+    unmatched = set(write_sweep_params(config, sweep_parameters)) - DERIVED_INPUTS
     if unmatched:
         raise ValueError(
-            f"Swept params {sorted(unmatched)} name no field under learning_params, "
-            "so they would be sampled but never applied."
+            f"Swept params {sorted(unmatched)} name no field in the config, so they would "
+            "be sampled but never applied."
         )
 
 def env_count_key(ppo_params):
@@ -77,10 +112,11 @@ def derive_batching(ppo_params, sweep_parameters):
         'rollouts_per_step',
         'batch_size'
     )
-    if not any(param in sweep_parameters for param in BATCHING_PARAMS):
+    fields = swept_fields(sweep_parameters)
+    if not any(param in fields for param in BATCHING_PARAMS):
         return {}
 
-    if 'batch_size' in sweep_parameters:
+    if 'batch_size' in fields:
         raise ValueError(
             "batch_size is derived. Sweep 'rollouts_per_step' instead to vary data per training step."
         )
@@ -144,6 +180,9 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
             learning_params         = train_config['learning_params']
             ppo_params              = learning_params['ppo_params']
 
+            apply_sweep_params(train_config, sweep_parameters)
+
+            # Derived after the sweep is applied, so save_dir itself can be swept.
             train_config['save_dir'] = (Path(train_config['save_dir']) / str(run.id)).as_posix()
             if PACE:                
                 save_rel_path = Path(train_config['save_dir'])
@@ -159,8 +198,6 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
                     print(f"Directory '{save_path}' already exists.")
                 
                 train_config['save_dir'] = save_path.as_posix()
-            
-            apply_sweep_params(learning_params, sweep_parameters)
 
             # Derive hyperparameters constrained by the swept ones.
             derived = {
