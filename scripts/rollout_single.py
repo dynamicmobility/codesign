@@ -18,7 +18,7 @@ from codesign.utils.model import normalize_design
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 OUT_DIR = Path("scripts/outputs")
 
-MO_ALGORITHMS = ("mo_design_hypernetwork", "mo_design_predictor_hypernetwork", "morlax")
+MO_ALGORITHMS = ("mo_design_hypernetwork", "mo_design_predictor_hypernetwork", "mo_design_mlp", "morlax")
 
 
 def resolve_single_design(values: list[float] | None, config) -> np.ndarray:

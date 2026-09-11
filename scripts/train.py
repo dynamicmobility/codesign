@@ -19,6 +19,8 @@ def get_handle_params(config):
     match config.algorithm:
         case 'design_mlp':
             return codesign.hyperdesigners.setup_design_mlp
+        case 'mo_design_mlp':
+            return codesign.hyperdesigners.setup_mo_design_mlp
         case 'design_hypernetwork':
             return codesign.hyperdesigners.setup_design_hypernetwork
         case 'design_lookup_hypernetwork':
@@ -69,7 +71,7 @@ def get_progress_fn(config, env: codesign.CodesignBase, resume=False):
     resumed = mm.find_resume(run_dir) if resume else None
     before = None if resumed is None else resumed.step
 
-    if config.algorithm in ('mo_design_hypernetwork', 'mo_design_predictor_hypernetwork'):
+    if config.algorithm in ('mo_design_hypernetwork', 'mo_design_predictor_hypernetwork', 'mo_design_mlp'):
         optimization = config.env_config.reward.optimization
         ref_point = optimization.get('reference_point', None)
         training_data = codesign.MODesignTrainingPlottingInfo(
@@ -133,12 +135,7 @@ def wrap_env(config, env):
                 env = env,
                 design = config.env_config.codesign.default_design
             )
-        case 'design_hypernetwork' | 'design_lookup_hypernetwork':
-            env = codesign.CodesignMO2SO(
-                env       = env,
-                weighting = config.env_config.reward.optimization.default_scalarization
-            )
-        case 'design_mlp':
+        case 'design_hypernetwork' | 'design_lookup_hypernetwork' | 'design_mlp':
             env = codesign.CodesignMO2SO(
                 env       = env,
                 weighting = config.env_config.reward.optimization.default_scalarization
@@ -148,7 +145,7 @@ def wrap_env(config, env):
                 env = env,
                 design = config.env_config.codesign.default_design
             )
-        case 'mo_design_hypernetwork' | 'mo_design_predictor_hypernetwork':
+        case 'mo_design_hypernetwork' | 'mo_design_predictor_hypernetwork' | 'mo_design_mlp':
             pass
         case e:
             raise Exception(f'Unknown algorithm {e}')

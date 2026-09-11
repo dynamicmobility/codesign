@@ -1,11 +1,11 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: design-hnet-walker6D
+name: mo-design-mlp-test
 save_dir: results/Sep10
-description: "Single-Objective 6D walker"
-algorithm: design_hypernetwork
-env: "MOCodesignWalker"
+description: "Multi-objective design-conditioned MLP network PPO over 3D CodesignCheetah with new algorithm code"
+algorithm: "mo_design_mlp"
+env: "MOCodesignCheetahBackLegs"
 backend: jnp # always jnp for training
 
 env_config:
@@ -15,28 +15,28 @@ env_config:
   reward:
     weights:
       run:        1.0
-      height:     0.5
+      height:     10.0
       energy:     0.00003
       alive:      1.0
       done:       0
     optimization:
-      objectives:        [['run'], ['energy']]
-      shared_objectives: ['alive', 'height']
-      labels:            ['Running Speed', 'Energy']
-      default_scalarization: [1.0, 0.0]
+      objectives:        [['run'], ['energy'], ['height']]
+      shared_objectives: ['alive']
+      labels:            ['Running Speed', 'Height']
+      default_scalarization: [0.0, 0.0, 1.0]
   termination:
     enabled: true
     base_height: 0.2
   codesign:
-    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    default_design: [1.0, 1.0, 1.0]
+    low:  [0.5, 0.5, 0.5]
+    high: [2.0, 2.0, 2.0]
 
 learning_params:
   ppo_params:
-    num_timesteps: 1000000000
+    num_timesteps: 4000000000
     episode_length: 500
-    num_parallel_envs: 4096 # = num_designs * rollouts per design
+    num_parallel_envs: 4096
     unroll_length: 20
     batch_size: 1024
     num_minibatches: 8
@@ -56,15 +56,10 @@ learning_params:
     seed: 0
     value_loss_type: mse
     huber_delta: 1.0
-    batching_strategy: stratified
+    batching_strategy: stratified  # design | shuffle | stratified
   network_params:
-    hypersize: [1024, 1024]
-    num_features: 64
     policy_hidden_layer_sizes: [256, 256, 128]
     value_hidden_layer_sizes:  [256, 256, 128]
-    initialization_strategy: bias
-    weight_initializer: kaiming_uniform
-
   design_sampling:
     num_designs: 8 # How many different designs to sample in each epoch
     resamples_per_epoch: 4
