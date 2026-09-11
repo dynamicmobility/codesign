@@ -234,3 +234,4 @@ MUJOCO_LOG.TXT
 logs/
 
 scripts/icra/outputs
+scripts/iros/outputs
