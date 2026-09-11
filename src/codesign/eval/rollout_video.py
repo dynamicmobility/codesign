@@ -19,7 +19,8 @@ from codesign.learning.inference import (
     load_design_lookup_hypernetwork,
     load_mo_design_hypernetwork,
     load_mo_design_predictor_hypernetwork,
-    load_design_mlp
+    load_design_mlp,
+    load_mo_design_mlp
 )
 from codesign.utils.model import normalize_design, unnormalize_design
 from codesign.utils.plotting import objective_labels
@@ -223,6 +224,46 @@ def rollout_mo_design_hypernetwork_video(
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
 
+def rollout_mo_design_mlp_video(
+    env,
+    config,
+    design,
+    tradeoff,
+    n_steps: int,
+    *,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    camera: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    gen_video: bool = True,
+    eval_design = None,
+):
+    """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
+
+    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single_video`.
+    """
+    if(eval_design is None):
+        eval_design = design
+    design       = np.asarray(design, np.float32).reshape(-1) # flatten
+    design_input = normalize_design(jnp.asarray(design), config=config)
+
+    tradeoff_arr   = np.asarray(tradeoff, np.float32).reshape(-1)  # (num_objectives,)
+    tradeoff_arr   = tradeoff_arr / np.sum(tradeoff_arr)  # normalize onto the simplex
+    tradeoff_input = jnp.asarray(tradeoff_arr)
+
+    # Trained, (design, tradeoff)-conditioned policy (1-D inputs -> unbatched).
+    inference_fn, params = load_mo_design_mlp(config, path=checkpoint_path)
+    base_policy = inference_fn(
+        params, design_input, tradeoff_input, deterministic=deterministic
+    )
+    policy = mm.from_inference_fn(base_policy)
+
+    return rollout_single_video(
+        env, eval_design, policy, n_steps,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+    )
 
 def _simplex(tradeoff, num_objectives):
     """CLI tradeoff values -> a ``(num_objectives,)`` array summing to one."""
@@ -516,6 +557,15 @@ def rollout_policy_video(
             env, config, design=design, eval_design=eval_design, tradeoff=tradeoff,
             n_steps=n_steps, checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
+        )
+
+    elif algorithm == "mo_design_mlp":
+        design, eval_design       = _default_designs(config, design, eval_design)
+        tradeoff, design_tradeoff = _simplex(tradeoff, _num_objectives(config)), None
+        rollout = rollout_mo_design_mlp_video(
+            env, config, design=design, eval_design=eval_design, n_steps=n_steps,
+            checkpoint_path=checkpoint_path, seed=seed,
+            camera=camera, width=width, height=height, tradeoff=tradeoff
         )
 
     elif algorithm == "mo_design_predictor_hypernetwork":
