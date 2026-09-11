@@ -30,4 +30,4 @@ module load cuda
 export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
-python3 -m scripts.train --config config/mo_design_hypernetwork/cheetah6D.yaml
+python3 -m scripts.train --config config/mo_design_mlp/cheetah6D.yaml
