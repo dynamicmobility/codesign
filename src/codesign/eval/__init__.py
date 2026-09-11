@@ -10,7 +10,10 @@ from . import parallel_eval
 from .parallel_eval import (
     rollout_so_parallel,
     rollout_design_hypernetwork,
+    rollout_design_hypernetwork_grid,
     rollout_mo_design_hypernetwork,
+    rollout_morlax,
+    rollout_grid,
     TRAJECTORY_FIELDS,
 )
 from . import rollout_video
@@ -31,7 +34,10 @@ from .rollout_video import (
 __all__ = [
     "rollout_so_parallel",
     "rollout_design_hypernetwork",
+    "rollout_design_hypernetwork_grid",
     "rollout_mo_design_hypernetwork",
+    "rollout_morlax",
+    "rollout_grid",
     "TRAJECTORY_FIELDS",
     "rollout_single_video",
     "rollout_design_hypernetwork_video",
