@@ -21,6 +21,13 @@ from codesign.hyperdesigners.variants.design_mlp import (
     setup_design_mlp,
     train_design_mlp,
 )
+
+from codesign.hyperdesigners.variants.mo_design_mlp import (
+    compute_mo_design_mlp_loss,
+    make_mo_design_mlp_inference_fn,
+    make_mo_design_mlp_networks,
+    setup_mo_design_mlp,
+)
 from codesign.hyperdesigners.variants.design_hypernetwork import (
     compute_design_hypernet_loss,
     make_design_hypernet_networks,

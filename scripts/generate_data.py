@@ -1,4 +1,9 @@
-"""Generate design x tradeoff rollout datasets from a trained MO design hypernetwork.
+"""Generate rollout datasets from a trained design hypernetwork, MO design hypernetwork,
+or morlax run.
+
+Each run's policy is swept over the axes it was trained to condition on -- designs for
+``design_hypernetwork``, designs x tradeoffs for ``mo_design_hypernetwork``, tradeoffs
+alone for ``morlax`` -- and the rolled-out grid is saved as one npz.
 """
 
 import argparse
@@ -6,31 +11,44 @@ from pathlib import Path
 
 import minimal_mjx as mm
 import moplayground as mop
-from functools import partial
 import codesign
 
 ENTITY            = "vmadabushi3-georgia-institute-of-technology"
 PROJECT           = "codesign"
 ARTIFACT_PREFIX   = "hypernetworks"
 
-DOWNLOAD_DIR          = "results/wandb-downloads"
-SAVE_PATH             = "scripts/outputs/datasets"
-PREDICTOR_ALGORITHM   = "mo_design_predictor_hypernetwork"
+DOWNLOAD_DIR      = "results/wandb-downloads"
+SAVE_PATH         = None #"scripts/outputs/datasets"
 
-N_DESIGNS   = 16   # designs per tradeoff (the whole sweep, for the non-predictor grid)
+N_DESIGNS   = 16   # designs the sweep covers the design box with
 N_TRADEOFFS = 16   # sampled tradeoffs; == num_objectives gives the simplex corners
 PER_CELL    = 1    # rollout repetitions per (design, tradeoff) cell
 STEPS       = 500  # rollout length (env steps)
 RECORD      = ("reward", "done", "qpos")
+TRADEOFFS   = "uniform"
 
-# Tradeoff layout of the non-predictor grid -> its Grid constructor and the keyword
-# --n_tradeoffs feeds it (None where the layout fixes its own count).
-TRADEOFF_LAYOUTS = {
-    "uniform" : (codesign.Grid.from_uniform_sample, "n_tradeoffs"),
-    "corners" : (codesign.Grid.from_simplex_corners, None),
-    "2d"      : (codesign.Grid.from_2d_tradeoffs, "n_tradeoffs_per_pair"),
+# The rollout each supported algorithm sweeps its grid with.
+ROLLOUTS = {
+    "design_hypernetwork"    : codesign.rollout_design_hypernetwork_grid,
+    "mo_design_hypernetwork" : codesign.rollout_mo_design_hypernetwork,
+    "morlax"                 : codesign.rollout_morlax,
 }
-TRADEOFFS = "uniform"
+
+# Sweep axes an algorithm does not have, so their options must be left off the command
+# line: the single-objective hypernetwork trains under one fixed scalarization, and morlax
+# trains on one fixed design.
+UNUSED_OPTIONS = {
+    "design_hypernetwork"    : ("n_tradeoffs", "tradeoffs"),
+    "mo_design_hypernetwork" : (),
+    "morlax"                 : ("n_designs",),
+}
+
+# Defaults for the options an algorithm does use; the rest stay ``None``.
+DEFAULTS = {
+    "n_designs"   : N_DESIGNS,
+    "n_tradeoffs" : N_TRADEOFFS,
+    "tradeoffs"   : TRADEOFFS,
+}
 
 
 def load_config(args) -> dict:
@@ -51,91 +69,101 @@ def load_config(args) -> dict:
     return mm.create_config_dict(config)
 
 
-def build_sweep_grid(env, args) -> codesign.Grid:
-    """Builds the sweep grid depending on the sampling strategy in args.tradeoffs
-    """
-    match args.tradeoffs:
-        case 'uniform':
-            build = partial(
-                codesign.Grid.from_uniform_sample,
-                n_tradeoffs = args.n_tradeoffs
+def check_options(config, args) -> None:
+    """Reject a run this script cannot sweep, and options its algorithm has no axis for."""
+    algorithm = config.algorithm
+    if algorithm not in ROLLOUTS:
+        raise ValueError(
+            f"'{algorithm}' runs cannot be swept; expected one of {sorted(ROLLOUTS)}."
+        )
+    for option in UNUSED_OPTIONS[algorithm]:
+        if getattr(args, option) is not None:
+            raise ValueError(
+                f"--{option} does not apply to '{algorithm}', which has no such sweep "
+                "axis; drop the option."
             )
-        case 'corners':
-            build = codesign.Grid.from_simplex_corners
-        case '2d':
-            build = partial(
-                codesign.Grid.from_2d_tradeoffs,
-                n_tradeoffs_per_pair = args.n_tradeoffs
-            )
-    return build(
-        env,
-        seed      = args.seed,
-        n_designs = args.n_designs,
-        per_cell  = args.per_cell,
+
+
+def fill_defaults(config, args):
+    """Default the options the algorithm does use. They parse as ``None`` so that passing
+    one it has no axis for is an error rather than a silently ignored value."""
+    for option, default in DEFAULTS.items():
+        if option not in UNUSED_OPTIONS[config.algorithm] and getattr(args, option) is None:
+            setattr(args, option, default)
+    return args
+
+
+def build_grid(config, env, args) -> codesign.Grid:
+    """The grid the run's algorithm is swept over, in physical design units."""
+    # The sampled tradeoffs of a multi-objective run; a single-objective one leaves the
+    # layout unset (see UNUSED_OPTIONS) and sweeps its own scalarization instead.
+    tradeoffs = None if args.tradeoffs is None else codesign.tradeoff_layout(
+        args.tradeoffs, len(env.objectives), args.seed, n_tradeoffs=args.n_tradeoffs
     )
+    match config.algorithm:
+        case "design_hypernetwork":
+            return codesign.Grid.from_design_sample(
+                env,
+                args.seed,
+                n_designs  = args.n_designs,
+                per_cell   = args.per_cell,
+                tradeoffs  = [config.env_config.reward.optimization.default_scalarization],
+                objectives = env.objectives,
+            )
+        case "mo_design_hypernetwork":
+            return codesign.Grid.from_design_sample(
+                env,
+                args.seed,
+                n_designs  = args.n_designs,
+                per_cell   = args.per_cell,
+                tradeoffs  = tradeoffs,
+                objectives = env.objectives,
+            )
+        case "morlax":
+            # morlax trains on one design, so the design axis is that design alone.
+            return codesign.Grid.crossed(
+                [config.env_config.codesign.default_design],
+                tradeoffs,
+                per_cell   = args.per_cell,
+                objectives = env.objectives,
+            )
+
+
+def dataset_name(args) -> str:
+    """``sweep`` for the default tradeoff layout, which the plotting scripts load."""
+    if args.tradeoffs in (None, TRADEOFFS):
+        return "sweep"
+    return f"sweep_{args.tradeoffs}"
 
 
 def main(args) -> None:
     config = load_config(args)
-    env, _ = codesign.envs.create.load_env(config)
-    is_predictor_run = config["algorithm"] == PREDICTOR_ALGORITHM
-    if args.predictor_only and not is_predictor_run:
-        raise ValueError(
-            f"--predictor_only needs a '{PREDICTOR_ALGORITHM}' run; this one is "
-            f"'{config['algorithm']}', which has no design predictor to sample from."
-        )
+    check_options(config, args)
+    args = fill_defaults(config, args)
 
-    save_path = Path(args.save_path)
-
-    def build_grid(design_predictor: bool):
-        """The design-box sweep, or the predictor's own designs for each tradeoff."""
-        if not design_predictor:
-            return build_sweep_grid(env, args)
-        # params = (normalizer, hypernet, design_predictor)
-        _, design_predictor_inference_fn, params = (
-            codesign.load_mo_design_predictor_hypernetwork(config, path=args.checkpoint)
-        )
-        grid, _ = codesign.Grid.from_predictor(
-            env,
-            design_predictor_inference_fn,
-            params[2],
-            seed        = args.seed,
-            n_tradeoffs = args.n_tradeoffs,
-            n_designs   = args.n_designs,
-            per_cell    = args.per_cell,
-        )
-        return grid
-
-    def rollout(design_predictor: bool) -> codesign.Grid:
-        return codesign.rollout_mo_design_hypernetwork(
-            env              = env,
-            config           = config,
-            grid             = build_grid(design_predictor),
-            n_steps          = args.steps,
-            checkpoint_path  = args.checkpoint,
-            seed             = args.seed,
-            deterministic    = not args.stochastic_policy,
-            record           = args.record,
-        )
-
-    datasets = {}
-    if not args.predictor_only:
-        # the default layout keeps the plain `sweep` name the plotting scripts load
-        sweep_name = "sweep" + ("" if args.tradeoffs == TRADEOFFS else f"_{args.tradeoffs}")
-        datasets[sweep_name] = rollout(design_predictor=False)
-    if is_predictor_run:
-        datasets["predictor"] = rollout(design_predictor=True)
-
-    if args.run_id:
-        save_path = save_path / args.run_id
-    else:
-        save_path = save_path / config.name
-    save_path.mkdir(parents=True, exist_ok=True)
+    env, _ = codesign.load_env(config)
+    dataset = ROLLOUTS[config.algorithm](
+        env             = env,
+        config          = config,
+        grid            = build_grid(config, env, args),
+        n_steps         = args.steps,
+        checkpoint_path = args.checkpoint,
+        seed            = args.seed,
+        deterministic   = not args.stochastic_policy,
+        record          = args.record,
+    )
     
-    for name, dataset in datasets.items():
-        dataset.save(save_path / f"{name}.npz")
-        print(f"{name}: rewards {dataset.rewards.shape}, keys {dataset.keys} -> "
-              f"{save_path / f'{name}.npz'}")
+    if args.save_path is None:
+        if args.config:
+            save_path = Path(args.config).parent
+        else:
+            save_path = Path(DOWNLOAD_DIR) / args.run_id
+    else:
+        save_path = Path(args.save_path) / (args.run_id or config.name)
+    save_path.mkdir(parents=True, exist_ok=True)
+    path = save_path / f"{dataset_name(args)}.npz"
+    dataset.save(path)
+    print(f"rewards {dataset.rewards.shape}, keys {dataset.keys} -> {path}")
 
 
 def parse_args():
@@ -146,22 +174,25 @@ def parse_args():
     source.add_argument("--config", type=str, default=None,
                         help="path to a local config.yaml of an already-downloaded run")
     parser.add_argument("--save_path", type=str, default=SAVE_PATH,
-                        help="directory the datasets are written into")
+                        help="directory the dataset is written into")
     parser.add_argument("--download_dir", type=str, default=DOWNLOAD_DIR,
                         help="directory --run_id downloads into")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="explicit checkpoint dir; defaults to the latest of the run")
-    parser.add_argument("--n_designs", type=int, default=N_DESIGNS,
-                        help="designs per tradeoff; 1 takes the predictor's mode")
-    parser.add_argument("--n_tradeoffs", type=int, default=N_TRADEOFFS,
-                        help="tradeoffs of the design sweep; per objective pair under "
-                             "--tradeoffs 2d, ignored under --tradeoffs corners")
-    parser.add_argument("--tradeoffs", type=str, default=TRADEOFFS,
-                        choices=sorted(TRADEOFF_LAYOUTS),
-                        help="tradeoff layout of the design sweep: 'uniform' samples the "
-                             "simplex, 'corners' takes its one-hot corners, '2d' sweeps "
-                             "each objective pair's edge. Non-default layouts are saved "
-                             "as sweep_<layout>.npz")
+    parser.add_argument("--n_designs", type=int, default=None,
+                        help=f"designs the sweep covers the design box with (default "
+                             f"{N_DESIGNS}); morlax trains on one fixed design, so it "
+                             "takes no such option")
+    parser.add_argument("--n_tradeoffs", type=int, default=None,
+                        help=f"tradeoffs of the sweep (default {N_TRADEOFFS}); per "
+                             "objective pair under --tradeoffs 2d, ignored under "
+                             "--tradeoffs corners. Single-objective runs take no tradeoff")
+    parser.add_argument("--tradeoffs", type=str, default=None,
+                        choices=sorted(codesign.TRADEOFF_LAYOUTS),
+                        help=f"tradeoff layout of the sweep (default {TRADEOFFS}): "
+                             "'uniform' samples the simplex, 'corners' takes its one-hot "
+                             "corners, '2d' sweeps each objective pair's edge. Non-default "
+                             "layouts are saved as sweep_<layout>.npz")
     parser.add_argument("--per_cell", type=int, default=PER_CELL,
                         help="repetitions per cell; only informative with a stochastic "
                              "policy or env reset")
@@ -173,8 +204,6 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--stochastic_policy", action="store_true",
                         help="sample the policy each step instead of taking its mode")
-    parser.add_argument("--predictor_only", action="store_true",
-                        help="skip the design-box sweep and only roll out the predictor's designs")
     return parser.parse_args()
 
 

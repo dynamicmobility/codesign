@@ -18,7 +18,7 @@ from codesign.utils.model import normalize_design
 CONFIG_PATH = "config/design_hypernetwork_cheetah.yaml"
 OUT_DIR = Path("scripts/outputs")
 
-MO_ALGORITHMS = ("mo_design_hypernetwork", "mo_design_predictor_hypernetwork")
+MO_ALGORITHMS = ("mo_design_hypernetwork", "mo_design_predictor_hypernetwork", "mo_design_mlp", "morlax")
 
 
 def resolve_single_design(values: list[float] | None, config) -> np.ndarray:
@@ -154,7 +154,7 @@ def main(
     use_caption: bool
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-    env, _ = codesign.load_env(config, backend = 'np')  # renderable (mujoco) env
+    env, _ = codesign.load_env(config, backend = 'jnp')  # renderable (mujoco) env
 
     design, eval_design       = resolve_design_args(design, eval_design, config)
     tradeoff, design_tradeoff = resolve_tradeoffs_args(tradeoff, design_tradeoff, config)
@@ -176,6 +176,8 @@ def main(
         width           = 640,
         height          = 480,
         use_caption     = use_caption,
+        deterministic   = True,
+        seed            = 21,
     )
     print(f"rendered video -> {rollout.path}")
     print(f"rendered plots -> {save_reward_plot(rollout)}")

@@ -31,7 +31,7 @@ export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
 python3 -m scripts.wandb_sweep \
---sweep config/sweeps/cheetah_ppo.yaml \
---config config/cheetah.yaml \
---num_trials 20 \
+--sweep config/ppo/sweeps/cheetah_designs.yaml \
+--config config/ppo/cheetah.yaml \
+--num_trials 2 \
 --pace True

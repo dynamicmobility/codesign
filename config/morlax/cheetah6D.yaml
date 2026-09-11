@@ -1,10 +1,10 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mdh-cheetah6d-biggerW-shorter
-save_dir: results/Sep08
+name: test
+save_dir: results/Sep10
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
-algorithm: "mo_design_hypernetwork"
+algorithm: morlax
 env: "MOCodesignCheetah"
 backend: jnp # always jnp for training
 
@@ -37,7 +37,7 @@ learning_params:
   ppo_params:
     num_timesteps: 1000000000
     episode_length: 500
-    num_parallel_envs: 4096
+    num_envs: 4096
     unroll_length: 20
     batch_size: 256 #1024
     num_minibatches: 16
@@ -55,24 +55,14 @@ learning_params:
     num_eval_envs: 1024
     deterministic_eval: true
     seed: 0
-    value_loss_type: mse
-    huber_delta: 1.0
-    batching_strategy: stratified  # design | shuffle | stratified
   network_params:
-    hypersize: [1024, 1024]
-    num_features: 128
-    policy_hidden_layer_sizes: [256, 256, 128]
-    value_hidden_layer_sizes:  [256, 256, 128]
-  design_sampling:
-    num_designs: 8 # How many different designs to sample in each epoch
-    resamples_per_epoch: 4
-    strategy: random         # random | fixed | noisy-fixed
-    warmup_strategy: fixed   # runs for the first warmup_epochs epochs
-    warmup_epochs: 7         # number of epochs (num_evals - 1 in total)
-    rate: 0.02               # noisy-fixed only: std added per resample, in normalized box u
-    num_eval_designs: 16
-  tradeoff_sampling:
-    num_tradeoffs: 16
+    hypersize: [128, 128]
+    num_features: 16
+    hypertype: dual
+    policy_hidden_layer_sizes: [64, 64]
+    value_hidden_layer_sizes:  [64, 64]
+  morlax_params:
     alpha: 1.0
-    sampling: sparse-heavytail # dense | sparse-heavytail | single-avg
-    num_eval_tradeoffs: 16
+    k: 8
+    sampling: sparse-heavytail
+    warmup_frac: 0.0  

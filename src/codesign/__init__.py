@@ -22,7 +22,10 @@ from .envs import (
 from .eval import (
     rollout_so_parallel,
     rollout_design_hypernetwork,
+    rollout_design_hypernetwork_grid,
     rollout_mo_design_hypernetwork,
+    rollout_morlax,
+    rollout_grid,
     TRAJECTORY_FIELDS,
     rollout_single_video,
     rollout_design_hypernetwork_video,
@@ -80,6 +83,8 @@ from .learning import (
 # utils
 from .utils import (
     Grid,
+    tradeoff_layout,
+    TRADEOFF_LAYOUTS,
     load_training_data,
     uniform_design_sweep,
     stack_models,
@@ -139,7 +144,10 @@ __all__ = [
     "from_inference_fn",
     "rollout_so_parallel",
     "rollout_design_hypernetwork",
+    "rollout_design_hypernetwork_grid",
     "rollout_mo_design_hypernetwork",
+    "rollout_morlax",
+    "rollout_grid",
     "TRAJECTORY_FIELDS",
     "rollout_single_video",
     "rollout_design_hypernetwork_video",
@@ -187,6 +195,8 @@ __all__ = [
     "load_mo_design_predictor_hypernetwork",
     # utils
     "Grid",
+    "tradeoff_layout",
+    "TRADEOFF_LAYOUTS",
     "uniform_design_sweep",
     "stack_models",
     "build_batched_model",

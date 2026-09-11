@@ -1,6 +1,6 @@
 """Single-instance (non-parallel) rollout of a policy on one Env, rendered to video.
 """
-
+# TODO: clean up this terrible file...rip
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,14 +12,15 @@ from mujoco import mjx
 from mujoco_playground._src.mjx_env import render_array
 from tqdm import tqdm
 
-from codesign.envs import CodesignBase, MOCodesignBase, CodesignMO2SO, load_env
-from minimal_mjx.eval import policy as policy_lib
+from codesign.envs import CodesignBase, MOCodesignBase, CodesignMO2SO, load_env, Codesign2SingleDesign
+import moplayground as mop
 from codesign.learning.inference import (
     load_design_hypernetwork,
     load_design_lookup_hypernetwork,
     load_mo_design_hypernetwork,
     load_mo_design_predictor_hypernetwork,
-    load_design_mlp
+    load_design_mlp,
+    load_mo_design_mlp
 )
 from codesign.utils.model import normalize_design, unnormalize_design
 from codesign.utils.plotting import objective_labels
@@ -223,6 +224,46 @@ def rollout_mo_design_hypernetwork_video(
         seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
     )
 
+def rollout_mo_design_mlp_video(
+    env,
+    config,
+    design,
+    tradeoff,
+    n_steps: int,
+    *,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    camera: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    gen_video: bool = True,
+    eval_design = None,
+):
+    """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
+
+    Returns ``(frames, traj, reward_plotter, data_plotter, info_plotter)`` via :func:`rollout_single_video`.
+    """
+    if(eval_design is None):
+        eval_design = design
+    design       = np.asarray(design, np.float32).reshape(-1) # flatten
+    design_input = normalize_design(jnp.asarray(design), config=config)
+
+    tradeoff_arr   = np.asarray(tradeoff, np.float32).reshape(-1)  # (num_objectives,)
+    tradeoff_arr   = tradeoff_arr / np.sum(tradeoff_arr)  # normalize onto the simplex
+    tradeoff_input = jnp.asarray(tradeoff_arr)
+
+    # Trained, (design, tradeoff)-conditioned policy (1-D inputs -> unbatched).
+    inference_fn, params = load_mo_design_mlp(config, path=checkpoint_path)
+    base_policy = inference_fn(
+        params, design_input, tradeoff_input, deterministic=deterministic
+    )
+    policy = mm.from_inference_fn(base_policy)
+
+    return rollout_single_video(
+        env, eval_design, policy, n_steps,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+    )
 
 def _simplex(tradeoff, num_objectives):
     """CLI tradeoff values -> a ``(num_objectives,)`` array summing to one."""
@@ -298,10 +339,8 @@ def default_video_design(config):
     if config["algorithm"] == "ppo":
         return np.asarray(config['env_config']['codesign']["default_design"], np.float32).reshape(-1)
 
-    design = config["env_config"]['codesign']
-    low  = np.asarray(design["low"], np.float32).reshape(-1)
-    high = np.asarray(design["high"], np.float32).reshape(-1)
-    return 0.5 * (low + high)  # (design_dim,) box midpoint
+    design = config["env_config"]['codesign']['default_design']
+    return design
 
 
 def _writable_frame(frame):
@@ -403,14 +442,14 @@ def rollout_caption(config, design, eval_design=None, tradeoff=None, design_trad
 
 def _rollout_ppo_video(
     env, config, eval_design, n_steps, *, checkpoint_path=None, seed=0,
-    camera=None, width=None, height=None,
+    camera=None, width=None, height=None, deterministic=True
 ):
     """Roll the fixed-design PPO policy out on the scalarized (single-objective) env.
 
     The policy is unconditioned, so ``eval_design`` only selects the model it runs on.
     ``load_env`` already wraps ppo envs; the wrap here is for callers that pass a raw one.
     """
-    base_policy = mm.load_policy(config, deterministic=True, checkpoint_path=checkpoint_path)
+    base_policy = mm.load_policy(config, deterministic=deterministic, checkpoint_path=checkpoint_path)
     policy      = mm.from_inference_fn(base_policy)
     so_env      = (
         env if isinstance(env, CodesignMO2SO)
@@ -439,6 +478,7 @@ def rollout_policy_video(
     camera: str | None = None,
     width: int | None = 640,
     height: int | None = 480,
+    deterministic=True,
 ) -> RolloutVideo:
     """Roll the policy trained by ``config`` out on one design and render it.
 
@@ -475,7 +515,7 @@ def rollout_policy_video(
         tradeoff, design_tradeoff = None, None
         rollout = _rollout_ppo_video(
             env, config, eval_design, n_steps, checkpoint_path=checkpoint_path,
-            seed=seed, camera=camera, width=width, height=height,
+            seed=seed, camera=camera, width=width, height=height, deterministic=deterministic
         )
 
     elif algorithm == "design_hypernetwork":
@@ -515,6 +555,24 @@ def rollout_policy_video(
             env, config, design=design, eval_design=eval_design, tradeoff=tradeoff,
             n_steps=n_steps, checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
+        )
+    
+    elif algorithm == "morlax":
+        design, eval_design       = _default_designs(config, design, eval_design)
+        tradeoff, design_tradeoff = _simplex(tradeoff, _num_objectives(config)), None
+        env = Codesign2SingleDesign(env, design=eval_design)
+        rollout = mop.rollout_policy(
+            env, config, tradeoff=tradeoff, n_steps=n_steps,
+            camera=camera, width=width, height=height,
+        )
+
+    elif algorithm == "mo_design_mlp":
+        design, eval_design       = _default_designs(config, design, eval_design)
+        tradeoff, design_tradeoff = _simplex(tradeoff, _num_objectives(config)), None
+        rollout = rollout_mo_design_mlp_video(
+            env, config, design=design, eval_design=eval_design, n_steps=n_steps,
+            checkpoint_path=checkpoint_path, seed=seed,
+            camera=camera, width=width, height=height, tradeoff=tradeoff
         )
 
     elif algorithm == "mo_design_predictor_hypernetwork":
@@ -605,6 +663,7 @@ def save_policy_rollout_video(
     run: wandb.Run | None = None,
     log_key: str = "rollout",
     use_caption: bool = True,
+    deterministic: bool = True,
 ) -> RolloutVideo:
     """Roll out the trained policy for ``config`` and write the video to ``out_path``.
 
@@ -618,7 +677,7 @@ def save_policy_rollout_video(
         config, env=env, design=design, eval_design=eval_design, tradeoff=tradeoff,
         design_tradeoff=design_tradeoff, sample_design=sample_design, n_steps=n_steps,
         checkpoint_path=checkpoint_path, seed=seed,
-        camera=camera, width=width, height=height,
+        camera=camera, width=width, height=height, deterministic=deterministic
     )
     print(f"rendered {len(rollout.traj)} steps: {rollout.caption}")
     return write_rollout_video(rollout, out_path, run=run, log_key=log_key, use_caption=use_caption)

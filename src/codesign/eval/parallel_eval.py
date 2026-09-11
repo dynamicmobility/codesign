@@ -7,6 +7,8 @@ import functools
 import jax
 import jax.numpy as jnp
 import numpy as np
+from etils import epath
+from moplayground.learning.inference import load_hypernetwork_inference_fn
 
 from codesign.envs.codesign_base import CodesignMO2SO, CodesignBase, MOCodesignBase
 from minimal_mjx.eval import policy as policy_lib
@@ -178,6 +180,93 @@ def _load_mo_design_networks(config, checkpoint_path):
     return make_policy_fn, None, params
 
 
+def make_design_policy_fn(inference_fn):
+    """The grid rollout's ``make_policy`` for a design-conditioned single-objective
+    hypernetwork: it reads the cell's design, the cell's tradeoff being no part of what it
+    was trained on (see :func:`rollout_design_hypernetwork_grid`).
+    """
+    def make_policy(params, designs, tradeoffs, deterministic=True):
+        return inference_fn(params, designs, deterministic=deterministic)
+
+    return make_policy
+
+
+def make_morlax_policy_fn(inference_fn):
+    """The grid rollout's ``make_policy`` for morlax: its hypernetwork ``H(w)`` is keyed on
+    the tradeoff alone, morlax having trained on the one design its env was built with.
+    """
+    def make_policy(params, designs, tradeoffs, deterministic=True):
+        return inference_fn(params, tradeoffs, deterministic=deterministic)
+
+    return make_policy
+
+
+def grid_keys(grid: Grid, seed: int):
+    """One PRNG key per cell repetition, shaped ``grid.cell_shape + (2,)``."""
+    return jax.random.split(
+        jax.random.PRNGKey(seed + 2), grid.num_envs
+    ).reshape(*grid.cell_shape, -1)
+
+
+def rollout_grid(
+    env: CodesignBase,
+    config,
+    grid: Grid,
+    n_steps: int,
+    make_policy,
+    params,
+    *,
+    seed: int = 0,
+    deterministic: bool = True,
+    record=(),
+) -> Grid:
+    """Roll a design/tradeoff-conditioned policy out over every cell of ``grid``, in parallel.
+
+    How designs and tradeoffs pair up is the grid's own: a crossed grid rolls every design
+    out against every tradeoff, while a predictor grid's ``designs[:, k]`` were drawn from
+    ``f(d | w_k)`` and meet that tradeoff alone. Each cell is rolled out ``grid.per_cell``
+    times for ``n_steps`` steps, on the model that cell's design builds.
+
+    Args:
+        env: a model-as-input env (e.g. ``CodesignCheetah``).
+        config: the run config dict (as written to ``config.yaml`` at train time).
+        grid: the design x tradeoff grid to roll out, in physical design units.
+        n_steps: rollout length in env steps.
+        make_policy: ``make_policy(params, designs, tradeoffs, deterministic) ->
+            policy(obs, key)``, built per cell by :func:`build_grid_rollout_fn`.
+        params: the trained parameters ``make_policy`` reads.
+        seed: base PRNG seed for the rollout resets and action streams.
+        deterministic: take the policy mode (vs. sampling) at each step.
+        record: :data:`TRAJECTORY_FIELDS` keys to keep per step, e.g. ``("reward", "obs")``.
+
+    Returns:
+        A copy of ``grid`` with ``rewards`` filled in -- the accumulated per-objective
+        returns, shape ``(M, K, C, n_r)`` -- whose recorded ``data[key]`` fields carry a
+        leading ``(M, K, C, n_steps)``.
+    """
+    batched_model = grid.build_models(env, tiled=False)
+    # The policy is conditioned on designs in [0, 1]; the grid holds physical units.
+    designs_input = model_lib.normalize_design(jnp.asarray(grid.designs), config=config)
+
+    rollout_fn = build_grid_rollout_fn(
+        env           = env,
+        n_steps       = n_steps,
+        make_policy   = make_policy,
+        deterministic = deterministic,
+        record_fn     = make_record_fn(record),
+    )
+    (_, _, final_rewards), records = rollout_fn(
+        grid_keys(grid, seed), designs_input, jnp.asarray(grid.tradeoffs),
+        batched_model, params,
+    )
+    return dataclasses.replace(
+        grid,
+        rewards    = np.asarray(final_rewards),
+        objectives = env.objectives,
+        data       = _named_records(records),
+    )
+
+
 def rollout_mo_design_hypernetwork(
     env: CodesignBase,
     config,
@@ -191,52 +280,24 @@ def rollout_mo_design_hypernetwork(
 ) -> Grid:
     """Roll out a trained MO design hypernetwork over a sampled design x tradeoff grid.
 
-    How designs and tradeoffs pair up is the grid's own: a crossed grid rolls every design
-    out against every tradeoff, while a predictor grid's ``designs[:, k]`` were drawn from
-    ``f(d | w_k)`` and meet that tradeoff alone. Each cell is rolled out ``grid.per_cell``
-    times for ``n_steps`` steps.
-
-    Args:
-        env: a model-as-input env (e.g. ``CodesignCheetah``).
-        config: the run config dict (as written to ``config.yaml`` at train time).
-        grid: the design x tradeoff grid to roll out, in physical design units.
-        n_steps: rollout length in env steps.
-        checkpoint_path: explicit checkpoint dir; defaults to latest under ``save_dir/name``.
-        seed: base PRNG seed for the rollout resets and action streams.
-        deterministic: take the policy mode (vs. sampling) at each step.
-        record: :data:`TRAJECTORY_FIELDS` keys to keep per step, e.g. ``("reward", "obs")``.
+    Its policy is keyed on both axes of a cell, so the grid is swept as :func:`rollout_grid`
+    describes. Arguments are that function's, minus the policy it loads here.
 
     Returns:
-        A copy of ``grid`` with ``rewards`` filled in -- the accumulated per-objective
-        returns, shape ``(M, K, C, n_r)`` -- whose recorded ``data[key]`` fields carry a
-        leading ``(M, K, C, n_steps)``, and whose ``data["value"]`` is the initial-state
-        value prediction per grid cell.
+        The rolled-out grid, whose ``data["value"]`` additionally holds the value
+        hypernetwork's initial-state prediction per cell.
     """
     make_policy_fn, _, params = _load_mo_design_networks(config, checkpoint_path)
-
-    batched_model = grid.build_models(env, tiled=False)
-    keys = jax.random.split(
-        jax.random.PRNGKey(seed + 2), grid.num_envs
-    ).reshape(*grid.cell_shape, -1)
-    # The policy is conditioned on designs in [0, 1]; the grid holds physical units.
-    designs_input = model_lib.normalize_design(jnp.asarray(grid.designs), config=config)
-
-    rollout_fn = build_grid_rollout_fn(
-        env           = env,
-        n_steps       = n_steps,
-        make_policy   = make_policy_fn,
-        deterministic = deterministic,
-        record_fn     = make_record_fn(record),
-    )
-    (_, _, final_rewards), records = rollout_fn(
-        keys, designs_input, jnp.asarray(grid.tradeoffs), batched_model, params
+    rolled = rollout_grid(
+        env, config, grid, n_steps, make_policy_fn, params,
+        seed=seed, deterministic=deterministic, record=record,
     )
 
     value_inference_fn, value_params = load_mo_design_value_hypernetwork(
         config, path=checkpoint_path
     )
     flat_designs, flat_tradeoffs = grid.flatten()
-    reset_keys = jax.vmap(jax.random.split)(keys.reshape(-1, 2))[:, 0]
+    reset_keys = jax.vmap(jax.random.split)(grid_keys(grid, seed).reshape(-1, 2))[:, 0]
     initial_states = jax.vmap(env.reset)(
         reset_keys, grid.build_models(env, tiled=True)
     )
@@ -247,11 +308,62 @@ def rollout_mo_design_hypernetwork(
     )
     values = grid.unflatten(np.asarray(value_fn(initial_states.obs)))
 
-    return dataclasses.replace(
-        grid,
-        rewards    = np.asarray(final_rewards),
-        objectives = env.objectives,
-        data       = {**_named_records(records), "value": values}, # TODO: look into this _named_records thing. seems like slop
+    return dataclasses.replace(rolled, data={**rolled.data, "value": values})
+
+
+def rollout_design_hypernetwork_grid(
+    env: CodesignBase,
+    config,
+    grid: Grid,
+    n_steps: int,
+    *,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    record=(),
+) -> Grid:
+    """Roll out a trained (single-objective) design hypernetwork over a design sweep grid.
+
+    The policy is keyed on the design alone, so the grid's single tradeoff column is never
+    fed to it: it records which scalarization the run was trained under, and is what
+    ``grid.scalarized_rewards`` weighs the env's per-objective returns by.
+
+    Unlike :func:`rollout_design_hypernetwork`, which returns per-step scalar rewards over a
+    design sweep, this fills in a :class:`~codesign.utils.grid.Grid`, so every hypernetwork's
+    dataset shares one layout. Arguments are :func:`rollout_grid`'s, minus the policy it
+    loads here.
+    """
+    inference_fn, params = load_design_hypernetwork(config, path=checkpoint_path)
+    return rollout_grid(
+        env, config, grid, n_steps, make_design_policy_fn(inference_fn), params,
+        seed=seed, deterministic=deterministic, record=record,
+    )
+
+
+def rollout_morlax(
+    env: MOCodesignBase,
+    config,
+    grid: Grid,
+    n_steps: int,
+    *,
+    checkpoint_path: str | None = None,
+    seed: int = 0,
+    deterministic: bool = True,
+    record=(),
+) -> Grid:
+    """Roll out a trained morlax hypernetwork over a tradeoff sweep grid.
+
+    morlax keys its policy on the tradeoff alone and trains against a single design, so the
+    grid it sweeps is that one design (``env_config.codesign.default_design``) against ``K``
+    tradeoffs -- a ``(1, K, C, n_r)`` grid. The rollout is otherwise the hypernetworks':
+    arguments are :func:`rollout_grid`'s, minus the policy it loads here.
+    """
+    inference_fn, params = load_hypernetwork_inference_fn(
+        config, path=None if checkpoint_path is None else epath.Path(checkpoint_path)
+    )
+    return rollout_grid(
+        env, config, grid, n_steps, make_morlax_policy_fn(inference_fn), params,
+        seed=seed, deterministic=deterministic, record=record,
     )
 
 
