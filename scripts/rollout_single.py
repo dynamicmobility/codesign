@@ -151,7 +151,8 @@ def main(
     sample_design: bool,
     steps: int,
     camera: str,
-    use_caption: bool
+    use_caption: bool,
+    out_dir: str,
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
     env, _ = codesign.load_env(config, backend = 'jnp')  # renderable (mujoco) env
@@ -163,7 +164,7 @@ def main(
 
     rollout = codesign.save_policy_rollout_video(
         config,
-        OUT_DIR / f"{config['algorithm']}.mp4",
+        out_dir / f"{config['algorithm']}.mp4",
         env             = env,
         design          = design,
         eval_design     = eval_design,
@@ -218,6 +219,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--caption", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--out_dir", type=str, default=OUT_DIR)
     args = parser.parse_args()
     main(
         config_path = args.config,
@@ -229,5 +231,6 @@ if __name__ == "__main__":
         steps = args.steps,
         camera = args.camera,
         eval_design = args.eval_design,
-        use_caption = args.caption
+        use_caption = args.caption,
+        out_dir = args.out_dir,
     )
