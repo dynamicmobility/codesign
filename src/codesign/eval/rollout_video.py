@@ -43,6 +43,7 @@ def rollout_single_video(
     show_progress: bool = True,
     scene_option = mm.get_mj_scene_option(contacts=False, com=False),
     enable_termination: bool = True,
+    robot_color: tuple[float, float, float, float] | None = None,
 ):
     """Roll a single Codesign env (one design) forward under ``policy`` and render it.
 
@@ -56,6 +57,8 @@ def rollout_single_video(
             model when ``None``).
         gen_video: whether to generate video
         show_progress: show a tqdm progress bar.
+        robot_color: optional RGBA color (four values in [0, 1]) for the
+            robot's ``self`` material. ``None`` preserves the XML color.
 
     Returns:
         ``(frames, traj)``: ``frames`` is a list of RGB arrays (or ``None``) and 
@@ -64,12 +67,20 @@ def rollout_single_video(
     d = np.asarray(design, np.float32).reshape(-1)
     mj_model = env.generate_model(d)
 
+    if robot_color is not None:
+        rgba = np.asarray(robot_color, dtype=np.float32)
+        if rgba.shape != (4,) or not np.all(np.isfinite(rgba) & (rgba >= 0) & (rgba <= 1)):
+            raise ValueError("robot_color must contain four finite RGBA values in [0, 1]")
+        # Named material access is a writable view into mj_model.mat_rgba.
+        mj_model.material("self").rgba[:] = rgba
+
     if env.backend == 'jnp':
         model = mjx.put_model(mj_model)
     else:
         model = mj_model
     width, height = mm.infer_frame_dim(model, width, height)
 
+    print(model.material("self").rgba)
     step, reset = mm.get_step_reset(env)
 
     rng = jax.random.PRNGKey(seed)
@@ -117,6 +128,7 @@ def rollout_design_hypernetwork_video(
     gen_video: bool = True,
     eval_design = None,
     load_fn = None,
+    robot_color = None,
 ):
     """Render a trained design-hypernetwork policy on a single design.
 
@@ -139,7 +151,7 @@ def rollout_design_hypernetwork_video(
 
     return rollout_single_video(
         env, eval_design, policy, n_steps,
-        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video, robot_color=robot_color,
     )
 
 def rollout_design_mlp_video(
@@ -157,6 +169,7 @@ def rollout_design_mlp_video(
     gen_video: bool = True,
     eval_design = None,
     load_fn = None,
+    robot_color = None,
 ):
     """Render a trained design-hypernetwork policy on a single design.
 
@@ -179,7 +192,7 @@ def rollout_design_mlp_video(
 
     return rollout_single_video(
         env, eval_design, policy, n_steps,
-        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video, robot_color = robot_color,
     )
 
 
@@ -198,6 +211,7 @@ def rollout_mo_design_hypernetwork_video(
     height: int | None = None,
     gen_video: bool = True,
     eval_design = None,
+    robot_color = None,
 ):
     """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
 
@@ -221,7 +235,7 @@ def rollout_mo_design_hypernetwork_video(
 
     return rollout_single_video(
         env, eval_design, policy, n_steps,
-        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video, robot_color=robot_color,
     )
 
 def rollout_mo_design_mlp_video(
@@ -239,6 +253,7 @@ def rollout_mo_design_mlp_video(
     height: int | None = None,
     gen_video: bool = True,
     eval_design = None,
+    robot_color = None,
 ):
     """Render a trained MO design-hypernetwork policy ``H(d, w)`` on one ``(design, w)``.
 
@@ -262,7 +277,7 @@ def rollout_mo_design_mlp_video(
 
     return rollout_single_video(
         env, eval_design, policy, n_steps,
-        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+        seed=seed, camera=camera, width=width, height=height, gen_video=gen_video, robot_color=robot_color,
     )
 
 def _simplex(tradeoff, num_objectives):
@@ -289,6 +304,7 @@ def rollout_mo_design_predictor_hypernetwork_video(
     width: int | None = None,
     height: int | None = None,
     gen_video: bool = True,
+    robot_color = None
 ):
     """Render ``H(d, w)`` on a design the predictor picks: ``d ~ f(. | w')``.
 
@@ -327,7 +343,7 @@ def rollout_mo_design_predictor_hypernetwork_video(
     return (
         *rollout_single_video(
             env, eval_design, policy, n_steps,
-            seed=seed, camera=camera, width=width, height=height, gen_video=gen_video,
+            seed=seed, camera=camera, width=width, height=height, gen_video=gen_video, robot_color=robot_color,
         ),
         design,
     )
@@ -442,7 +458,7 @@ def rollout_caption(config, design, eval_design=None, tradeoff=None, design_trad
 
 def _rollout_ppo_video(
     env, config, eval_design, n_steps, *, checkpoint_path=None, seed=0,
-    camera=None, width=None, height=None, deterministic=True
+    camera=None, width=None, height=None, deterministic=True, robot_color=None,
 ):
     """Roll the fixed-design PPO policy out on the scalarized (single-objective) env.
 
@@ -459,7 +475,7 @@ def _rollout_ppo_video(
     )
     return rollout_single_video(
         so_env, eval_design, policy, n_steps,
-        seed=seed, camera=camera, width=width, height=height,
+        seed=seed, camera=camera, width=width, height=height, robot_color=robot_color,
     )
 
 
@@ -479,6 +495,7 @@ def rollout_policy_video(
     width: int | None = 640,
     height: int | None = 480,
     deterministic=True,
+    robot_color = None,
 ) -> RolloutVideo:
     """Roll the policy trained by ``config`` out on one design and render it.
 
@@ -515,7 +532,8 @@ def rollout_policy_video(
         tradeoff, design_tradeoff = None, None
         rollout = _rollout_ppo_video(
             env, config, eval_design, n_steps, checkpoint_path=checkpoint_path,
-            seed=seed, camera=camera, width=width, height=height, deterministic=deterministic
+            seed=seed, camera=camera, width=width, height=height, deterministic=deterministic,
+            robot_color=robot_color
         )
 
     elif algorithm == "design_hypernetwork":
@@ -525,6 +543,7 @@ def rollout_policy_video(
             env, config, design=design, eval_design=eval_design, n_steps=n_steps,
             checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
+            robot_color=robot_color
         )
 
     elif algorithm == "design_mlp":
@@ -534,6 +553,7 @@ def rollout_policy_video(
             env, config, design=design, eval_design=eval_design, n_steps=n_steps,
             checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
+            robot_color=robot_color
         )
 
     elif algorithm == "design_lookup_hypernetwork":
@@ -546,6 +566,7 @@ def rollout_policy_video(
             checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
             load_fn=load_design_lookup_hypernetwork,
+            robot_color=robot_color
         )
 
     elif algorithm == "mo_design_hypernetwork":
@@ -555,6 +576,7 @@ def rollout_policy_video(
             env, config, design=design, eval_design=eval_design, tradeoff=tradeoff,
             n_steps=n_steps, checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
+            robot_color=robot_color
         )
     
     elif algorithm == "morlax":
@@ -572,7 +594,8 @@ def rollout_policy_video(
         rollout = rollout_mo_design_mlp_video(
             env, config, design=design, eval_design=eval_design, n_steps=n_steps,
             checkpoint_path=checkpoint_path, seed=seed,
-            camera=camera, width=width, height=height, tradeoff=tradeoff
+            camera=camera, width=width, height=height, tradeoff=tradeoff,
+            robot_color=robot_color
         )
 
     elif algorithm == "mo_design_predictor_hypernetwork":
@@ -585,6 +608,7 @@ def rollout_policy_video(
             eval_design=eval_design, sample_design=sample_design, n_steps=n_steps,
             checkpoint_path=checkpoint_path, seed=seed,
             camera=camera, width=width, height=height,
+            robot_color=robot_color
         )
         if eval_design is None:
             eval_design = design
@@ -664,6 +688,7 @@ def save_policy_rollout_video(
     log_key: str = "rollout",
     use_caption: bool = True,
     deterministic: bool = True,
+    robot_color: None,
 ) -> RolloutVideo:
     """Roll out the trained policy for ``config`` and write the video to ``out_path``.
 
@@ -677,7 +702,7 @@ def save_policy_rollout_video(
         config, env=env, design=design, eval_design=eval_design, tradeoff=tradeoff,
         design_tradeoff=design_tradeoff, sample_design=sample_design, n_steps=n_steps,
         checkpoint_path=checkpoint_path, seed=seed,
-        camera=camera, width=width, height=height, deterministic=deterministic
+        camera=camera, width=width, height=height, deterministic=deterministic, robot_color=robot_color,
     )
     print(f"rendered {len(rollout.traj)} steps: {rollout.caption}")
     return write_rollout_video(rollout, out_path, run=run, log_key=log_key, use_caption=use_caption)
