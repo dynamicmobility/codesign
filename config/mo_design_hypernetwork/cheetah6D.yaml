@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mdh-cheetah6d-biggerW-shorter
-save_dir: results/Sep08
+name: mdh-cheetah6d-trial-sully
+save_dir: results/Sep12
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: "mo_design_hypernetwork"
 env: "MOCodesignCheetah"
@@ -35,12 +35,12 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 1000000000
+    num_timesteps: 4000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
-    batch_size: 256 #1024
-    num_minibatches: 16
+    batch_size: 1024
+    num_minibatches: 8
     num_updates_per_batch: 4
     learning_rate: 0.000005
     entropy_cost: 0.01
