@@ -18,6 +18,7 @@ import moplayground as mop
 import minimal_mjx as mm
 
 from codesign.utils.grid import Grid
+import colorstamps
 
 # TODO: ensure docstrings describe all arguments for all functions
 # TODO: delete any unused functions
@@ -33,9 +34,19 @@ def get_colors(arr: np.ndarray, cmap: str = 'viridis') -> np.ndarray:
 
     if arr.shape[1] == 1:
         return plt.get_cmap(name=cmap)(arr)
-    
-    # TODO: implement Nd versions
-    raise NotImplementedError(f'get_colors expects (N, 1); got {arr.shape}')
+
+    elif arr.shape[1] == 2:
+        colors, _ = colorstamps.apply_stamp(arr[:, 0], arr[:, 1], 'peak')
+        return colors
+    elif arr.shape[1] == 3:
+        colors = arr.astype(float, copy=True)
+        colors -= colors.min(axis=0)
+        spans = colors.max(axis=0)
+        spans[spans == 0] = 1
+        colors /= spans
+        return colors
+
+    raise NotImplementedError(f'get_colors expects (N, 1), (N, 2), or (N, 3); got {arr.shape}')
 
 
 def objective_labels(objectives) -> list[str] | None:
