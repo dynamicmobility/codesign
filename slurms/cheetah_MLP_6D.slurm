@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
 #SBATCH --mem=64G
-#SBATCH --time=5:00:00
+#SBATCH --time=36:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
