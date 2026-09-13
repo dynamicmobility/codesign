@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --gres=gpu:rtx_pro_6000_blackwell:1
 #SBATCH --mem=64G
-#SBATCH --time=8:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=njanwani@gatech.edu
 #SBATCH --output=logs/%x-%j.out
@@ -30,4 +30,9 @@ module load cuda
 export WANDB_DIR="$SCRATCH/wandb"
 export WANDB_CACHE_DIR="$SCRATCH/.cache/wandb"
 
-python3 -m scripts.train --config config/mo_design_hypernetwork/cheetah6D.yaml
+
+python3 -m scripts.wandb_sweep \
+--config config/mo_design_hypernetwork/cheetah6D.yaml \
+--sweep config/mo_design_hypernetwork/sweeps/cheetah6D.yaml \
+--num_trials 30 \
+--pace True
