@@ -1,8 +1,8 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mo-up-walker6d-final
-save_dir: results/Sep10
+name: mo-up-walker6d-full
+save_dir: results/Sep13
 description: "Multi-objective design-conditioned hypernetwork PPO over Walker leg lengths."
 algorithm: "mo_design_hypernetwork"
 env: "MOCodesignWalker"
@@ -60,7 +60,7 @@ learning_params:
     batching_strategy: stratified  # design | shuffle | stratified
   network_params:
     hypersize: [1024, 1024]
-    num_features: 64
+    num_features: 128
     policy_hidden_layer_sizes: [256, 256, 128]
     value_hidden_layer_sizes:  [256, 256, 128]
   design_sampling:

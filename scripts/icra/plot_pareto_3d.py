@@ -11,8 +11,8 @@ from moplayground.utils.pareto import get_nondominated
 import minimal_mjx as mm
 matplotlib.use("TKAgg")
 
-RUN_ID = "eywf0dij"
-CONFIG_PATH = "results/wandb-downloads/eywf0dij/config.yaml"
+RUN_ID = "zpzu9ms5"
+CONFIG_PATH = "results/wandb-downloads/zpzu9ms5/config.yaml"
 
 # TODO: Check if a dataset with the name {run_id}/sweep.npz exists in scripts/icra/data
 # If it does not, use generate_data to generate it.
@@ -25,7 +25,7 @@ STAMP_CMAP = 'peak'
 STAMP_X_LABEL = 'Front Length'
 STAMP_Y_LABEL = 'Back Length'
 
-GEN_VIDEO = False
+GEN_VIDEO = True
 
 
 ax = plt.axes(projection="3d")
@@ -40,7 +40,7 @@ nd_idx = get_nondominated(rewards)
 designs_nd = designs[nd_idx, :]
 tradeoffs_nd = tradeoffs[nd_idx, :]
 
-tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [1, 0, 1]])
+tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [0, 1, 1]])
 
 idxs = (tradeoffs_d @ rewards[nd_idx, :].T).argmax(axis=1)
 
