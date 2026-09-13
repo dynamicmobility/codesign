@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mo-up-walker6d
+name: mo-up-walker6d-final
 save_dir: results/Sep10
 description: "Multi-objective design-conditioned hypernetwork PPO over Walker leg lengths."
 algorithm: "mo_design_hypernetwork"
