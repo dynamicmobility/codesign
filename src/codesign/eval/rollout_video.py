@@ -688,7 +688,7 @@ def save_policy_rollout_video(
     log_key: str = "rollout",
     use_caption: bool = True,
     deterministic: bool = True,
-    robot_color: None,
+    robot_color = None,
 ) -> RolloutVideo:
     """Roll out the trained policy for ``config`` and write the video to ``out_path``.
 
