@@ -18,7 +18,7 @@
   <asset>
     <!-- <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/> -->
     <texture type="skybox" builtin="gradient" rgb1="1 1 1" rgb2="1 1 1" width="800" height="800"/>
-    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="1 1 1" rgb2="1 1 1"
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.9 0.9 0.9" rgb2="0.9 0.9 0.9"
       markrgb="0 0 0" width="300" height="300"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0"/>
   </asset>
@@ -51,6 +51,7 @@
   <worldbody>
     <geom name="ground" type="plane" conaffinity="1" pos="98 0 0" size="100 .8 .5" material="groundplane"/>
     <camera name="side_fixed" pos="2.0 -4.5 2.5" euler="70 0 0"/>
+    <camera name="side_fixed_2" pos="0 -3.5 2.5" euler="70 0 0"/>
     <light name="light_overhead" pos="2 0 20" dir="0 0 -10" mode="fixed" specular="0.02 0.02 0.02" diffuse=".4 .4 .4" ambient=".1 .1 .1"/>
     <light name="light" pos="10 0 10" dir="-1 0 -10" mode="fixed" specular="1 1 1" diffuse=".8 .8 .8" ambient=".2 .2 .2"/>
     <body name="torso" pos="0 0 .65" childclass="cheetah">
