@@ -8,8 +8,24 @@ from codesign.optimizers.turbo import (
     TurboState,
     TurboOptimizer
 )
+from codesign.optimizers.nsga2 import (
+    ALGORITHMS,
+    DesignTradeoffProblem,
+    SimplexRepair,
+    build_algorithm,
+    make_pair_rollout,
+    pareto_front,
+    run_nsga,
+)
 
 __all__ = [
     "TurboState",
     "TurboOptimizer",
+    "ALGORITHMS",
+    "DesignTradeoffProblem",
+    "SimplexRepair",
+    "build_algorithm",
+    "make_pair_rollout",
+    "pareto_front",
+    "run_nsga",
 ]
