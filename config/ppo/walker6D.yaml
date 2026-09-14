@@ -1,8 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: ppo-walker-short-8e9
-save_dir: results/Sep13
+name: ppo-walker-short-8e9-savedir-test
+# save_dir: results/Sep13
+save_dir: /home/njanwani/Desktop/test
 description: "Added height as shared reward, one leg longer"
 algorithm: "ppo"
 env: "MOCodesignWalker"
