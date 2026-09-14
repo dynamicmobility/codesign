@@ -18,7 +18,7 @@ CONFIG_PATH = "results/wandb-downloads/zpzu9ms5/config.yaml"
 # If it does not, use generate_data to generate it.
 
 # Load in the dataset into a grid
-grid = codesign.Grid.load(f"scripts/icra/outputs/{RUN_ID}/sweep.npz")
+grid = codesign.Grid.load(f"scripts/icra/outputs/{RUN_ID}/nsga3_front.npz")
 TRADEOFF_LABELS = ['Run Reward', 'Energy Reward', 'Height Reward']
 CMAP = 'plasma'
 STAMP_CMAP = 'peak'
@@ -40,7 +40,7 @@ nd_idx = get_nondominated(rewards)
 designs_nd = designs[nd_idx, :]
 tradeoffs_nd = tradeoffs[nd_idx, :]
 
-tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [0, 1, 1]])
+tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [0, 1, 1], [1, 0, 1], [0, 0, 1]])
 
 idxs = (tradeoffs_d @ rewards[nd_idx, :].T).argmax(axis=1)
 

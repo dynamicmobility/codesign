@@ -18,11 +18,16 @@ from matplotlib.colors import Normalize
 from moplayground.utils.pareto import get_nondominated, get_pareto_statistics
 
 import codesign
+import colorstamps
 
 OUT_DIR      = "scripts/icra/outputs"
 CMAP         = "plasma"
 DESIGN_LABEL = "Total link scale"
 BASELINE_COLOR = "#9a9a9a"
+
+STAMP_CMAP   = "peak"
+STAMP_X_LABEL = "Front Length"
+STAMP_Y_LABEL = "Back Length"
 
 
 def pair_rewards(grid: codesign.Grid) -> np.ndarray:
@@ -67,9 +72,10 @@ def plot_pair(ax, grid, objs, norm, args, baseline=None):
             label          = "design sweep",
         )
 
-    colors = codesign.get_colors(
-        norm(color_values(pair_designs(grid), args.color_dims)), cmap=args.cmap
-    )[:, 0, :]
+    designs = grid.designs.reshape((-1, grid.designs.shape[2]))
+    designs_color = np.hstack((np.sum(designs[:, 0:3], axis=1)[:, None], np.sum(designs[:, 3:], axis=1)[:, None]))
+    colors, stamp = colorstamps.apply_stamp(designs_color[:, 0], designs_color[:, 1], STAMP_CMAP)
+
     mop.plot_pareto(
         ax                   = ax,
         pareto               = pair_rewards(grid)[:, objs],
@@ -85,7 +91,7 @@ def plot_pair(ax, grid, objs, norm, args, baseline=None):
         set_lims             = False,
         label                = "NSGA-II",
     )
-    return ax
+    return ax, stamp
 
 
 def report(name, grid, ref_point):
@@ -126,11 +132,11 @@ def main(args) -> None:
         fig, ax = plt.subplots(figsize=(5, 4), layout="constrained")
         plot_pair(ax, grid, objs, norm, args, baseline)
         ax = codesign.dress_axis(ax)
-        ax.legend(fontsize=8, frameon=False)
-        fig.colorbar(
-            ScalarMappable(norm=norm, cmap=args.cmap), ax=ax,
-            label=args.design_label, aspect=50,
-        )
+        # ax.legend(fontsize=8, frameon=False)
+        # fig.colorbar(
+        #     ScalarMappable(norm=norm, cmap=args.cmap), ax=ax,
+        #     label=args.design_label, aspect=50,
+        # )
         name = "_".join(labels[o].lower() for o in objs)
         fig.savefig(out_dir / f"nsga2_front_{name}.{args.format}")
         plt.close(fig)
@@ -138,9 +144,14 @@ def main(args) -> None:
     if grid.n_r == 3:
         fig = plt.figure(figsize=(5.5, 4.5), layout="constrained")
         ax = fig.add_subplot(111, projection="3d")
-        plot_pair(ax, grid, (0, 1, 2), norm, args, baseline)
+        ax, stamp = plot_pair(ax, grid, (0, 1, 2), norm, args, baseline)
         ax = codesign.dress_axis(ax)
-        fig.savefig(out_dir / f"nsga2_front_3d.{args.format}")
+        ax.view_init(elev=30, azim=45)
+        stamp_ax = stamp.overlay_ax(ax, lower_left_corner=[0.8, 0.15], width=0.2)
+        stamp_ax.set_xlabel(STAMP_X_LABEL)
+        stamp_ax.set_ylabel(STAMP_Y_LABEL)
+        codesign.dress_axis(stamp_ax)
+        fig.savefig(out_dir / f"nsga2_front_3d.{args.format}", bbox_inches="tight", pad_inches=0,)
         plt.close(fig)
 
     print(f"wrote figures to {out_dir}")
