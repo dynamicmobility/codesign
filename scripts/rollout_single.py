@@ -153,9 +153,10 @@ def main(
     camera: str,
     use_caption: bool,
     out_dir: str,
+    backend: str
 ) -> None:
     config = mm.utils.config.create_config_dict(mop.utils.read_config(config_path))
-    env, _ = codesign.load_env(config, backend = 'jnp')  # renderable (mujoco) env
+    env, _ = codesign.load_env(config, backend = backend)  # renderable (mujoco) env
 
     design, eval_design       = resolve_design_args(design, eval_design, config)
     tradeoff, design_tradeoff = resolve_tradeoffs_args(tradeoff, design_tradeoff, config)
@@ -191,6 +192,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint", type=str, default=None,
         help="explicit checkpoint dir; defaults to latest under save_dir/name",
+    )
+    parser.add_argument(
+        '--backend', type=str, default='np'
     )
     parser.add_argument(
         "--design", type=float, nargs="+", default=None,
@@ -233,4 +237,5 @@ if __name__ == "__main__":
         eval_design = args.eval_design,
         use_caption = args.caption,
         out_dir = args.out_dir,
+        backend= args.backend
     )

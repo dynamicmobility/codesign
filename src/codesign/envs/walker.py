@@ -157,7 +157,8 @@ class MOCodesignWalker(MOCodesignBase):
 
     def reward_height(self, data, info):
         height = data.qpos[1]
-        self._np.clip(height, min=None, max=info['nom_height']) # TODO: Normalize on height
+        max_height = 0.6 * info['nom_height']
+        height = 1 / max_height * self._np.clip(height, min=None, max=max_height) # TODO: Normalize on height
         return height
     
     def reward_run(self, info):
