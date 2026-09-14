@@ -32,7 +32,7 @@ matplotlib.use('tkagg')
 
 warnings.filterwarnings("ignore", category=BadInitialCandidatesWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-
+# This is the best design: 1.02006672 1.71947823 1.94088529 1.47456715 0.90478917 1.47590946
 CONFIG_PATH = "results/wandb-downloads/zpzu9ms5/config.yaml"
 ROLLOUT_STEPS = 200
 NUM_TRADEOFFS = 32
@@ -57,7 +57,7 @@ tradeoffs = sample_tradeoffs_cpu(
     np.random.default_rng(0),
     32,
     len(env.objectives),
-    sampling="dense"
+    sampling="sparse-heavytail"
 )
 
 # In maximization/reward space; choose a fixed reference below relevant returns.
