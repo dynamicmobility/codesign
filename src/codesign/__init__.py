@@ -116,7 +116,14 @@ from .utils import (
 
 from .optimizers import (
     TurboState,
-    TurboOptimizer
+    TurboOptimizer,
+    ALGORITHMS,
+    DesignTradeoffProblem,
+    SimplexRepair,
+    build_algorithm,
+    make_pair_rollout,
+    pareto_front,
+    run_nsga,
 )
 
 __all__ = [
@@ -226,4 +233,12 @@ __all__ = [
     "predictor_density",
     # optimizers
     "TurboState",
+    "TurboOptimizer",
+    "ALGORITHMS",
+    "DesignTradeoffProblem",
+    "SimplexRepair",
+    "build_algorithm",
+    "make_pair_rollout",
+    "pareto_front",
+    "run_nsga",
 ]
