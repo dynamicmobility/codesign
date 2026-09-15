@@ -21,7 +21,7 @@ config     = mm.utils.config.create_config_dict(mop.utils.read_config(CONFIG_PAT
 env, env_params = codesign.load_env(config=config, backend="jnp")
 lower_bounds = np.array([env_params.codesign.low])
 upper_bounds = np.array([env_params.codesign.high])
-ROLLOUT_STEPS = 200
+ROLLOUT_STEPS = 500
 
 # This is obtained by running scripts/optimize/turbo_on_hypervolume.py
 GENERALIST_DESIGN = [1.02006672, 1.71947823, 1.94088529, 1.47456715, 0.90478917, 1.47590946]

@@ -16,8 +16,8 @@ from codesign.utils.grid import Grid, sample_tradeoffs_cpu
 import codesign.utils.model as model_lib
 matplotlib.use('tkagg')
 
-
-CONFIG_PATH = "results/wandb-downloads/zpzu9ms5/config.yaml"
+RUN_ID = "zpzu9ms5"
+CONFIG_PATH = f"results/wandb-downloads/{RUN_ID}/config.yaml"
 config     = mm.utils.config.create_config_dict(mop.utils.read_config(CONFIG_PATH))
 # env        = codesign.cheetah(env_params=env_params, backend="jnp")
 env, env_params = codesign.load_env(config=config, backend="jnp")
@@ -32,12 +32,12 @@ RUN_DESIGN = [0.6152434, 0.8852895, 1.4163877, 1.1994246, 1.0384812, 0.52137005]
 ENERGY_DESIGN = [1.293534, 0.66744065, 0.66819084, 0.55856186, 1.9247661, 1.0071616 ]
 HEIGHT_DESIGN = [1.3124598, 1.9924996, 1.8101603, 1.8071598, 1.522273, 0.7453903]
 
-OBJECTIVE_LABELS = ["Run", "Energy", "Height"]
+OBJECTIVE_LABELS = ["Run Reward", "Energy Reward", "Height Reward"]
 
 output_dir = Path("scripts/icra/outputs/zpzu9ms5")
 output_dir.mkdir(parents=True, exist_ok=True)
 
-fig = plt.figure()
+fig = plt.figure(figsize=(10, 8))
 ax_3d = fig.add_subplot(2,2,1, projection='3d')
 ax2 = fig.add_subplot(2,2,2)
 ax3 = fig.add_subplot(2,2,3)
@@ -47,13 +47,13 @@ axs = [ax2, ax3, ax4]
 
 # TODO: Get colors of corner designs from plot_pareto_3d
 
-for name, design, color in (
-    ("generalist", GENERALIST_DESIGN, "#000000"),
-    ("run", RUN_DESIGN, "#00FFFF"),
-    ("energy", ENERGY_DESIGN, "#008080"),
-    ("height", HEIGHT_DESIGN, "#C6AFE9"),
+for name, filename, design, color in (
+    ("Generalist", "generalist", GENERALIST_DESIGN, "#000000"),
+    ("Run", "run", RUN_DESIGN, "#74c5e4ff"),
+    ("Energy", "energy", ENERGY_DESIGN, "#6fcfc7ff"),
+    ("Height", "height", HEIGHT_DESIGN, "#fdafb2ff"),
 ):
-    grid = codesign.Grid.load(output_dir / f"{name}.npz")
+    grid = codesign.Grid.load(output_dir / f"{filename.lower()}.npz")
 
     rewards = grid.rewards.reshape((-1,) + grid.rewards.shape[3:])
     # TODO: Plot 2D frontiers too using the procedure from plot_nsga2_front
@@ -64,11 +64,12 @@ for name, design, color in (
             colors=color,
             objective=[OBJECTIVE_LABELS[o] for o in objs],
             connect = True,
-            show_dominated=True,
+            show_dominated=False,
             dominated_alpha=0.2,
             nondominated_alpha=1,
             label=name,
-            set_lims=False
+            set_lims=False,
+            connect_line_color=color,
         )
 
     mop.plot_pareto(
@@ -84,5 +85,13 @@ for name, design, color in (
         set_lims=False
     )
 
-ax_3d.legend()
+for a in axs:
+    codesign.dress_axis(a)
+codesign.dress_axis(ax_3d)
+ax_3d.view_init(elev=30, azim=45)
+ax_3d.xaxis.set_rotate_label(True)
+ax2.legend()
+plt.tight_layout()
+plt.savefig(f"scripts/icra/outputs/{RUN_ID}/generalist_specialist.png", dpi=600, bbox_inches='tight')
+plt.savefig(f"scripts/icra/outputs/{RUN_ID}/generalist_specialist.pdf", bbox_inches='tight')
 plt.show()

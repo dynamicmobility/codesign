@@ -142,7 +142,7 @@ def main(args) -> None:
         plt.close(fig)
 
     if grid.n_r == 3:
-        fig = plt.figure(figsize=(5.5, 4.5), layout="constrained")
+        fig = plt.figure(figsize=(5, 4), layout="constrained")
         ax = fig.add_subplot(111, projection="3d")
         ax, stamp = plot_pair(ax, grid, (0, 1, 2), norm, args, baseline)
         ax = codesign.dress_axis(ax)
@@ -151,7 +151,7 @@ def main(args) -> None:
         stamp_ax.set_xlabel(STAMP_X_LABEL)
         stamp_ax.set_ylabel(STAMP_Y_LABEL)
         codesign.dress_axis(stamp_ax)
-        fig.savefig(out_dir / f"nsga2_front_3d.{args.format}", bbox_inches="tight", pad_inches=0,)
+        fig.savefig(out_dir / f"nsga2_front_3d.{args.format}")
         plt.close(fig)
 
     print(f"wrote figures to {out_dir}")
