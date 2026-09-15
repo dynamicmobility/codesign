@@ -26,11 +26,15 @@ FINAL_CONFIGS: dict[str, dict[str, Run]] = {
     },
     'walker': {
         'MDH': Run(
-            run_id          = '0fpnuzq0',
+            run_id          = 'nlpnls3l',
             dataset_path    = 'scripts/icra/outputs/',
             checkpoint      = MO_CHECKPOINT
         ),
-        'MLP': '',
+        'MLP': Run(
+            run_id          = 'zbvakupw',
+            dataset_path    = 'scripts/icra/outputs/',
+            checkpoint      = MO_CHECKPOINT
+        ),
         # 'MORLAX': '',
         'PPO': ['']
     }

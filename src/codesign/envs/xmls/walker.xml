@@ -51,7 +51,7 @@
     <!-- <light name="light_overhead" pos="2 0 20" dir="0 0 -10" mode="fixed" specular="0.02 0.02 0.02" diffuse=".4 .4 .4" ambient=".1 .1 .1"/> -->
     <!-- <light name="light" pos="10 0 10" dir="-1 0 -10" mode="fixed" specular="1 1 1" diffuse=".8 .8 .8" ambient=".2 .2 .2"/> -->
     <light name="light_overhead" pos="2 0 20" dir="0 0 -10" mode="fixed" specular="0.02 0.02 0.02" diffuse=".4 .4 .4" ambient=".1 .1 .1"/>
-    <light name="light" pos="10 0 10" dir="-1 0 -10" mode="fixed" specular="1 1 1" diffuse=".8 .8 .8" ambient=".2 .2 .2"/>
+    <!-- <light name="light" pos="10 0 10" dir="-1 0 -10" mode="fixed" specular="1 1 1" diffuse=".8 .8 .8" ambient=".2 .2 .2"/> -->
 
     <body name="torso" pos="0 0 0.0" childclass="walker">
       <!-- <light name="light" pos="0 0 2" mode="trackcom"/> -->
