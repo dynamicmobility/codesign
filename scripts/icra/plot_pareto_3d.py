@@ -26,7 +26,7 @@ STAMP_CMAP = 'peak'
 STAMP_X_LABEL = 'Front Length'
 STAMP_Y_LABEL = 'Back Length'
 
-GEN_VIDEO = True
+GEN_VIDEO = False
 
 
 ax = plt.axes(projection="3d")
@@ -41,15 +41,20 @@ nd_idx = get_nondominated(rewards)
 designs_nd = designs[nd_idx, :]
 tradeoffs_nd = tradeoffs[nd_idx, :]
 
-tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [0, 1, 1], [1, 0, 1], [0, 0, 1]])
+tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [0, 0, 1]])
 
 idxs = (tradeoffs_d @ rewards[nd_idx, :].T).argmax(axis=1)
 
 full_idxs = np.arange(rewards.shape[0])[nd_idx][idxs]
 
-print(f"Design 1: {designs_nd[idxs[0], :]}, Tradeoff 1: {tradeoffs_nd[idxs[0], :]}")
-print(f"Design 2: {designs_nd[idxs[1], :]}, Tradeoff 2: {tradeoffs_nd[idxs[1], :]}")
-print(f"Design 3: {designs_nd[idxs[2], :]}, Tradeoff 3: {tradeoffs_nd[idxs[2], :]}")
+def rgba_to_hex(rgba):
+    """Convert four RGBA values in [0, 1] to a #RRGGBBAA hex color."""
+    return matplotlib.colors.to_hex(rgba, keep_alpha=True)
+
+
+print(f"Design 1: {designs_nd[idxs[0], :]}, Tradeoff 1: {tradeoffs_nd[idxs[0], :]}, Color 1: {rgba_to_hex(np.concat((colors[full_idxs[0], :], np.array([1.0]))))}")
+print(f"Design 2: {designs_nd[idxs[1], :]}, Tradeoff 2: {tradeoffs_nd[idxs[1], :]}, Color 2: {rgba_to_hex(np.concat((colors[full_idxs[1], :], np.array([1.0]))))}")
+print(f"Design 3: {designs_nd[idxs[2], :]}, Tradeoff 3: {tradeoffs_nd[idxs[2], :]}, Color 3: {rgba_to_hex(np.concat((colors[full_idxs[2], :], np.array([1.0]))))}")
 
 if(GEN_VIDEO):
     for i in range(len(idxs)):
@@ -88,6 +93,7 @@ ax.view_init(elev=30, azim=45)
 ax.xaxis.set_rotate_label(True)
 codesign.dress_axis(ax)
 codesign.dress_axis(stamp_ax)
+plt.tight_layout()
 
 plt.savefig(f"scripts/icra/outputs/{RUN_ID}/pareto.pdf")
 plt.savefig(f"scripts/icra/outputs/{RUN_ID}/pareto.png", dpi=600)
