@@ -2,7 +2,7 @@
 #
 # H_\pi(d, w) = \pi(a | s)
 name: test
-save_dir: results/Sep10
+save_dir: results/Sep15
 description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
 algorithm: morlax
 env: "MOCodesignCheetah"

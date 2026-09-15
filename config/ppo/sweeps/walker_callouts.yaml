@@ -1,0 +1,19 @@
+name: walker-ppo-callouts
+method: grid
+metric:
+  name: eval/episode_reward.max
+  goal: maximize
+parameters:
+  arm:
+    values:
+    - name: run-energy-1
+      default_design: [0.7461, 0.6017, 0.5608, 0.6821, 0.6453, 0.6058]
+      default_scalarization: [0.0508, 0.9492]
+    - name: run-energy-2
+      default_design: [0.5156, 0.6086, 0.5533, 0.725, 0.5234, 0.5236]
+      default_scalarization: [0.2981, 0.7019]
+    - name: run-energy-3
+      default_design: [0.7621, 0.5635, 0.552, 0.7413, 0.5151, 0.5344]
+      default_scalarization: [0.8839, 0.1161]
+  save_dir:
+    value: results/icra

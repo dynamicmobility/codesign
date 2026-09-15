@@ -1,6 +1,6 @@
 # PPO training config.
-name: longfront-shortback
-save_dir: results/Aug29
+name: test
+save_dir: results/Sep14
 description: Normal RL
 algorithm: ppo
 env: MOCodesignCheetah
@@ -34,14 +34,14 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 500000000
+    num_timesteps: 1000000000
     episode_length: 500
-    num_envs: 1024
+    num_envs: 4096
     unroll_length: 20
-    batch_size: 64
-    num_minibatches: 16
+    batch_size: 256
+    num_minibatches: 64
     num_updates_per_batch: 4
-    learning_rate: 0.0003
+    learning_rate: 0.000005
     entropy_cost: 0.01
     discounting: 0.98
     reward_scaling: 1.0
@@ -50,10 +50,10 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 15
-    num_eval_envs: 256
+    num_evals: 10
+    num_eval_envs: 1024
     deterministic_eval: true
-    seed: 0
+    seed: 1
   network_params:
-    policy_hidden_layer_sizes: [64, 64]
-    value_hidden_layer_sizes:  [64, 64]
+    policy_hidden_layer_sizes: [256, 256, 128]
+    value_hidden_layer_sizes:  [256, 256, 128]

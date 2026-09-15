@@ -1,0 +1,28 @@
+name: cheetah-ppo-callouts
+method: grid
+metric:
+  name: eval/episode_reward.max
+  goal: maximize
+parameters:
+  arm:
+    values:
+    # - name: run-energy-1
+    #   default_design: [1.2861, 0.6452, 0.8467, 0.5474, 1.0055, 1.3937]
+    #   default_scalarization: [0.1461, 0.7327, 0.1212]
+    # - name: run-energy-2
+    #   default_design: [0.622, 0.77, 0.7129, 0.7869, 0.8345, 0.6137]
+    #   default_scalarization: [0.4345, 0.4595, 0.106]
+    # - name: run-energy-3
+    #   default_design: [0.5158, 1.1217, 0.8381, 1.2192, 0.9691, 0.6543]
+    #   default_scalarization: [0.8538, 0.0278, 0.1184]
+    - name: run-height-1
+      default_design: [1.9625, 1.9969, 1.9806, 1.7747, 0.7617, 1.8675]
+      default_scalarization: [0.192, 0.3227, 0.4853]
+    - name: run-height-2
+      default_design: [1.7469, 1.8621, 1.9843, 1.8044, 1.3208, 1.9524]
+      default_scalarization: [0.7921, 0.0194, 0.1884]
+    - name: energy-height-2
+      default_design: [1.6961, 1.9946, 1.7107, 1.8846, 1.7919, 1.9402]
+      default_scalarization: [0.0367, 0.6458, 0.3175]
+  save_dir:
+    value: results/Sep14

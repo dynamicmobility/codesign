@@ -78,7 +78,6 @@ def plot_front(ax, grid: codesign.Grid, objs, color: str, label: str, labels, sh
         show_dominated       = True, #show_dominated,
         dominated_alpha      = 0.1,
         # nondominated_s       = 200,
-        nondominated_s=       
         outline_nondominated = 2.0,
         set_lims             = set_lim,
         marker               = "o",
