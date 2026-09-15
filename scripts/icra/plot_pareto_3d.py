@@ -10,8 +10,9 @@ from matplotlib.colors import Normalize
 from moplayground.utils.pareto import get_nondominated
 import minimal_mjx as mm
 matplotlib.use("TKAgg")
+from scripts import icra
 
-RUN_ID = "zpzu9ms5"
+RUN_ID = icra.FINAL_CONFIGS['cheetah']['MDH'].run_id
 CONFIG_PATH = "results/wandb-downloads/zpzu9ms5/config.yaml"
 
 # TODO: Check if a dataset with the name {run_id}/sweep.npz exists in scripts/icra/data

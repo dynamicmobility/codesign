@@ -1,130 +1,109 @@
-"""Search the design x tradeoff Pareto frontier of a trained MO design network.
+"""Search the design x tradeoff Pareto frontier of every trained network a robot has.
 
-Each individual is a ``(design, tradeoff)`` pair, evaluated by rolling the trained policy
-``H(d, w)`` out on the model that design builds; the whole population is rolled out in one
-batch per generation. ``--algo`` picks NSGA-II or NSGA-III, which differ in how they keep
-the frontier spread out -- see ``codesign.optimizers.nsga2.build_algorithm``.
 
-Writes two datasets in the repository's grid format, one pair per cell:
-``<algo>_archive.npz`` (every pair evaluated) and ``<algo>_front.npz`` (the non-dominated
-ones). ``plot_nsga2_front.py`` reads them back.
-
-The search itself lives in ``codesign.optimizers.nsga2``.
+Run from the repository root, where the configured paths resolve:
+``python -m scripts.icra.nsga2_design_front --robot cheetah`` --algorithm MDH.
 """
 
 import argparse
 from pathlib import Path
 
 import minimal_mjx as mm
-import moplayground as mop
 
 import codesign
-from codesign.optimizers.nsga2 import ALGORITHMS, run_nsga
+from codesign.optimizers.nsga2 import run_nsga
+
+from scripts import icra
 
 ENTITY          = "vmadabushi3-georgia-institute-of-technology"
 PROJECT         = "codesign"
 ARTIFACT_PREFIX = "hypernetworks"
+DOWNLOAD_DIR    = "results/wandb-downloads"
 
-# The trained run each network defaults to searching against.
-RUN_IDS = {"mdh": "zpzu9ms5", "mlp": "dkfq4g7t"}
-
-DOWNLOAD_DIR = "results/wandb-downloads"
-SAVE_PATH    = "scripts/icra/outputs"
-
-POP_SIZE = 32    # pairs rolled out together, i.e. the batch width
-BUDGET   = 1024  # total pairs evaluated, so BUDGET / POP_SIZE generations
-STEPS    = 500   # rollout length (env steps)
+SEARCH_ALGO   = "nsga3"  # names the datasets written, as well as picking the search
+STEPS         = 500      # rollout length (env steps)
+PER_CELL      = 1        # rollouts per pair; only informative with a stochastic policy
+SEED          = 0        # PRNG seed for the rollouts and for pymoo's operators
+DETERMINISTIC = True     # take the policy's mode each step rather than sampling it
+VERBOSE       = True     # print pymoo's per-generation table
 
 
-def load_config(args) -> dict:
-    """Resolve the run config, downloading the W&B run's checkpoint first unless given one."""
-    if args.config is not None:
-        return mm.create_config_dict(mop.utils.read_config(args.config))
+def download_run(run: icra.Run) -> tuple[dict, Path]:
+    """Fetch the run from W&B: its config, and its first checkpoint at or past
+    ``run.checkpoint`` training steps.
 
-    run_id = args.run_id or RUN_IDS[args.network]
-    mm.download_model(
-        run_id     = run_id,
-        save_dir   = args.download_dir,
-        model_name = run_id,
-        entity     = args.entity,
-        project    = args.project,
+    Returns the config dict and the directory that checkpoint downloaded into.
+    """
+    checkpoint = mm.download_model(
+        run_id     = run.run_id,
+        save_dir   = DOWNLOAD_DIR,
+        model_name = run.run_id,
+        entity     = ENTITY,
+        project    = PROJECT,
         prefix     = ARTIFACT_PREFIX,
+        iterations = run.checkpoint,
     )
     # download_model writes the run's config next to the checkpoint it fetched.
-    config = mm.read_config(Path(args.download_dir) / run_id / "config.yaml")
-    return mm.create_config_dict(config)
+    config = mm.read_config(Path(DOWNLOAD_DIR) / run.run_id / "config.yaml")
+    return mm.create_config_dict(config), Path(checkpoint)
 
 
-def main(args) -> None:
-    config = load_config(args)
+def search(algo: str, run: icra.Run, settings: dict) -> None:
+    """Search one trained network's frontier and write its two datasets."""
+    config, checkpoint = download_run(run)
     env, _ = codesign.load_env(config)
 
     front, archive, _ = run_nsga(
         env, config,
-        n_steps         = args.steps,
-        budget          = args.budget,
-        pop_size        = args.pop_size,
-        algorithm       = args.algo,
-        per_cell        = args.per_cell,
-        checkpoint_path = args.checkpoint,
-        seed            = args.seed,
-        deterministic   = not args.stochastic_policy,
-        workers         = args.workers,
-        verbose         = not args.quiet,
+        n_steps         = STEPS,
+        budget          = settings["budget"],
+        pop_size        = settings["pop_size"],
+        algorithm       = SEARCH_ALGO,
+        per_cell        = PER_CELL,
+        checkpoint_path = checkpoint,
+        seed            = SEED,
+        deterministic   = DETERMINISTIC,
+        workers         = settings["workers"],
+        verbose         = VERBOSE,
     )
 
-    save_dir = Path(args.save_path) / (args.run_id or RUN_IDS.get(args.network, config.name))
+    save_dir = Path(run.dataset_path) / run.run_id
     save_dir.mkdir(parents=True, exist_ok=True)
-    archive.save(save_dir / f"{args.algo}_archive.npz")
-    front.save(save_dir / f"{args.algo}_front.npz")
+    archive.save(save_dir / f"{SEARCH_ALGO}_archive.npz")
+    front.save(save_dir / f"{SEARCH_ALGO}_front.npz")
     print(
-        f"{args.algo} on {config.algorithm}: {archive.n_designs} pairs evaluated, "
-        f"{front.n_designs} non-dominated -> {save_dir}"
+        f"{algo} ({run.run_id} @ step {checkpoint.name}): {archive.n_designs} pairs "
+        f"evaluated, {front.n_designs} non-dominated -> {save_dir}"
     )
+
+
+def main(args) -> None:
+    runs = icra.FINAL_CONFIGS[args.robot]
+    if args.algorithm is not None:
+        if args.algorithm not in runs:
+            raise SystemExit(
+                f"{args.robot} configures no '{args.algorithm}'; it has {sorted(runs)}"
+            )
+        runs = {args.algorithm: runs[args.algorithm]}
+
+    settings = icra.DATA_GEN[args.robot]
+    for algo, run in runs.items():
+        # Only the algorithms already trained carry a Run; the rest name no checkpoint.
+        if not isinstance(run, icra.Run):
+            print(f"warning: {algo} has no run configured; skipping")
+            continue
+        search(algo, run, settings)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group()
-    source.add_argument("--network", type=str, default="mdh", choices=sorted(RUN_IDS),
-                        help=f"which trained network to search against, by its default "
-                             f"W&B run id ({', '.join(f'{k}={v}' for k, v in RUN_IDS.items())})")
-    source.add_argument("--run_id", type=str, default=None,
-                        help="W&B run id to download and search against, overriding --network")
-    source.add_argument("--config", type=str, default=None,
-                        help="path to a local config.yaml of an already-downloaded run; "
-                             "skips the download")
-    parser.add_argument("--save_path", type=str, default=SAVE_PATH,
-                        help="directory the datasets are written into")
-    parser.add_argument("--download_dir", type=str, default=DOWNLOAD_DIR,
-                        help="directory the W&B run downloads into")
-    parser.add_argument("--checkpoint", type=str, default=None,
-                        help="explicit checkpoint dir; defaults to the latest of the run")
-    parser.add_argument("--algo", type=str, default="nsga2", choices=ALGORITHMS,
-                        help="nsga2 keeps the frontier spread by crowding distance; "
-                             "nsga3 by reference directions, which holds up better at "
-                             "three or more objectives")
-    parser.add_argument("--pop_size", type=int, default=POP_SIZE,
-                        help=f"pairs rolled out together each generation (default "
-                             f"{POP_SIZE}); a power of two keeps the Sobol initial "
-                             "population balanced")
-    parser.add_argument("--budget", type=int, default=BUDGET,
-                        help=f"total pairs evaluated over the whole search (default "
-                             f"{BUDGET}), i.e. budget / pop_size generations")
-    parser.add_argument("--per_cell", type=int, default=1,
-                        help="rollout repetitions per pair, averaged into its objective "
-                             "vector; only informative with --stochastic_policy")
-    parser.add_argument("--steps", type=int, default=STEPS,
-                        help="rollout length (env steps)")
-    parser.add_argument("--workers", type=int, default=1,
-                        help="threads compiling the per-design mjx models")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--stochastic_policy", action="store_true",
-                        help="sample the policy each step instead of taking its mode")
-    parser.add_argument("--quiet", action="store_true",
-                        help="suppress pymoo's per-generation table")
-    parser.add_argument("--entity", type=str, default=ENTITY)
-    parser.add_argument("--project", type=str, default=PROJECT)
+    parser.add_argument("--robot", type=str, default="cheetah",
+                        choices=sorted(icra.FINAL_CONFIGS),
+                        help="which robot's configured runs to search")
+    parser.add_argument("--algorithm", type=str, default=None,
+                        choices=sorted({a for r in icra.FINAL_CONFIGS.values() for a in r}),
+                        help="search only this algorithm's run; the default searches "
+                             "every algorithm the robot configures a run for")
     return parser.parse_args()
 
 

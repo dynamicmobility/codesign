@@ -1,11 +1,11 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mdh-cheetah6d-trial-test
+name: mo-up-walker6d-partial
 save_dir: results/Sep13
-description: "Multi-objective design-conditioned hypernetwork PPO over CodesignCheetah back-leg lengths."
+description: "Multi-objective design-conditioned hypernetwork PPO over Walker leg lengths."
 algorithm: "mo_design_hypernetwork"
-env: "MOCodesignCheetah"
+env: "MOCodesignWalker"
 backend: jnp # always jnp for training
 
 env_config:
@@ -15,16 +15,16 @@ env_config:
   reward:
     weights:
       run:        1.0
-      height:     10.0
+      height:     8.0
       energy:     0.00003
       alive:      1.0
       done:       0
     optimization:
-      objectives:        [['run'], ['energy'], ['height']]
-      shared_objectives: ['alive']
-      labels:            ['Running Speed', 'Height']
-      default_scalarization: [0.0, 0.0, 1.0]
-      reference_point:       [0.0, 0.0, 0.0]
+      objectives:        [['run'], ['energy']]
+      shared_objectives: ['alive', 'height']
+      labels:            ['Running Speed', 'Energy']
+      default_scalarization: [1.0, 0.0]
+      reference_point:       [0.0, 0.0]
   termination:
     enabled: true
     base_height: 0.2
@@ -35,7 +35,7 @@ env_config:
 
 learning_params:
   ppo_params:
-    num_timesteps: 4000000000
+    num_timesteps: 1000000000
     episode_length: 500
     num_parallel_envs: 4096
     unroll_length: 20
@@ -51,7 +51,7 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 90
+    num_evals: 30
     num_eval_envs: 1024
     deterministic_eval: true
     seed: 0

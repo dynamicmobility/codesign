@@ -1,8 +1,9 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: ppo-walker6d-asymmetric
-save_dir: results/Sep10
+name: ppo-walker-short-8e9-savedir-test
+# save_dir: results/Sep13
+save_dir: /home/njanwani/Desktop/test
 description: "Added height as shared reward, one leg longer"
 algorithm: "ppo"
 env: "MOCodesignWalker"
@@ -15,7 +16,7 @@ env_config:
   reward:
     weights:
       run:        1.0
-      height:     0.5
+      height:     8.0
       energy:     0.00003
       alive:      1.0
       done:       0
@@ -29,18 +30,18 @@ env_config:
     enabled: true
     base_height: 0.2
   codesign:
-    default_design: [1.2, 1.2, 1.2, 0.8, 0.8, 0.8]
+    default_design: [0.75, 0.75, 0.75, 0.75, 0.75, 0.75]
     low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
     high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
 
 learning_params:
   ppo_params:
-    num_timesteps: 400000000
+    num_timesteps: 800000000
     episode_length: 500
     num_envs: 4096
     unroll_length: 20
-    batch_size: 128
-    num_minibatches: 32
+    batch_size: 256
+    num_minibatches: 64
     num_updates_per_batch: 4
     learning_rate: 0.000005
     entropy_cost: 0.01
@@ -51,10 +52,10 @@ learning_params:
     max_grad_norm: 1.0
     normalize_advantage: true
     normalize_observations: true
-    num_evals: 90
+    num_evals: 10
     num_eval_envs: 1024
     deterministic_eval: true
-    seed: 0
+    seed: 1
   network_params:
     policy_hidden_layer_sizes: [256, 256, 128]
     value_hidden_layer_sizes:  [256, 256, 128]

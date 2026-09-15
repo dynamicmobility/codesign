@@ -1,7 +1,7 @@
 # Training config for the `mo_design_hypernetwork` algorithm on CodesignCheetah.
 #
 # H_\pi(d, w) = \pi(a | s)
-name: mo-up-walker6d-full
+name: mo-up-walker6d-full-new-reward-test
 save_dir: results/Sep13
 description: "Multi-objective design-conditioned hypernetwork PPO over Walker leg lengths."
 algorithm: "mo_design_hypernetwork"
@@ -15,7 +15,7 @@ env_config:
   reward:
     weights:
       run:        1.0
-      height:     0.5
+      height:     8.0
       energy:     0.00003
       alive:      1.0
       done:       0
@@ -31,7 +31,7 @@ env_config:
   codesign:
     default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-    high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    high: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
 
 learning_params:
   ppo_params:

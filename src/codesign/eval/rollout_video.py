@@ -80,7 +80,7 @@ def rollout_single_video(
         model = mj_model
     width, height = mm.infer_frame_dim(model, width, height)
 
-    print(model.material("self").rgba)
+    # print(model.material("self").rgba)
     step, reset = mm.get_step_reset(env)
 
     rng = jax.random.PRNGKey(seed)

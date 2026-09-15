@@ -39,19 +39,23 @@ def uniform_design_sweep(config, num_envs: int) -> np.ndarray:
     return np.linspace(low, high, num_envs).reshape(num_envs, dim).astype(np.float32)
 
 
-def stack_models(models: Iterable[mjx.Model]) -> mjx.Model:
+def stack_models(models: Iterable[mjx.Model], treedef=None) -> mjx.Model:
     """Stack same-topology ``mjx.Model``s along a new leading batch axis.
 
     Independently compiled models don't share a treedef (a few static fields differ),
-    so we stack only the traced leaves and reuse the first model's treedef. Each model's
+    so we stack only the traced leaves and rebuild under one treedef. Each model's
     leaves are copied to host arrays as it arrives, so an iterator of freshly compiled
     models keeps only one alive at a time.
+
+    ``treedef`` is the structure to rebuild under, defaulting to the first model's. Pass
+    :func:`reference_treedef`'s to keep it fixed across batches -- see there for why.
     """
-    cols, treedef = None, None
+    cols = None
     for m in models:
         leaves, leaf_treedef = jax.tree_util.tree_flatten(m)
         if cols is None:
-            cols, treedef = [[] for _ in leaves], leaf_treedef
+            cols = [[] for _ in leaves]
+            treedef = leaf_treedef if treedef is None else treedef
         for col, leaf in zip(cols, leaves):
             col.append(np.asarray(leaf))
     return jax.tree_util.tree_unflatten(
@@ -77,6 +81,38 @@ def put_design_model(
     return mjx.put_model(env.generate_model(d, textures=textures), device=HOST)
 
 
+def reference_treedef(env: CodesignBase, textures: bool = False):
+    """The one pytree structure every batch of this env's models is rebuilt under.
+
+    ``mjx.Model`` keeps ~160 of its fields as numpy arrays folded into the treedef rather
+    than as traced leaves, so a field that varies with the design makes the treedef vary
+    too -- and the treedef is part of ``jax.jit``'s cache key, so a rollout recompiles
+    every time it is handed a new batch of designs. ``geom_rbound_hfield`` is the one such
+    field (``mjx`` initializes it from ``geom_rbound``, which scales with link size), and
+    ``mjx`` reads it only to size the grid bounds of height-field collisions. Pinning the
+    structure therefore leaves the dynamics untouched for a model with no height field,
+    which is checked below.
+
+    Cached on the env, and built from the midpoint of its design box so that the structure
+    does not depend on which designs a batch happens to hold.
+    """
+    cache = getattr(env, "_design_treedefs", None)
+    if cache is None:
+        cache = {}
+        env._design_treedefs = cache
+    if textures not in cache:
+        if env.mj_model.nhfield:
+            raise NotImplementedError(
+                "geom_rbound_hfield varies with the design and mjx reads it to collide "
+                "against height fields, so this env's model structure cannot be pinned."
+            )
+        midpoint = np.asarray(env.design_limits, np.float32).mean(axis=0)
+        cache[textures] = jax.tree_util.tree_structure(
+            put_design_model(env, midpoint, textures=textures)
+        )
+    return cache[textures]
+
+
 def build_batched_model(
     env, designs: np.ndarray, workers: int = 1, textures: bool = False
 ) -> mjx.Model:
@@ -86,14 +122,16 @@ def build_batched_model(
         env: a ``CodesignBase`` env whose ``generate_model`` maps a design row -> a model.
         designs: array of shape ``(num_designs, design_dim)``.
         workers: threads compiling designs concurrently; 1 keeps the serial path.
-            ``MjSpec.compile`` releases the GIL, so this scales near-linearly to ~8 threads.
+            ``mjx.put_model`` is ~80% of a design's cost and holds the GIL, so threads
+            only add contention here; 1 is the fastest setting measured.
         textures: see :func:`put_design_model`.
     """
     build = lambda d: put_design_model(env, d, textures=textures)
+    treedef = reference_treedef(env, textures=textures)
     if workers == 1:
-        return stack_models(build(d) for d in designs)
+        return stack_models((build(d) for d in designs), treedef)
     with ThreadPoolExecutor(workers) as pool:
-        return stack_models(pool.map(build, designs))
+        return stack_models(pool.map(build, designs), treedef)
 
 
 def sample_designs(
