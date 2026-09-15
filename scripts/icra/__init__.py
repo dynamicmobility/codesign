@@ -22,7 +22,14 @@ FINAL_CONFIGS: dict[str, dict[str, Run]] = {
             checkpoint      = MO_CHECKPOINT
         ),
         # 'MORLAX': '',
-        'PPO': []
+        'PPO': [
+            # Run(run_id='pa84drhm', dataset_path=None, checkpoint=-1),
+            # Run(run_id='7l538fam', dataset_path=None, checkpoint=-1),
+            # Run(run_id='j5slo6nk', dataset_path=None, checkpoint=-1),
+            # Run(run_id='krmd1b3t', dataset_path=None, checkpoint=-1),
+            # Run(run_id='4mo9odyn', dataset_path=None, checkpoint=-1),
+            # Run(run_id='8gt6dx33', dataset_path=None, checkpoint=-1),
+        ]
     },
     'walker': {
         'MDH': Run(

@@ -30,7 +30,7 @@ VERBOSE       = True     # print pymoo's per-generation table
 
 def download_run(run: icra.Run) -> tuple[dict, Path]:
     """Fetch the run from W&B: its config, and its first checkpoint at or past
-    ``run.checkpoint`` training steps.
+    ``run.checkpoint`` training steps, or its last checkpoint when that is negative.
 
     Returns the config dict and the directory that checkpoint downloaded into.
     """
@@ -41,7 +41,7 @@ def download_run(run: icra.Run) -> tuple[dict, Path]:
         entity     = ENTITY,
         project    = PROJECT,
         prefix     = ARTIFACT_PREFIX,
-        iterations = run.checkpoint,
+        iterations = None if run.checkpoint < 0 else run.checkpoint,
     )
     # download_model writes the run's config next to the checkpoint it fetched.
     config = mm.read_config(Path(DOWNLOAD_DIR) / run.run_id / "config.yaml")
