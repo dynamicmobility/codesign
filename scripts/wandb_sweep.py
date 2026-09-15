@@ -237,7 +237,7 @@ def run_sweep(wandb_sweep_config, codesign_config, PACE=False, count=3):
     sweep_config = wandb_sweep_config.to_dict()
     sweep_id = wandb.sweep(
         sweep=sweep_config,
-        entity='vmadabushi3-georgia-institute-of-technology',
+        entity=os.environ["WANDB_ENTITY"],
         project="codesign"
     )
     wandb.agent(sweep_id, edit_and_train, count=count)

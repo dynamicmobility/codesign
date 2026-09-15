@@ -12,8 +12,9 @@ from pathlib import Path
 import minimal_mjx as mm
 import moplayground as mop
 import codesign
+import os
 
-ENTITY            = "vmadabushi3-georgia-institute-of-technology"
+ENTITY            = os.environ["WANDB_ENTITY"]
 PROJECT           = "codesign"
 ARTIFACT_PREFIX   = "hypernetworks"
 

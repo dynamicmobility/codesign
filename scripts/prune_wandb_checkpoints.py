@@ -12,8 +12,9 @@ import argparse
 from collections import namedtuple
 
 import wandb
+import os
 
-ENTITY  = 'vmadabushi3-georgia-institute-of-technology'
+ENTITY  = os.environ["WANDB_ENTITY"]
 PROJECT = 'codesign'
 # wandb's own `wandb-history`/`wandb-events` artifacts share the run; only ours is 'model'.
 ARTIFACT_TYPE = 'model'

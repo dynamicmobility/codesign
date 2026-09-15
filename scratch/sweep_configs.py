@@ -7,8 +7,9 @@ addressed by their `/`-joined path, e.g. 'learning_params/ppo_params/num_minibat
 import argparse
 
 import wandb
+import os
 
-ENTITY  = 'vmadabushi3-georgia-institute-of-technology'
+ENTITY  = os.environ["WANDB_ENTITY"]
 PROJECT = 'codesign'
 
 MISSING = object()

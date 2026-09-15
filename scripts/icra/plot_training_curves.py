@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import wandb
 from scripts import icra
+import os
 
 DOWNLOAD_FILES = False
 BASE_FILEPATH = "scripts/icra/outputs"
@@ -54,7 +55,7 @@ for i, config in enumerate(icra.FINAL_CONFIGS):
             filepath = f"{BASE_FILEPATH}/{alg.run_id}/"
             if(DOWNLOAD_FILES):
                 download_charts(
-                    entity  = 'vmadabushi3-georgia-institute-of-technology',
+                    entity  = os.environ["WANDB_ENTITY"],
                     project = 'codesign',
                     run_id  = alg.run_id,
                     metrics = metrics,

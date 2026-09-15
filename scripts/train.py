@@ -218,7 +218,7 @@ def train(config, log_video=True, resume=False, **video_kwargs):
     # run = None
     run = mm.utils.logging.initialize_wandb(
         name    = config["name"].replace('/', ''),
-        entity  = 'vmadabushi3-georgia-institute-of-technology',
+        entity  = os.environ["WANDB_ENTITY"],
         project = 'codesign',
         config  = config,
         id      = run_id,

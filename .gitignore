@@ -235,3 +235,5 @@ logs/
 
 scripts/icra/outputs
 scripts/iros/outputs
+
+*.env
