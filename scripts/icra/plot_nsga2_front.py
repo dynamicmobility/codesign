@@ -129,15 +129,16 @@ def main(args) -> None:
 
     labels = codesign.objective_labels(grid.objectives) if args.labels is None else args.labels
     for objs in combinations(range(grid.n_r), 2):
-        fig, ax = plt.subplots(figsize=(5, 4), layout="constrained")
-        plot_pair(ax, grid, objs, norm, args, baseline)
+        fig, ax = plt.subplots(figsize=(5, 4))
+        _, stamp = plot_pair(ax, grid, objs, norm, args, baseline)
         ax = codesign.dress_axis(ax)
-        # ax.legend(fontsize=8, frameon=False)
-        # fig.colorbar(
-        #     ScalarMappable(norm=norm, cmap=args.cmap), ax=ax,
-        #     label=args.design_label, aspect=50,
-        # )
         name = "_".join(labels[o].lower() for o in objs)
+        if(grid.n_r == 2):
+            stamp_ax = stamp.overlay_ax(ax, lower_left_corner=[0.85, 0.85], width=0.2)
+            stamp_ax.set_xlabel(STAMP_X_LABEL)
+            stamp_ax.set_ylabel(STAMP_Y_LABEL)
+            codesign.dress_axis(stamp_ax)
+        
         fig.savefig(out_dir / f"nsga2_front_{name}.{args.format}")
         plt.close(fig)
 
