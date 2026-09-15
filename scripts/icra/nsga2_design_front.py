@@ -14,8 +14,9 @@ import codesign
 from codesign.optimizers.nsga2 import run_nsga
 
 from scripts import icra
+import os
 
-ENTITY          = "vmadabushi3-georgia-institute-of-technology"
+ENTITY          = os.environ["WANDB_ENTITY"]
 PROJECT         = "codesign"
 ARTIFACT_PREFIX = "hypernetworks"
 DOWNLOAD_DIR    = "results/wandb-downloads"

@@ -11,25 +11,23 @@ from moplayground.utils.pareto import get_nondominated
 import minimal_mjx as mm
 matplotlib.use("TKAgg")
 from scripts import icra
+from dynamo_figures import CompositeMode, CompositeImage
 
-RUN_ID = icra.FINAL_CONFIGS['cheetah']['MDH'].run_id
-CONFIG_PATH = "results/wandb-downloads/zpzu9ms5/config.yaml"
-
-# TODO: Check if a dataset with the name {run_id}/sweep.npz exists in scripts/icra/data
-# If it does not, use generate_data to generate it.
+RUN_ID = icra.FINAL_CONFIGS['walker']['MDH'].run_id
+CONFIG_PATH = f"results/wandb-downloads/{RUN_ID}/config.yaml"
 
 # Load in the dataset into a grid
 grid = codesign.Grid.load(f"scripts/icra/outputs/{RUN_ID}/nsga3_front.npz")
 TRADEOFF_LABELS = ['Run Reward', 'Energy Reward', 'Height Reward']
 CMAP = 'plasma'
 STAMP_CMAP = 'peak'
-STAMP_X_LABEL = 'Front Length'
-STAMP_Y_LABEL = 'Back Length'
+STAMP_X_LABEL = 'Left Length'
+STAMP_Y_LABEL = 'Right Length'
 
 GEN_VIDEO = False
 
 
-ax = plt.axes(projection="3d")
+ax = plt.axes()
 rewards = grid.rewards.reshape((-1,) + grid.rewards.shape[3:])
 # TODO: Project this down into 3 dimensions or less
 designs = grid.designs.reshape((-1, grid.designs.shape[2]))
@@ -41,7 +39,7 @@ nd_idx = get_nondominated(rewards)
 designs_nd = designs[nd_idx, :]
 tradeoffs_nd = tradeoffs[nd_idx, :]
 
-tradeoffs_d = np.array([[1, 0, 0], [0.01, 1, 0], [0, 0, 1]])
+tradeoffs_d = np.array([[1, 0], [0.0, 1], [.1, 1]])
 
 idxs = (tradeoffs_d @ rewards[nd_idx, :].T).argmax(axis=1)
 
@@ -70,6 +68,33 @@ if(GEN_VIDEO):
             robot_color=np.concat((colors[full_idxs[i], :], np.array([1.0])))
         )
 
+settings = [
+    {"mode": CompositeMode.MIN_VALUE, "right_crop": [0, 640], "t_end": 1.2, "camera": "side_fixed", "top_crop": [50, 370]},
+    {"mode": CompositeMode.MIN_VALUE, "right_crop": [0, 640], "t_end": 1.2, "camera": "side_fixed", "top_crop": [50, 370]},
+    {"mode": CompositeMode.MIN_VALUE, "right_crop": [0, 640], "t_end": 1.2, "camera": "side_fixed", "top_crop": [50, 370]},
+]
+
+for i in range(len(idxs)):
+    filename = f'scripts/icra/outputs/{RUN_ID}/design{i}.mp4'
+    setting = settings[i]
+    merger = CompositeImage(
+        mode=setting["mode"],
+        video_path=filename,
+        start_t=0.0,
+        end_t=setting["t_end"],
+        skip_frame=10,
+        alpha=0.15
+    )
+    # Generate the composite
+    top = setting["top_crop"][0]
+    bottom = setting["top_crop"][1]
+    left = setting["right_crop"][0]
+    right = setting["right_crop"][1]
+    result = merger.merge_images()
+    result = result[top:bottom, left:right][:, :, [2, 1, 0]]
+    plt.imsave(f'scripts/icra/outputs/{RUN_ID}/design{i}.png', result)
+
+
 mop.plot_pareto(
     ax=ax,
     pareto=rewards,
@@ -86,11 +111,9 @@ mop.plot_pareto(
     special_marker = "*",
 )
 
-stamp_ax = stamp.overlay_ax(ax, lower_left_corner=[0.85, 0.0], width=0.2)
+stamp_ax = stamp.overlay_ax(ax, lower_left_corner=[0.35, 0.35], width=0.2)
 stamp_ax.set_xlabel(STAMP_X_LABEL)
 stamp_ax.set_ylabel(STAMP_Y_LABEL)
-ax.view_init(elev=30, azim=45)
-ax.xaxis.set_rotate_label(True)
 codesign.dress_axis(ax)
 codesign.dress_axis(stamp_ax)
 plt.tight_layout()

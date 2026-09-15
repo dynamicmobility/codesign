@@ -69,7 +69,7 @@ learning_params:
   network_params:
     policy_hidden_layer_sizes: [64, 64]
     value_hidden_layer_sizes:  [64, 64]
-  design_hypernetwork_params: ## Neil: delete if this is a PPO config
+  design_hypernetwork_params:
     hypersize: [128, 128]
     num_features: 16
     policy_hidden_layer_sizes: [64, 64]
