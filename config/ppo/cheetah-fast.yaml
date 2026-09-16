@@ -1,5 +1,5 @@
 # PPO training config.
-name: test-again
+name: test-again-fast
 save_dir: results/Sep14
 description: Normal RL
 algorithm: ppo
