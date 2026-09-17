@@ -14,6 +14,9 @@ tradeoff, so the join is the gap between the front and a policy specialised to t
 The PPO runs are fetched from W&B and rolled out here; a callout no PPO policy was
 trained on is warned about and left unjoined.
 
+One more figure, ``subopt_<robot>_all``, sets every objective pair's panel side by side
+under one shared legend naming each front's non-dominated and dominated policies.
+
 Run from the repository root, where the configured dataset paths resolve:
 ``python -m scripts.icra.subopt --robot cheetah``.
 """
@@ -30,6 +33,7 @@ import wandb
 from brax.training import checkpoint as brax_checkpoint
 from brax.training.agents.ppo import checkpoint as ppo_checkpoint
 from brax.training.agents.ppo import networks as ppo_networks
+from matplotlib.lines import Line2D
 from moplayground.utils.pareto import get_nondominated
 
 import codesign
@@ -49,6 +53,12 @@ FRONT_NAME = "nsga3_front.npz"
 ALGO_COLORS = {"MDH": "#0072b2", "MLP": "#d55e00"}
 PPO_COLOR   = "#cc79a7"  # Okabe-Ito reddish purple
 PPO_SIZE    = 60         # PPO marker area, in points squared
+
+ALGO_NAMES  = {"MDH": "MDH", "MLP": "MDMLP"}  # names in the combined figure's legend
+LEGEND_SIZE = 20         # combined figure's legend text size, in points
+DPI         = 600        # resolution of the raster formats, in dots per inch
+
+plt.rcParams["savefig.dpi"] = DPI
 
 
 def load_front(algo: str, run) -> codesign.Grid | None:
@@ -237,6 +247,46 @@ def plot_callouts(ax, returns, keys, objs, ppo) -> None:
     ax.margins(0.1)
 
 
+def front_legend(algos) -> tuple[list[Line2D], list[str]]:
+    """Legend entries for each front's non-dominated and dominated policies.
+
+    Marker areas are ``mop.plot_pareto``'s defaults (20 and 8 points squared) and the
+    outline is :func:`plot_front`'s. The dominated marker is more opaque than its points,
+    which only show up in bulk at their own alpha.
+    """
+    handles, names = [], []
+    for algo in algos:
+        color = ALGO_COLORS[algo]
+        handles += [
+            Line2D([], [], color=color, lw=1.5, marker="o", markersize=np.sqrt(20),
+                   markeredgecolor="black", markeredgewidth=2.0),
+            Line2D([], [], color=color, lw=0, marker="o", markersize=np.sqrt(8),
+                   markeredgewidth=0, alpha=0.4),
+        ]
+        names += [f"{ALGO_NAMES[algo]} non-dominated policy",
+                  f"{ALGO_NAMES[algo]} dominated policy"]
+    return handles, names
+
+
+def save_all_slices(fronts: dict[str, codesign.Grid], labels, path: Path) -> None:
+    """Every objective pair's panel side by side, drawn as the per-slice figures draw
+    them but with every front's dominated policies, under one shared legend."""
+    pairs = list(combinations(range(next(iter(fronts.values())).n_r), 2))
+    fig, axes = plt.subplots(1, len(pairs), figsize=(5 * len(pairs), 6), squeeze=False,
+                             layout="constrained")
+    for ax, objs in zip(axes[0], pairs):
+        for algo, front in fronts.items():
+            plot_front(ax, front, objs, ALGO_COLORS[algo], algo, labels, 
+                       show_dominated=True, set_lim=algo == "MDH")
+        codesign.dress_axis(ax, tick_size=18, num_xticks=3, num_yticks=4, label_size=28)
+    # One column per front, so the rows read non-dominated then dominated.
+    fig.legend(*front_legend(fronts), loc="outside lower center", ncol=len(fronts),
+               frameon=True, markerscale=2,
+               prop={"family": codesign.utils.plotting.FONT, "size": LEGEND_SIZE})
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def main(args) -> None:
     out_dir = Path(args.out_dir)
     fronts = {
@@ -281,6 +331,8 @@ def main(args) -> None:
         fig.savefig(out_dir / f"subopt_{args.robot}_{name}.{args.format}")
         plt.close(fig)
 
+    save_all_slices(fronts, labels, out_dir / f"subopt_{args.robot}_all.{args.format}")
+
     drawn = [*fronts, *(["PPO"] if ppo else [])]
     print(f"wrote {' vs '.join(drawn)} figures to {out_dir}")
 
@@ -293,7 +345,8 @@ def parse_args():
     parser.add_argument("--out_dir", type=str, default=OUT_DIR,
                         help="directory the figures are written into; the datasets are "
                              "read from each run's own dataset_path")
-    parser.add_argument("--format", type=str, default="svg", choices=("svg", "png", "pdf"))
+    parser.add_argument("--format", type=str, default="svg",
+                        choices=("svg", "png", "pdf", "jpg"))
     return parser.parse_args()
 
 

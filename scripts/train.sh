@@ -10,6 +10,7 @@ YAML_FILE=$1
 tmux new-session -d -s "$SESSION_NAME"
 
 # Send command to run the Python script with the YAML file as an argument
+tmux send-keys -t "$SESSION_NAME" "source .env" C-m
 tmux send-keys -t "$SESSION_NAME" "conda activate $CONDA_ENV_NAME" C-m
 tmux send-keys -t "$SESSION_NAME" "wandb login" C-m
 tmux send-keys -t "$SESSION_NAME" "python3 -m $MODULE_NAME.$PYTHON_SCRIPT --config $YAML_FILE" C-m

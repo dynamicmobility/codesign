@@ -6,23 +6,86 @@ metric:
 parameters:
   arm:
     values:
-    # - name: run-energy-1
-    #   default_design: [1.2861, 0.6452, 0.8467, 0.5474, 1.0055, 1.3937]
-    #   default_scalarization: [0.1461, 0.7327, 0.1212]
-    # - name: run-energy-2
-    #   default_design: [0.622, 0.77, 0.7129, 0.7869, 0.8345, 0.6137]
-    #   default_scalarization: [0.4345, 0.4595, 0.106]
-    # - name: run-energy-3
-    #   default_design: [0.5158, 1.1217, 0.8381, 1.2192, 0.9691, 0.6543]
-    #   default_scalarization: [0.8538, 0.0278, 0.1184]
+    - name: run-energy-1
+      default_design: [1.2861, 0.6452, 0.8467, 0.5474, 1.0055, 1.3937]
+      default_scalarization: [0.1461, 0.7327, 0.1212]
+    - name: run-energy-2
+      default_design: [1.0854, 0.6769, 1.1114, 0.8338, 1.5334, 0.6839]
+      default_scalarization: [0.204, 0.5974, 0.1986]
+    - name: run-energy-3
+      default_design: [1.5501, 0.7173, 0.8934, 1.2566, 0.8204, 0.7805]
+      default_scalarization: [0.295, 0.6204, 0.0846]
+    - name: run-energy-4
+      default_design: [1.2758, 0.6301, 0.6917, 0.7139, 0.5568, 0.5163]
+      default_scalarization: [0.3805, 0.5706, 0.0489]
+    - name: run-energy-5
+      default_design: [0.7366, 0.8067, 0.6823, 0.7139, 0.8338, 0.5163]
+      default_scalarization: [0.4536, 0.527, 0.0194]
+    - name: run-energy-6
+      default_design: [1.1762, 1.013, 0.7229, 0.7855, 0.8248, 0.631]
+      default_scalarization: [0.5065, 0.276, 0.2176]
+    - name: run-energy-7
+      default_design: [1.0216, 0.8596, 1.0622, 0.8992, 1.0797, 0.6184]
+      default_scalarization: [0.5854, 0.1856, 0.229]
+    - name: run-energy-8
+      default_design: [1.542, 0.5949, 1.4328, 0.8297, 0.8796, 0.8508]
+      default_scalarization: [0.7483, 0.0299, 0.2218]
+    - name: run-energy-9
+      default_design: [0.5005, 1.1215, 0.838, 0.9676, 0.9351, 0.6543]
+      default_scalarization: [0.8555, 0.0295, 0.115]
+    - name: run-energy-10
+      default_design: [0.5158, 1.1217, 0.8381, 1.2192, 0.9691, 0.6543]
+      default_scalarization: [0.8538, 0.0278, 0.1184]
     - name: run-height-1
       default_design: [1.9625, 1.9969, 1.9806, 1.7747, 0.7617, 1.8675]
       default_scalarization: [0.192, 0.3227, 0.4853]
     - name: run-height-2
-      default_design: [1.7469, 1.8621, 1.9843, 1.8044, 1.3208, 1.9524]
-      default_scalarization: [0.7921, 0.0194, 0.1884]
+      default_design: [1.9813, 1.9943, 1.836, 1.8014, 1.1087, 1.122]
+      default_scalarization: [0.3704, 0.138, 0.4916]
+    - name: run-height-3
+      default_design: [1.4746, 1.9513, 1.992, 1.8264, 0.9162, 1.3312]
+      default_scalarization: [0.349, 0.159, 0.492]
+    - name: run-height-4
+      default_design: [1.421, 1.9867, 1.9787, 1.2354, 1.5135, 1.1509]
+      default_scalarization: [0.5428, 0.0, 0.4572]
+    - name: run-height-5
+      default_design: [1.9602, 1.9687, 1.9644, 1.6705, 1.7249, 1.1243]
+      default_scalarization: [0.6966, 0.0458, 0.2576]
+    - name: run-height-6
+      default_design: [1.8645, 1.6355, 1.6103, 1.9688, 1.0968, 1.2053]
+      default_scalarization: [0.6772, 0.0006, 0.3222]
+    - name: run-height-7
+      default_design: [1.2809, 1.7314, 1.7452, 1.7528, 1.0973, 1.3981]
+      default_scalarization: [0.7802, 0.031, 0.1888]
+    - name: run-height-8
+      default_design: [1.7535, 0.9376, 1.9839, 1.2315, 1.2394, 0.9112]
+      default_scalarization: [0.7586, 0.0, 0.2414]
+    - name: run-height-9
+      default_design: [1.4598, 0.9638, 1.0493, 1.4457, 0.8712, 1.1933]
+      default_scalarization: [0.7779, 0.0547, 0.1674]
     - name: energy-height-2
-      default_design: [1.6961, 1.9946, 1.7107, 1.8846, 1.7919, 1.9402]
-      default_scalarization: [0.0367, 0.6458, 0.3175]
+      default_design: [1.9975, 1.9158, 1.9667, 1.8318, 1.1921, 1.6531]
+      default_scalarization: [0.1496, 0.4935, 0.3568]
+    - name: energy-height-3
+      default_design: [1.7444, 1.9587, 1.9804, 1.8913, 0.908, 1.7156]
+      default_scalarization: [0.0893, 0.5368, 0.3739]
+    - name: energy-height-4
+      default_design: [1.4207, 1.9949, 1.9629, 1.1602, 0.7622, 1.3933]
+      default_scalarization: [0.1192, 0.5111, 0.3696]
+    - name: energy-height-5
+      default_design: [1.2204, 1.9493, 1.7407, 1.8861, 0.9177, 0.7783]
+      default_scalarization: [0.0886, 0.588, 0.3234]
+    - name: energy-height-6
+      default_design: [1.774, 1.9946, 1.7107, 1.8835, 1.7909, 1.9402]
+      default_scalarization: [0.1181, 0.7272, 0.1547]
+    - name: energy-height-7
+      default_design: [1.9454, 1.847, 1.8318, 1.9046, 1.4865, 1.6917]
+      default_scalarization: [0.1999, 0.6297, 0.1704]
+    - name: energy-height-8
+      default_design: [1.6855, 1.7485, 1.3272, 0.9833, 1.773, 1.4184]
+      default_scalarization: [0.1761, 0.6347, 0.1892]
+    - name: energy-height-9
+      default_design: [1.7223, 1.3748, 0.8381, 0.6028, 1.1097, 1.8082]
+      default_scalarization: [0.1237, 0.6701, 0.2062]
   save_dir:
-    value: results/Sep14
+    value: results/icra

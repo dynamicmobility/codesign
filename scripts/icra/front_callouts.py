@@ -1,8 +1,8 @@
-"""Call out three spaced-out ``(design, tradeoff)`` pairs on each 2D slice of a front.
+"""Call out ``N`` spaced-out ``(design, tradeoff)`` pairs on each 2D slice of a front.
 
 A three-objective front is a surface, and each pair of objectives is one 2D slice of it:
-the points that stay non-dominated once the third objective is projected away. This picks
-``N_CALLOUTS`` pairs spread along each of those slices -- concrete designs to render or
+the points that stay non-dominated once the other objectives are projected away. This picks
+``--n-callouts`` pairs spread along each of those slices -- concrete designs to render or
 quote, rather than the whole frontier -- prints their ``(w, d)``, draws them as stars over
 the slice they came from, and writes them out as the arms of a W&B grid sweep, so PPO can
 be trained on each pair directly and say what the hypernetwork's front gave up.
@@ -11,7 +11,7 @@ The front is the ``nsga3_front.npz`` that ``nsga2_design_front.py`` wrote for th
 ``MDH`` run, found through that run's ``icra.Run``.
 
 Run from the repository root, where the configured paths resolve:
-``python -m scripts.icra.front_callouts --robot cheetah``.
+``python -m scripts.icra.front_callouts --robot cheetah --n-callouts 3``.
 """
 
 import argparse
@@ -37,7 +37,7 @@ SWEEP_DIR      = "config/ppo/sweeps"
 SWEEP_SAVE_DIR = "results/icra"                 # where the sweep's runs write
 SWEEP_METRIC   = "eval/episode_reward.max"      # per-arm best eval, for the sweep table
 
-N_CALLOUTS  = 3          # pairs called out per 2D slice
+N_CALLOUTS  = 3          # default pairs called out per 2D slice
 COLOR       = "#0072b2"  # the slice's own colour; the callouts are stars of the same
 STAR_SIZE   = 260        # callout marker area, in points squared
 DECIMALS    = 4          # places the sweep arms are rounded to
@@ -79,14 +79,14 @@ def spaced_indices(points: np.ndarray, n: int) -> np.ndarray:
     return order[np.unique(np.abs(arc[:, None] - targets).argmin(axis=0))]
 
 
-def slice_callouts(rewards: np.ndarray, objs) -> np.ndarray:
-    """Indices into ``(N, n_r)`` ``rewards`` of the pairs called out on the ``objs`` slice.
+def slice_callouts(rewards: np.ndarray, objs, n: int) -> np.ndarray:
+    """Indices into ``rewards`` of the ``n`` pairs called out on the ``objs`` slice.
 
     The slice is what survives projecting the other objectives away, so a point of the 3D
     front can be dominated here and is not a candidate.
     """
     slice_idx = get_nondominated(rewards[:, objs])
-    return slice_idx[spaced_indices(rewards[slice_idx][:, objs], N_CALLOUTS)]
+    return slice_idx[spaced_indices(rewards[slice_idx][:, objs], n)]
 
 
 def report(labels, objs, picks, designs, tradeoffs, rewards) -> None:
@@ -174,9 +174,10 @@ def main(args) -> None:
     out_dir   = Path(OUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    arms, seen = [], set()
+    arms, seen, picked = [], set(), 0
     for objs in combinations(range(grid.n_r), 2):
-        picks = slice_callouts(rewards, objs)
+        picks = slice_callouts(rewards, objs, args.n_callouts)
+        picked += len(picks)
         report(labels, list(objs), picks, designs, tradeoffs, rewards)
 
         name = "-".join(labels[o].lower() for o in objs)
@@ -198,13 +199,19 @@ def main(args) -> None:
     sweep_path.write_text(yaml.safe_dump(
         sweep_config(args.robot, arms), sort_keys=False, default_flow_style=False
     ))
-    shared = N_CALLOUTS * len(list(combinations(range(grid.n_r), 2))) - len(arms)
+    asked  = args.n_callouts * len(list(combinations(range(grid.n_r), 2)))
+    shared = picked - len(arms)
     print(f"\nwrote figures to {out_dir}")
     print(f"wrote {len(arms)} sweep arms to {sweep_path}")
     if shared:
         print(
             f"  {shared} more callouts are endpoints two slices share; an arm's number is "
             f"its rank on its slice, so the numbering skips them"
+        )
+    if asked > picked:
+        print(
+            f"  {asked - picked} of the {asked} asked for landed on a point another pick "
+            f"already took; a slice cannot be spaced finer than the points it has"
         )
 
 
@@ -213,6 +220,8 @@ def parse_args():
     parser.add_argument("--robot", type=str, default="cheetah",
                         choices=sorted(icra.FINAL_CONFIGS),
                         help=f"which robot's {ALGO} front to call out pairs on")
+    parser.add_argument("--n-callouts", type=int, default=N_CALLOUTS,
+                        help="pairs called out per 2D objective slice")
     return parser.parse_args()
 
 
