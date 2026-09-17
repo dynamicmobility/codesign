@@ -1,5 +1,5 @@
 # PPO training config.
-name: test-again-fast
+name: test-again-fast-run-height-1
 save_dir: results/Sep14
 description: Normal RL
 algorithm: ppo
@@ -21,13 +21,13 @@ env_config:
       objectives:            [['run'], ['energy'], ['height']]
       shared_objectives:     ['alive']
       labels:                ['Running Speed', 'Height']
-      default_scalarization: [1.0, 0.1, 0.1]
+      default_scalarization: [0.192, 0.3227, 0.4853]
   termination:
     enabled: true
     base_height: 0.2
   codesign:
     # default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    default_design: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    default_design: [1.9625, 1.9969, 1.9806, 1.7747, 0.7617, 1.8675]
     # default_design: [0.6, 0.6, 0.6, 1.0, 1.0, 1.0]
     low:  [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
     high: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
